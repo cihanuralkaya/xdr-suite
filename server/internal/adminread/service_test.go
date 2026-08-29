@@ -20,6 +20,33 @@ func (m *memStore) ListDevices(_ context.Context, _ int) ([]DeviceRow, error) {
 func (m *memStore) ListEvents(_ context.Context, _ string, _ int) ([]EventRow, error) {
 	return m.events, nil
 }
+func (m *memStore) DeviceStatusCounts(_ context.Context) (map[string]int, error) {
+	out := map[string]int{}
+	for _, d := range m.devices {
+		out[d.Status]++
+	}
+	return out, nil
+}
+func (m *memStore) EventSeverityCounts(_ context.Context, since time.Time) (map[string]int, error) {
+	out := map[string]int{}
+	for _, e := range m.events {
+		if e.CreatedAt.Before(since) {
+			continue
+		}
+		out[e.Severity]++
+	}
+	return out, nil
+}
+func (m *memStore) EventCategoryCounts(_ context.Context, since time.Time) (map[string]int, error) {
+	out := map[string]int{}
+	for _, e := range m.events {
+		if e.CreatedAt.Before(since) {
+			continue
+		}
+		out[e.Category]++
+	}
+	return out, nil
+}
 
 func newCipher(t *testing.T) *security.FieldCipher {
 	t.Helper()
@@ -64,6 +91,53 @@ func TestDevicesBadCiphertext(t *testing.T) {
 	dtos, _ := svc.Devices(context.Background(), 0)
 	if dtos[0].Hostname != "(çözülemedi)" {
 		t.Fatalf("bozuk şifreli veri güvenli işlenmeliydi: %q", dtos[0].Hostname)
+	}
+}
+
+func TestSummaryCounts(t *testing.T) {
+	now := time.Now()
+	store := &memStore{
+		devices: []DeviceRow{
+			{ID: "d1", Status: "ACTIVE", LastSeen: now},                       // online
+			{ID: "d2", Status: "ACTIVE", LastSeen: now.Add(-5 * time.Minute)}, // offline
+			{ID: "d3", Status: "QUARANTINED", LastSeen: now.Add(-time.Hour)},  // offline
+		},
+		events: []EventRow{
+			{Severity: "HIGH", Category: "SECURITY", CreatedAt: now},
+			{Severity: "HIGH", Category: "SECURITY", CreatedAt: now},
+			{Severity: "INFO", Category: "SYSTEM", CreatedAt: now},
+			{Severity: "CRITICAL", Category: "SECURITY", CreatedAt: now.Add(-48 * time.Hour)}, // pencere dışı
+		},
+	}
+	svc := NewService(store, newCipher(t))
+
+	sum, err := svc.Summary(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.DevicesTotal != 3 {
+		t.Fatalf("toplam cihaz 3 beklenirdi, %d", sum.DevicesTotal)
+	}
+	if sum.DevicesOnline != 1 {
+		t.Fatalf("çevrimiçi 1 beklenirdi, %d", sum.DevicesOnline)
+	}
+	if sum.DevicesOffline != 2 {
+		t.Fatalf("çevrimdışı 2 beklenirdi, %d", sum.DevicesOffline)
+	}
+	if sum.DevicesQuarantined != 1 {
+		t.Fatalf("karantina 1 beklenirdi, %d", sum.DevicesQuarantined)
+	}
+	if sum.EventsBySeverity["HIGH"] != 2 || sum.EventsBySeverity["INFO"] != 1 {
+		t.Fatalf("önem sayımları hatalı: %+v", sum.EventsBySeverity)
+	}
+	if _, ok := sum.EventsBySeverity["CRITICAL"]; ok {
+		t.Fatalf("pencere dışı olay sayılmamalıydı: %+v", sum.EventsBySeverity)
+	}
+	if sum.EventsByCategory["SECURITY"] != 2 || sum.EventsByCategory["SYSTEM"] != 1 {
+		t.Fatalf("kategori sayımları hatalı: %+v", sum.EventsByCategory)
+	}
+	if sum.Since.After(now) {
+		t.Fatalf("since geçmişte olmalı: %v", sum.Since)
 	}
 }
 
