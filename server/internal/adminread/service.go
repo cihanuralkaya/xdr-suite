@@ -40,6 +40,22 @@ type AuditRow struct {
 	TargetType string
 	TargetID   string
 	CreatedAt  time.Time
+// CertRow, DB'den okunan ham sertifika satırıdır. Fingerprint hex-kodlu döner.
+type CertRow struct {
+	Serial      string
+	Fingerprint string // SHA-256(DER), hex
+	NotBefore   time.Time
+	NotAfter    time.Time
+	Revoked     bool
+}
+
+// CmdRow, DB'den okunan ham komut geçmişi satırıdır. DeliveredAt nil ise komut
+// henüz teslim edilmemiştir (bekliyor).
+type CmdRow struct {
+	Type        string
+	IssuedBy    string
+	CreatedAt   time.Time
+	DeliveredAt *time.Time
 }
 
 // Store, okuma sorgularının kalıcılık kaynağıdır.
@@ -53,6 +69,10 @@ type Store interface {
 	// EventCategoryCounts, since'ten bu yana olayları kategoriye göre sayar.
 	EventCategoryCounts(ctx context.Context, since time.Time) (map[string]int, error)
 	ListAudit(ctx context.Context, limit int) ([]AuditRow, error)
+	DeviceByID(ctx context.Context, id string) (DeviceRow, bool, error)
+	CertsByDevice(ctx context.Context, id string) ([]CertRow, error)
+	CommandHistory(ctx context.Context, id string) ([]CmdRow, error)
+	AssignedPolicy(ctx context.Context, id string) (policyID, version string, err error)
 }
 
 // DeviceDTO, konsola dönen deşifre edilmiş cihaz görünümüdür.
@@ -64,6 +84,34 @@ type DeviceDTO struct {
 	AgentVersion string    `json:"agent_version"`
 	OSPlatform   string    `json:"os_platform"`
 	LastSeen     time.Time `json:"last_seen"`
+}
+
+// CertView, konsola dönen sertifika görünümüdür.
+type CertView struct {
+	Serial      string    `json:"serial"`
+	Fingerprint string    `json:"fingerprint"`
+	NotBefore   time.Time `json:"not_before"`
+	NotAfter    time.Time `json:"not_after"`
+	Revoked     bool      `json:"revoked"`
+}
+
+// CmdView, konsola dönen komut geçmişi görünümüdür. DeliveredAt nil ise JSON'da
+// null olur (komut bekliyor).
+type CmdView struct {
+	Type        string     `json:"type"`
+	IssuedBy    string     `json:"issued_by"`
+	CreatedAt   time.Time  `json:"created_at"`
+	DeliveredAt *time.Time `json:"delivered_at"`
+}
+
+// DeviceDetailDTO, tek bir cihazın tam görünümüdür (deşifre edilmiş cihaz alanları
+// + sertifikalar + komut geçmişi + atanmış politika).
+type DeviceDetailDTO struct {
+	Device                DeviceDTO  `json:"device"`
+	Certs                 []CertView `json:"certs"`
+	Commands              []CmdView  `json:"commands"`
+	AssignedPolicyID      string     `json:"assigned_policy_id"`
+	AssignedPolicyVersion string     `json:"assigned_policy_version"`
 }
 
 // EventDTO, konsola dönen olay görünümüdür.
@@ -133,6 +181,63 @@ func (s *Service) Devices(ctx context.Context, limit int) ([]DeviceDTO, error) {
 		})
 	}
 	return out, nil
+}
+
+// DeviceDetail, tek bir cihazın tam görünümünü döner. Cihaz bulunamazsa
+// ok=false döner. Şifreli alanlar (hostname, mac) sunucuda deşifre edilir.
+func (s *Service) DeviceDetail(ctx context.Context, id string) (DeviceDetailDTO, bool, error) {
+	row, ok, err := s.store.DeviceByID(ctx, id)
+	if err != nil || !ok {
+		return DeviceDetailDTO{}, ok, err
+	}
+	certRows, err := s.store.CertsByDevice(ctx, id)
+	if err != nil {
+		return DeviceDetailDTO{}, false, err
+	}
+	cmdRows, err := s.store.CommandHistory(ctx, id)
+	if err != nil {
+		return DeviceDetailDTO{}, false, err
+	}
+	policyID, policyVersion, err := s.store.AssignedPolicy(ctx, id)
+	if err != nil {
+		return DeviceDetailDTO{}, false, err
+	}
+
+	certs := make([]CertView, 0, len(certRows))
+	for _, c := range certRows {
+		certs = append(certs, CertView{
+			Serial:      c.Serial,
+			Fingerprint: c.Fingerprint,
+			NotBefore:   c.NotBefore,
+			NotAfter:    c.NotAfter,
+			Revoked:     c.Revoked,
+		})
+	}
+	commands := make([]CmdView, 0, len(cmdRows))
+	for _, c := range cmdRows {
+		commands = append(commands, CmdView{
+			Type:        c.Type,
+			IssuedBy:    c.IssuedBy,
+			CreatedAt:   c.CreatedAt,
+			DeliveredAt: c.DeliveredAt,
+		})
+	}
+
+	return DeviceDetailDTO{
+		Device: DeviceDTO{
+			ID:           row.ID,
+			Hostname:     s.decrypt(row.HostnameEnc),
+			MAC:          s.decrypt(row.MACEnc),
+			Status:       row.Status,
+			AgentVersion: row.AgentVersion,
+			OSPlatform:   row.OSPlatform,
+			LastSeen:     row.LastSeen,
+		},
+		Certs:                 certs,
+		Commands:              commands,
+		AssignedPolicyID:      policyID,
+		AssignedPolicyVersion: policyVersion,
+	}, true, nil
 }
 
 // Events, bir cihazın (deviceID boşsa tümünün) olaylarını döner.

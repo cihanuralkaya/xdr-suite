@@ -25,6 +25,16 @@ type memStore struct {
 	devRows   []adminread.DeviceRow
 	evtRows   []adminread.EventRow
 	auditRows []adminread.AuditRow
+	roles    map[string]admin.Role
+	emails   map[string]adminRec // email -> (id, hash)
+	commands []string            // "deviceID:type"
+	cipher   *security.FieldCipher
+	devRows  []adminread.DeviceRow
+	evtRows  []adminread.EventRow
+	certRows []adminread.CertRow
+	cmdRows  []adminread.CmdRow
+	polID    string
+	polVer   string
 }
 
 type adminRec struct{ id, hash string }
@@ -101,6 +111,22 @@ func (m *memStore) EventCategoryCounts(_ context.Context, since time.Time) (map[
 	return out, nil
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]adminread.AuditRow, error) {
 	return m.auditRows, nil
+func (m *memStore) DeviceByID(_ context.Context, id string) (adminread.DeviceRow, bool, error) {
+	for _, d := range m.devRows {
+		if d.ID == id {
+			return d, true, nil
+		}
+	}
+	return adminread.DeviceRow{}, false, nil
+}
+func (m *memStore) CertsByDevice(_ context.Context, _ string) ([]adminread.CertRow, error) {
+	return m.certRows, nil
+}
+func (m *memStore) CommandHistory(_ context.Context, _ string) ([]adminread.CmdRow, error) {
+	return m.cmdRows, nil
+}
+func (m *memStore) AssignedPolicy(_ context.Context, _ string) (string, string, error) {
+	return m.polID, m.polVer, nil
 }
 
 func setup(t *testing.T) (*httptest.Server, *memStore) {
@@ -249,6 +275,7 @@ func TestListDevicesDecrypted(t *testing.T) {
 
 func TestSummaryEndpoint(t *testing.T) {
 func TestListAudit(t *testing.T) {
+func TestDeviceDetail(t *testing.T) {
 	ts, store := setup(t)
 	defer ts.Close()
 	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
@@ -262,6 +289,12 @@ func TestListAudit(t *testing.T) {
 		{Severity: "HIGH", Category: "SECURITY", CreatedAt: now},
 		{Severity: "LOW", Category: "SYSTEM", CreatedAt: now},
 	}
+	hostEnc, _ := store.cipher.EncryptString("WS-07")
+	macEnc, _ := store.cipher.EncryptString("aa:bb:cc:dd:ee:ff")
+	store.devRows = []adminread.DeviceRow{{ID: "dev-1", Status: "ACTIVE", HostnameEnc: hostEnc, MACEnc: macEnc}}
+	store.certRows = []adminread.CertRow{{Serial: "42", Fingerprint: "abcd", Revoked: false}}
+	store.cmdRows = []adminread.CmdRow{{Type: "QUARANTINE", IssuedBy: "op1", CreatedAt: time.Now()}}
+	store.polID, store.polVer = "pol-1", "v3"
 
 	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
 	token := body["token"]
@@ -276,6 +309,12 @@ func TestListAudit(t *testing.T) {
 	}
 
 	req, _ := http.NewRequest("GET", ts.URL+"/api/audit", nil)
+	// Token'sız erişim reddedilmeli.
+	if r0, _ := http.Get(ts.URL + "/api/devices/dev-1"); r0.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız detay 401 dönmeliydi, %d", r0.StatusCode)
+	}
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/devices/dev-1", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -301,6 +340,16 @@ func TestListAudit(t *testing.T) {
 			TargetType string `json:"target_type"`
 			TargetID   string `json:"target_id"`
 		} `json:"audit"`
+		DeviceDetail struct {
+			Device struct {
+				Hostname string `json:"hostname"`
+				MAC      string `json:"mac"`
+			} `json:"device"`
+			Certs                 []adminread.CertView `json:"certs"`
+			Commands              []adminread.CmdView  `json:"commands"`
+			AssignedPolicyID      string               `json:"assigned_policy_id"`
+			AssignedPolicyVersion string               `json:"assigned_policy_version"`
+		} `json:"device_detail"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
@@ -329,6 +378,30 @@ func TestListAudit(t *testing.T) {
 	// Token'sız erişim reddedilmeli.
 	if r2, _ := http.Get(ts.URL + "/api/audit"); r2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("token'sız denetim izi 401 dönmeliydi, %d", r2.StatusCode)
+	d := out.DeviceDetail
+	if d.Device.Hostname != "WS-07" || d.Device.MAC != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("cihaz alanları deşifre edilmeliydi: %+v", d.Device)
+	}
+	if len(d.Certs) != 1 || d.Certs[0].Serial != "42" {
+		t.Fatalf("sertifikalar dönmeliydi: %+v", d.Certs)
+	}
+	if len(d.Commands) != 1 || d.Commands[0].Type != "QUARANTINE" {
+		t.Fatalf("komut geçmişi dönmeliydi: %+v", d.Commands)
+	}
+	if d.AssignedPolicyID != "pol-1" || d.AssignedPolicyVersion != "v3" {
+		t.Fatalf("atanmış politika dönmeliydi: %+v", d)
+	}
+
+	// Bilinmeyen cihaz → 404.
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/devices/yok", nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Fatalf("bilinmeyen cihaz 404 dönmeliydi, %d", resp2.StatusCode)
 	}
 }
 

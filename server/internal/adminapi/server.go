@@ -64,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/policies/assign", s.authed(s.handleAssignPolicy))
 	// Okuma (görünürlük) uçları — herhangi bir kimlik doğrulanmış admin (VIEWER+).
 	mux.HandleFunc("GET /api/devices", s.authed(s.handleListDevices))
+	mux.HandleFunc("GET /api/devices/{id}", s.authed(s.handleDeviceDetail))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
@@ -199,6 +200,18 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request, _ str
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
+}
+
+func (s *Server) handleDeviceDetail(w http.ResponseWriter, r *http.Request, _ string) {
+	detail, ok, err := s.reader.DeviceDetail(r.Context(), r.PathValue("id"))
+	if respondErr(w, err) {
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "cihaz bulunamadı")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"device_detail": detail})
 }
 
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, _ string) {
