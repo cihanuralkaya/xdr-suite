@@ -66,6 +66,33 @@ func (m *memStore) ListDevices(_ context.Context, _ int) ([]adminread.DeviceRow,
 func (m *memStore) ListEvents(_ context.Context, _ string, _ int) ([]adminread.EventRow, error) {
 	return m.evtRows, nil
 }
+func (m *memStore) DeviceStatusCounts(_ context.Context) (map[string]int, error) {
+	out := map[string]int{}
+	for _, d := range m.devRows {
+		out[d.Status]++
+	}
+	return out, nil
+}
+func (m *memStore) EventSeverityCounts(_ context.Context, since time.Time) (map[string]int, error) {
+	out := map[string]int{}
+	for _, e := range m.evtRows {
+		if e.CreatedAt.Before(since) {
+			continue
+		}
+		out[e.Severity]++
+	}
+	return out, nil
+}
+func (m *memStore) EventCategoryCounts(_ context.Context, since time.Time) (map[string]int, error) {
+	out := map[string]int{}
+	for _, e := range m.evtRows {
+		if e.CreatedAt.Before(since) {
+			continue
+		}
+		out[e.Category]++
+	}
+	return out, nil
+}
 
 func setup(t *testing.T) (*httptest.Server, *memStore) {
 	t.Helper()
@@ -208,6 +235,65 @@ func TestListDevicesDecrypted(t *testing.T) {
 	// Token'sız erişim reddedilmeli.
 	if r2, _ := http.Get(ts.URL + "/api/devices"); r2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("token'sız liste 401 dönmeliydi, %d", r2.StatusCode)
+	}
+}
+
+func TestSummaryEndpoint(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	now := time.Now()
+	store.devRows = []adminread.DeviceRow{
+		{ID: "d1", Status: "ACTIVE", LastSeen: now},
+		{ID: "d2", Status: "QUARANTINED", LastSeen: now.Add(-time.Hour)},
+	}
+	store.evtRows = []adminread.EventRow{
+		{Severity: "HIGH", Category: "SECURITY", CreatedAt: now},
+		{Severity: "LOW", Category: "SYSTEM", CreatedAt: now},
+	}
+
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	token := body["token"]
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/summary", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("200 beklenirdi, %d", resp.StatusCode)
+	}
+	var out struct {
+		Summary struct {
+			DevicesTotal       int            `json:"devices_total"`
+			DevicesOnline      int            `json:"devices_online"`
+			DevicesOffline     int            `json:"devices_offline"`
+			DevicesQuarantined int            `json:"devices_quarantined"`
+			EventsBySeverity   map[string]int `json:"events_by_severity"`
+			EventsByCategory   map[string]int `json:"events_by_category"`
+			Since              time.Time      `json:"since"`
+		} `json:"summary"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	s := out.Summary
+	if s.DevicesTotal != 2 || s.DevicesOnline != 1 || s.DevicesOffline != 1 || s.DevicesQuarantined != 1 {
+		t.Fatalf("cihaz sayaçları hatalı: %+v", s)
+	}
+	if s.EventsBySeverity["HIGH"] != 1 || s.EventsByCategory["SECURITY"] != 1 {
+		t.Fatalf("olay sayaçları hatalı: %+v", s)
+	}
+	if s.Since.IsZero() {
+		t.Fatal("since alanı doldurulmalıydı")
+	}
+
+	// Token'sız erişim reddedilmeli.
+	if r2, _ := http.Get(ts.URL + "/api/summary"); r2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız özet 401 dönmeliydi, %d", r2.StatusCode)
 	}
 }
 

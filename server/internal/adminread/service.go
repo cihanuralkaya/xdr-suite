@@ -36,6 +36,12 @@ type EventRow struct {
 type Store interface {
 	ListDevices(ctx context.Context, limit int) ([]DeviceRow, error)
 	ListEvents(ctx context.Context, deviceID string, limit int) ([]EventRow, error)
+	// DeviceStatusCounts, cihaz durumuna göre (status -> adet) sayımları döner.
+	DeviceStatusCounts(ctx context.Context) (map[string]int, error)
+	// EventSeverityCounts, since'ten bu yana olayları önem seviyesine göre sayar.
+	EventSeverityCounts(ctx context.Context, since time.Time) (map[string]int, error)
+	// EventCategoryCounts, since'ten bu yana olayları kategoriye göre sayar.
+	EventCategoryCounts(ctx context.Context, since time.Time) (map[string]int, error)
 }
 
 // DeviceDTO, konsola dönen deşifre edilmiş cihaz görünümüdür.
@@ -58,6 +64,23 @@ type EventDTO struct {
 	OccurredAt time.Time `json:"occurred_at"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+// SummaryDTO, yönetim panosu için özet/KPI sayaçlarıdır.
+type SummaryDTO struct {
+	DevicesTotal       int            `json:"devices_total"`
+	DevicesOnline      int            `json:"devices_online"`
+	DevicesOffline     int            `json:"devices_offline"`
+	DevicesQuarantined int            `json:"devices_quarantined"`
+	EventsBySeverity   map[string]int `json:"events_by_severity"` // INFO/LOW/MEDIUM/HIGH/CRITICAL
+	EventsByCategory   map[string]int `json:"events_by_category"`
+	Since              time.Time      `json:"since"` // sayımların kapsadığı pencerenin başı (RFC3339)
+}
+
+// summaryWindow, özet olay sayımlarının kapsadığı zaman penceresidir (son 24 saat).
+const summaryWindow = 24 * time.Hour
+
+// onlineWindow, bir cihazın "çevrimiçi" sayılması için son görülme eşiğidir.
+const onlineWindow = 30 * time.Second
 
 // Service, okuma sorgularını yürütür ve şifreli alanları deşifre eder.
 type Service struct {
@@ -109,6 +132,66 @@ func (s *Service) Events(ctx context.Context, deviceID string, limit int) ([]Eve
 		})
 	}
 	return out, nil
+}
+
+// Summary, yönetim panosu için özet/KPI sayaçlarını hesaplar. Cihazlar duruma
+// göre gruplanır; olaylar son 24 saatlik pencerede önem ve kategoriye göre
+// sayılır. "online", cihaz listesinden son görülme (< onlineWindow) üzerinden
+// hesaplanır (duruma ek, best-effort).
+func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
+	now := time.Now()
+	since := now.Add(-summaryWindow)
+
+	statusCounts, err := s.store.DeviceStatusCounts(ctx)
+	if err != nil {
+		return SummaryDTO{}, err
+	}
+	sevCounts, err := s.store.EventSeverityCounts(ctx, since)
+	if err != nil {
+		return SummaryDTO{}, err
+	}
+	catCounts, err := s.store.EventCategoryCounts(ctx, since)
+	if err != nil {
+		return SummaryDTO{}, err
+	}
+
+	total := 0
+	for _, n := range statusCounts {
+		total += n
+	}
+
+	// online: cihaz listesinden son görülmesi eşiğin altında olanları say.
+	rows, err := s.store.ListDevices(ctx, clampLimit(0))
+	if err != nil {
+		return SummaryDTO{}, err
+	}
+	online := 0
+	for _, r := range rows {
+		if now.Sub(r.LastSeen) < onlineWindow {
+			online++
+		}
+	}
+	offline := total - online
+	if offline < 0 {
+		offline = 0
+	}
+
+	if sevCounts == nil {
+		sevCounts = map[string]int{}
+	}
+	if catCounts == nil {
+		catCounts = map[string]int{}
+	}
+
+	return SummaryDTO{
+		DevicesTotal:       total,
+		DevicesOnline:      online,
+		DevicesOffline:     offline,
+		DevicesQuarantined: statusCounts["QUARANTINED"],
+		EventsBySeverity:   sevCounts,
+		EventsByCategory:   catCounts,
+		Since:              since,
+	}, nil
 }
 
 func (s *Service) decrypt(blob []byte) string {

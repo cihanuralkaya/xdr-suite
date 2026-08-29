@@ -320,6 +320,9 @@ func (s *Store) AssignPolicy(_ context.Context, deviceID, policyID string) error
 
 // --- adminread.Store ---
 
+// Derleme-zamanı arayüz kontrolü.
+var _ adminread.Store = (*Store)(nil)
+
 func (s *Store) ListDevices(_ context.Context, limit int) ([]adminread.DeviceRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -353,6 +356,42 @@ func (s *Store) ListEvents(_ context.Context, deviceID string, limit int) ([]adm
 		if limit > 0 && len(out) >= limit {
 			break
 		}
+	}
+	return out, nil
+}
+
+func (s *Store) DeviceStatusCounts(_ context.Context) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, d := range s.devices {
+		out[d.status]++
+	}
+	return out, nil
+}
+
+func (s *Store) EventSeverityCounts(_ context.Context, since time.Time) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, e := range s.events {
+		if e.createdAt.Before(since) {
+			continue
+		}
+		out[e.severity]++
+	}
+	return out, nil
+}
+
+func (s *Store) EventCategoryCounts(_ context.Context, since time.Time) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]int{}
+	for _, e := range s.events {
+		if e.createdAt.Before(since) {
+			continue
+		}
+		out[e.category]++
 	}
 	return out, nil
 }
