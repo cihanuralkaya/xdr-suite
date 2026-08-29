@@ -72,6 +72,15 @@ type adminRec struct {
 	role                    admin.Role
 }
 
+type auditRec struct {
+	id         int64
+	adminEmail string
+	action     string
+	targetType string
+	targetID   string
+	createdAt  time.Time
+}
+
 // Store, tüm C2 depolama arayüzlerini bellek-içi karşılar.
 type Store struct {
 	mu         sync.Mutex
@@ -83,6 +92,8 @@ type Store struct {
 	events     []eventRec                  // olay logları
 	admins     map[string]*adminRec        // email -> admin
 	adminsByID map[string]*adminRec        // id -> admin
+	audit      []auditRec                  // denetim izi (en eskiden yeniye eklenir)
+	auditSeq   int64                       // audit_log identity taklidi
 	seq        int
 }
 
@@ -294,7 +305,22 @@ func (s *Store) RevokeDeviceCerts(_ context.Context, deviceID, _ string) error {
 	return nil
 }
 
-func (s *Store) WriteAudit(_ context.Context, _, _, _, _ string) error { return nil }
+// WriteAudit, denetim izine bir kayıt ekler. Admin e-postası adminsByID'den
+// çözülür (eşleşmezse boş kalır — db LEFT JOIN davranışını taklit eder).
+func (s *Store) WriteAudit(_ context.Context, adminID, action, targetType, targetID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var email string
+	if a, ok := s.adminsByID[adminID]; ok {
+		email = a.email
+	}
+	s.auditSeq++
+	s.audit = append(s.audit, auditRec{
+		id: s.auditSeq, adminEmail: email, action: action,
+		targetType: targetType, targetID: targetID, createdAt: time.Now(),
+	})
+	return nil
+}
 
 func (s *Store) CreatePolicy(_ context.Context, name, version string) (string, error) {
 	s.mu.Lock()
@@ -349,6 +375,24 @@ func (s *Store) ListEvents(_ context.Context, deviceID string, limit int) ([]adm
 		out = append(out, adminread.EventRow{
 			ID: randID("evt-"), Category: e.category, Severity: e.severity,
 			Message: e.message, OccurredAt: e.occurredAt, CreatedAt: e.createdAt,
+		})
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) ListAudit(_ context.Context, limit int) ([]adminread.AuditRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []adminread.AuditRow
+	// En yeniden eskiye.
+	for i := len(s.audit) - 1; i >= 0; i-- {
+		a := s.audit[i]
+		out = append(out, adminread.AuditRow{
+			ID: a.id, AdminEmail: a.adminEmail, Action: a.action,
+			TargetType: a.targetType, TargetID: a.targetID, CreatedAt: a.createdAt,
 		})
 		if limit > 0 && len(out) >= limit {
 			break

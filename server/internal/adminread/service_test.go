@@ -12,6 +12,7 @@ import (
 type memStore struct {
 	devices []DeviceRow
 	events  []EventRow
+	audit   []AuditRow
 }
 
 func (m *memStore) ListDevices(_ context.Context, _ int) ([]DeviceRow, error) {
@@ -19,6 +20,9 @@ func (m *memStore) ListDevices(_ context.Context, _ int) ([]DeviceRow, error) {
 }
 func (m *memStore) ListEvents(_ context.Context, _ string, _ int) ([]EventRow, error) {
 	return m.events, nil
+}
+func (m *memStore) ListAudit(_ context.Context, _ int) ([]AuditRow, error) {
+	return m.audit, nil
 }
 
 func newCipher(t *testing.T) *security.FieldCipher {
@@ -64,6 +68,28 @@ func TestDevicesBadCiphertext(t *testing.T) {
 	dtos, _ := svc.Devices(context.Background(), 0)
 	if dtos[0].Hostname != "(çözülemedi)" {
 		t.Fatalf("bozuk şifreli veri güvenli işlenmeliydi: %q", dtos[0].Hostname)
+	}
+}
+
+func TestAuditPassthrough(t *testing.T) {
+	now := time.Now()
+	store := &memStore{audit: []AuditRow{
+		{ID: 2, AdminEmail: "op@x", Action: "QUARANTINE", TargetType: "device", TargetID: "dev-1", CreatedAt: now},
+		{ID: 1, AdminEmail: "", Action: "CREATE_POLICY", TargetType: "policy", TargetID: "pol-1", CreatedAt: now},
+	}}
+	svc := NewService(store, newCipher(t))
+	dtos, err := svc.Audit(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dtos) != 2 {
+		t.Fatalf("2 kayıt beklenirdi, %d", len(dtos))
+	}
+	if dtos[0].ID != 2 || dtos[0].AdminEmail != "op@x" || dtos[0].Action != "QUARANTINE" || dtos[0].TargetID != "dev-1" {
+		t.Fatalf("denetim izi aynen dönmeliydi: %+v", dtos[0])
+	}
+	if dtos[1].AdminEmail != "" {
+		t.Fatalf("çözülemeyen admin e-postası boş kalmalıydı: %+v", dtos[1])
 	}
 }
 

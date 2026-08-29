@@ -64,3 +64,30 @@ func (s *Store) ListEvents(ctx context.Context, deviceID string, limit int) ([]a
 	}
 	return out, rows.Err()
 }
+
+// ListAudit, denetim izini (audit_log) admin e-postasıyla birlikte en yeniden
+// eskiye listeler. Admin silinmiş/eşleşmemişse e-posta boş döner (LEFT JOIN).
+func (s *Store) ListAudit(ctx context.Context, limit int) ([]adminread.AuditRow, error) {
+	const q = `
+		SELECT a.id, COALESCE(ad.email,''), a.action::text,
+		       COALESCE(a.target_type,''), COALESCE(a.target_id::text,''), a.created_at
+		  FROM audit_log a
+		  LEFT JOIN admins ad ON ad.id = a.admin_id
+		 ORDER BY a.created_at DESC
+		 LIMIT $1`
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("db: denetim izi listesi: %w", err)
+	}
+	defer rows.Close()
+
+	var out []adminread.AuditRow
+	for rows.Next() {
+		var a adminread.AuditRow
+		if err := rows.Scan(&a.ID, &a.AdminEmail, &a.Action, &a.TargetType, &a.TargetID, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("db: denetim izi okuma: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

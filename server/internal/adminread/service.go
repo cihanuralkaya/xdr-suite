@@ -32,10 +32,21 @@ type EventRow struct {
 	CreatedAt  time.Time
 }
 
+// AuditRow, DB'den okunan ham denetim izi satırıdır (admin e-postası çözülmüş).
+type AuditRow struct {
+	ID         int64
+	AdminEmail string
+	Action     string
+	TargetType string
+	TargetID   string
+	CreatedAt  time.Time
+}
+
 // Store, okuma sorgularının kalıcılık kaynağıdır.
 type Store interface {
 	ListDevices(ctx context.Context, limit int) ([]DeviceRow, error)
 	ListEvents(ctx context.Context, deviceID string, limit int) ([]EventRow, error)
+	ListAudit(ctx context.Context, limit int) ([]AuditRow, error)
 }
 
 // DeviceDTO, konsola dönen deşifre edilmiş cihaz görünümüdür.
@@ -56,6 +67,16 @@ type EventDTO struct {
 	Severity   string    `json:"severity"`
 	Message    string    `json:"message"`
 	OccurredAt time.Time `json:"occurred_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// AuditDTO, konsola dönen denetim izi görünümüdür.
+type AuditDTO struct {
+	ID         int64     `json:"id"`
+	AdminEmail string    `json:"admin_email"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -105,6 +126,26 @@ func (s *Service) Events(ctx context.Context, deviceID string, limit int) ([]Eve
 			Severity:   r.Severity,
 			Message:    r.Message,
 			OccurredAt: r.OccurredAt,
+			CreatedAt:  r.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+// Audit, denetim izi kayıtlarını en yeniden eskiye döner.
+func (s *Service) Audit(ctx context.Context, limit int) ([]AuditDTO, error) {
+	rows, err := s.store.ListAudit(ctx, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AuditDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, AuditDTO{
+			ID:         r.ID,
+			AdminEmail: r.AdminEmail,
+			Action:     r.Action,
+			TargetType: r.TargetType,
+			TargetID:   r.TargetID,
 			CreatedAt:  r.CreatedAt,
 		})
 	}

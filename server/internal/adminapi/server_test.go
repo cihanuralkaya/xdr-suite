@@ -18,12 +18,13 @@ import (
 
 // memStore, hem admin.Store hem adminapi.AuthStore'u karşılar.
 type memStore struct {
-	roles    map[string]admin.Role
-	emails   map[string]adminRec // email -> (id, hash)
-	commands []string            // "deviceID:type"
-	cipher   *security.FieldCipher
-	devRows  []adminread.DeviceRow
-	evtRows  []adminread.EventRow
+	roles     map[string]admin.Role
+	emails    map[string]adminRec // email -> (id, hash)
+	commands  []string            // "deviceID:type"
+	cipher    *security.FieldCipher
+	devRows   []adminread.DeviceRow
+	evtRows   []adminread.EventRow
+	auditRows []adminread.AuditRow
 }
 
 type adminRec struct{ id, hash string }
@@ -47,7 +48,13 @@ func (m *memStore) RevokeDeviceCerts(_ context.Context, deviceID, _ string) erro
 	m.commands = append(m.commands, deviceID+":REVOKE")
 	return nil
 }
-func (m *memStore) WriteAudit(_ context.Context, _, _, _, _ string) error { return nil }
+func (m *memStore) WriteAudit(_ context.Context, adminID, action, targetType, targetID string) error {
+	m.auditRows = append([]adminread.AuditRow{{
+		ID: int64(len(m.auditRows) + 1), AdminEmail: adminID, Action: action,
+		TargetType: targetType, TargetID: targetID, CreatedAt: time.Now(),
+	}}, m.auditRows...)
+	return nil
+}
 func (m *memStore) CreatePolicy(_ context.Context, _, _ string) (string, error) {
 	return "pol-1", nil
 }
@@ -65,6 +72,9 @@ func (m *memStore) ListDevices(_ context.Context, _ int) ([]adminread.DeviceRow,
 }
 func (m *memStore) ListEvents(_ context.Context, _ string, _ int) ([]adminread.EventRow, error) {
 	return m.evtRows, nil
+}
+func (m *memStore) ListAudit(_ context.Context, _ int) ([]adminread.AuditRow, error) {
+	return m.auditRows, nil
 }
 
 func setup(t *testing.T) (*httptest.Server, *memStore) {
@@ -208,6 +218,53 @@ func TestListDevicesDecrypted(t *testing.T) {
 	// Token'sız erişim reddedilmeli.
 	if r2, _ := http.Get(ts.URL + "/api/devices"); r2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("token'sız liste 401 dönmeliydi, %d", r2.StatusCode)
+	}
+}
+
+func TestListAudit(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	token := body["token"]
+
+	// Bir işlem denetim izine kayıt düşürmeli (admin servisi WriteAudit çağırır).
+	if code, _ := post(t, ts.URL+"/api/devices/quarantine", token, map[string]string{"device_id": "dev-1"}); code != http.StatusOK {
+		t.Fatalf("karantina 200 dönmeliydi, %d", code)
+	}
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/audit", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("200 beklenirdi, %d", resp.StatusCode)
+	}
+	var out struct {
+		Audit []struct {
+			ID         int64  `json:"id"`
+			Action     string `json:"action"`
+			TargetType string `json:"target_type"`
+			TargetID   string `json:"target_id"`
+		} `json:"audit"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Audit) != 1 {
+		t.Fatalf("1 denetim kaydı beklenirdi: %+v", out.Audit)
+	}
+	if out.Audit[0].Action != "QUARANTINE" || out.Audit[0].TargetID != "dev-1" || out.Audit[0].TargetType != "device" {
+		t.Fatalf("denetim kaydı beklenen alanları taşımıyor: %+v", out.Audit[0])
+	}
+
+	// Token'sız erişim reddedilmeli.
+	if r2, _ := http.Get(ts.URL + "/api/audit"); r2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız denetim izi 401 dönmeliydi, %d", r2.StatusCode)
 	}
 }
 

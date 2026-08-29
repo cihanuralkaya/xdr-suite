@@ -65,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	// Okuma (görünürlük) uçları — herhangi bir kimlik doğrulanmış admin (VIEWER+).
 	mux.HandleFunc("GET /api/devices", s.authed(s.handleListDevices))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
+	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
 	return securityHeaders(mux)
 }
 
@@ -205,6 +206,14 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, _ stri
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+}
+
+func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, _ string) {
+	audit, err := s.reader.Audit(r.Context(), intParam(r, "limit"))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"audit": audit})
 }
 
 // --- yardımcılar ---
