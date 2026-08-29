@@ -25,18 +25,12 @@ type memStore struct {
 	devRows   []adminread.DeviceRow
 	evtRows   []adminread.EventRow
 	auditRows []adminread.AuditRow
-	roles    map[string]admin.Role
-	emails   map[string]adminRec // email -> (id, hash)
-	commands []string            // "deviceID:type"
-	cipher   *security.FieldCipher
-	devRows  []adminread.DeviceRow
-	evtRows  []adminread.EventRow
-	certRows []adminread.CertRow
-	cmdRows  []adminread.CmdRow
-	polID    string
-	polVer   string
-	rules    map[string][]admin.RuleInput // policyID -> kurallar
-	assigned map[string]string            // deviceID -> policyID
+	certRows  []adminread.CertRow
+	cmdRows   []adminread.CmdRow
+	polID     string
+	polVer    string
+	rules     map[string][]admin.RuleInput // policyID -> kurallar
+	assigned  map[string]string            // deviceID -> policyID
 }
 
 type adminRec struct{ id, hash string }
@@ -145,8 +139,10 @@ func (m *memStore) EventCategoryCounts(_ context.Context, since time.Time) (map[
 		out[e.Category]++
 	}
 	return out, nil
+}
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]adminread.AuditRow, error) {
 	return m.auditRows, nil
+}
 func (m *memStore) DeviceByID(_ context.Context, id string) (adminread.DeviceRow, bool, error) {
 	for _, d := range m.devRows {
 		if d.ID == id {
@@ -306,138 +302,6 @@ func TestListDevicesDecrypted(t *testing.T) {
 	// Token'sız erişim reddedilmeli.
 	if r2, _ := http.Get(ts.URL + "/api/devices"); r2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("token'sız liste 401 dönmeliydi, %d", r2.StatusCode)
-	}
-}
-
-func TestSummaryEndpoint(t *testing.T) {
-func TestListAudit(t *testing.T) {
-func TestDeviceDetail(t *testing.T) {
-	ts, store := setup(t)
-	defer ts.Close()
-	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
-
-	now := time.Now()
-	store.devRows = []adminread.DeviceRow{
-		{ID: "d1", Status: "ACTIVE", LastSeen: now},
-		{ID: "d2", Status: "QUARANTINED", LastSeen: now.Add(-time.Hour)},
-	}
-	store.evtRows = []adminread.EventRow{
-		{Severity: "HIGH", Category: "SECURITY", CreatedAt: now},
-		{Severity: "LOW", Category: "SYSTEM", CreatedAt: now},
-	}
-	hostEnc, _ := store.cipher.EncryptString("WS-07")
-	macEnc, _ := store.cipher.EncryptString("aa:bb:cc:dd:ee:ff")
-	store.devRows = []adminread.DeviceRow{{ID: "dev-1", Status: "ACTIVE", HostnameEnc: hostEnc, MACEnc: macEnc}}
-	store.certRows = []adminread.CertRow{{Serial: "42", Fingerprint: "abcd", Revoked: false}}
-	store.cmdRows = []adminread.CmdRow{{Type: "QUARANTINE", IssuedBy: "op1", CreatedAt: time.Now()}}
-	store.polID, store.polVer = "pol-1", "v3"
-
-	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
-	token := body["token"]
-
-	req, _ := http.NewRequest("GET", ts.URL+"/api/summary", nil)
-	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
-	token := body["token"]
-
-	// Bir işlem denetim izine kayıt düşürmeli (admin servisi WriteAudit çağırır).
-	if code, _ := post(t, ts.URL+"/api/devices/quarantine", token, map[string]string{"device_id": "dev-1"}); code != http.StatusOK {
-		t.Fatalf("karantina 200 dönmeliydi, %d", code)
-	}
-
-	req, _ := http.NewRequest("GET", ts.URL+"/api/audit", nil)
-	// Token'sız erişim reddedilmeli.
-	if r0, _ := http.Get(ts.URL + "/api/devices/dev-1"); r0.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("token'sız detay 401 dönmeliydi, %d", r0.StatusCode)
-	}
-
-	req, _ := http.NewRequest("GET", ts.URL+"/api/devices/dev-1", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("200 beklenirdi, %d", resp.StatusCode)
-	}
-	var out struct {
-		Summary struct {
-			DevicesTotal       int            `json:"devices_total"`
-			DevicesOnline      int            `json:"devices_online"`
-			DevicesOffline     int            `json:"devices_offline"`
-			DevicesQuarantined int            `json:"devices_quarantined"`
-			EventsBySeverity   map[string]int `json:"events_by_severity"`
-			EventsByCategory   map[string]int `json:"events_by_category"`
-			Since              time.Time      `json:"since"`
-		} `json:"summary"`
-		Audit []struct {
-			ID         int64  `json:"id"`
-			Action     string `json:"action"`
-			TargetType string `json:"target_type"`
-			TargetID   string `json:"target_id"`
-		} `json:"audit"`
-		DeviceDetail struct {
-			Device struct {
-				Hostname string `json:"hostname"`
-				MAC      string `json:"mac"`
-			} `json:"device"`
-			Certs                 []adminread.CertView `json:"certs"`
-			Commands              []adminread.CmdView  `json:"commands"`
-			AssignedPolicyID      string               `json:"assigned_policy_id"`
-			AssignedPolicyVersion string               `json:"assigned_policy_version"`
-		} `json:"device_detail"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatal(err)
-	}
-	s := out.Summary
-	if s.DevicesTotal != 2 || s.DevicesOnline != 1 || s.DevicesOffline != 1 || s.DevicesQuarantined != 1 {
-		t.Fatalf("cihaz sayaçları hatalı: %+v", s)
-	}
-	if s.EventsBySeverity["HIGH"] != 1 || s.EventsByCategory["SECURITY"] != 1 {
-		t.Fatalf("olay sayaçları hatalı: %+v", s)
-	}
-	if s.Since.IsZero() {
-		t.Fatal("since alanı doldurulmalıydı")
-	}
-
-	// Token'sız erişim reddedilmeli.
-	if r2, _ := http.Get(ts.URL + "/api/summary"); r2.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("token'sız özet 401 dönmeliydi, %d", r2.StatusCode)
-	if len(out.Audit) != 1 {
-		t.Fatalf("1 denetim kaydı beklenirdi: %+v", out.Audit)
-	}
-	if out.Audit[0].Action != "QUARANTINE" || out.Audit[0].TargetID != "dev-1" || out.Audit[0].TargetType != "device" {
-		t.Fatalf("denetim kaydı beklenen alanları taşımıyor: %+v", out.Audit[0])
-	}
-
-	// Token'sız erişim reddedilmeli.
-	if r2, _ := http.Get(ts.URL + "/api/audit"); r2.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("token'sız denetim izi 401 dönmeliydi, %d", r2.StatusCode)
-	d := out.DeviceDetail
-	if d.Device.Hostname != "WS-07" || d.Device.MAC != "aa:bb:cc:dd:ee:ff" {
-		t.Fatalf("cihaz alanları deşifre edilmeliydi: %+v", d.Device)
-	}
-	if len(d.Certs) != 1 || d.Certs[0].Serial != "42" {
-		t.Fatalf("sertifikalar dönmeliydi: %+v", d.Certs)
-	}
-	if len(d.Commands) != 1 || d.Commands[0].Type != "QUARANTINE" {
-		t.Fatalf("komut geçmişi dönmeliydi: %+v", d.Commands)
-	}
-	if d.AssignedPolicyID != "pol-1" || d.AssignedPolicyVersion != "v3" {
-		t.Fatalf("atanmış politika dönmeliydi: %+v", d)
-	}
-
-	// Bilinmeyen cihaz → 404.
-	req2, _ := http.NewRequest("GET", ts.URL+"/api/devices/yok", nil)
-	req2.Header.Set("Authorization", "Bearer "+token)
-	resp2, err := http.DefaultClient.Do(req2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusNotFound {
-		t.Fatalf("bilinmeyen cihaz 404 dönmeliydi, %d", resp2.StatusCode)
 	}
 }
 

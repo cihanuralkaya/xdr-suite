@@ -526,6 +526,10 @@ func (s *Store) EventCategoryCounts(_ context.Context, since time.Time) (map[str
 			continue
 		}
 		out[e.category]++
+	}
+	return out, nil
+}
+
 func (s *Store) ListAudit(_ context.Context, limit int) ([]adminread.AuditRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -540,6 +544,10 @@ func (s *Store) ListAudit(_ context.Context, limit int) ([]adminread.AuditRow, e
 		if limit > 0 && len(out) >= limit {
 			break
 		}
+	}
+	return out, nil
+}
+
 func (s *Store) DeviceByID(_ context.Context, id string) (adminread.DeviceRow, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

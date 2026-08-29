@@ -40,6 +40,8 @@ type AuditRow struct {
 	TargetType string
 	TargetID   string
 	CreatedAt  time.Time
+}
+
 // CertRow, DB'den okunan ham sertifika satırıdır. Fingerprint hex-kodlu döner.
 type CertRow struct {
 	Serial      string
@@ -318,6 +320,8 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		EventsByCategory:   catCounts,
 		Since:              since,
 	}, nil
+}
+
 // Audit, denetim izi kayıtlarını en yeniden eskiye döner.
 func (s *Service) Audit(ctx context.Context, limit int) ([]AuditDTO, error) {
 	rows, err := s.store.ListAudit(ctx, clampLimit(limit))

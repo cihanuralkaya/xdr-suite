@@ -10,11 +10,9 @@ import (
 )
 
 type memStore struct {
-	devices []DeviceRow
-	events  []EventRow
-	audit   []AuditRow
 	devices  []DeviceRow
 	events   []EventRow
+	audit    []AuditRow
 	certs    []CertRow
 	commands []CmdRow
 	polID    string
@@ -53,8 +51,10 @@ func (m *memStore) EventCategoryCounts(_ context.Context, since time.Time) (map[
 		out[e.Category]++
 	}
 	return out, nil
+}
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]AuditRow, error) {
 	return m.audit, nil
+}
 func (m *memStore) DeviceByID(_ context.Context, id string) (DeviceRow, bool, error) {
 	for _, d := range m.devices {
 		if d.ID == id {
@@ -163,6 +163,9 @@ func TestSummaryCounts(t *testing.T) {
 	}
 	if sum.Since.After(now) {
 		t.Fatalf("since geçmişte olmalı: %v", sum.Since)
+	}
+}
+
 func TestAuditPassthrough(t *testing.T) {
 	now := time.Now()
 	store := &memStore{audit: []AuditRow{
@@ -182,6 +185,9 @@ func TestAuditPassthrough(t *testing.T) {
 	}
 	if dtos[1].AdminEmail != "" {
 		t.Fatalf("çözülemeyen admin e-postası boş kalmalıydı: %+v", dtos[1])
+	}
+}
+
 func TestDeviceDetail(t *testing.T) {
 	cipher := newCipher(t)
 	hostEnc, _ := cipher.EncryptString("WORKSTATION-07")

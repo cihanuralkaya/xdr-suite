@@ -260,6 +260,8 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request, _ string)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"summary": summary})
+}
+
 func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, _ string) {
 	audit, err := s.reader.Audit(r.Context(), intParam(r, "limit"))
 	if respondErr(w, err) {
