@@ -32,6 +32,16 @@ type EventRow struct {
 	CreatedAt  time.Time
 }
 
+// AuditRow, DB'den okunan ham denetim izi satırıdır (admin e-postası çözülmüş).
+type AuditRow struct {
+	ID         int64
+	AdminEmail string
+	Action     string
+	TargetType string
+	TargetID   string
+	CreatedAt  time.Time
+}
+
 // Store, okuma sorgularının kalıcılık kaynağıdır.
 type Store interface {
 	ListDevices(ctx context.Context, limit int) ([]DeviceRow, error)
@@ -42,6 +52,7 @@ type Store interface {
 	EventSeverityCounts(ctx context.Context, since time.Time) (map[string]int, error)
 	// EventCategoryCounts, since'ten bu yana olayları kategoriye göre sayar.
 	EventCategoryCounts(ctx context.Context, since time.Time) (map[string]int, error)
+	ListAudit(ctx context.Context, limit int) ([]AuditRow, error)
 }
 
 // DeviceDTO, konsola dönen deşifre edilmiş cihaz görünümüdür.
@@ -81,6 +92,16 @@ const summaryWindow = 24 * time.Hour
 
 // onlineWindow, bir cihazın "çevrimiçi" sayılması için son görülme eşiğidir.
 const onlineWindow = 30 * time.Second
+
+// AuditDTO, konsola dönen denetim izi görünümüdür.
+type AuditDTO struct {
+	ID         int64     `json:"id"`
+	AdminEmail string    `json:"admin_email"`
+	Action     string    `json:"action"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
 
 // Service, okuma sorgularını yürütür ve şifreli alanları deşifre eder.
 type Service struct {
@@ -192,6 +213,24 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		EventsByCategory:   catCounts,
 		Since:              since,
 	}, nil
+// Audit, denetim izi kayıtlarını en yeniden eskiye döner.
+func (s *Service) Audit(ctx context.Context, limit int) ([]AuditDTO, error) {
+	rows, err := s.store.ListAudit(ctx, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AuditDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, AuditDTO{
+			ID:         r.ID,
+			AdminEmail: r.AdminEmail,
+			Action:     r.Action,
+			TargetType: r.TargetType,
+			TargetID:   r.TargetID,
+			CreatedAt:  r.CreatedAt,
+		})
+	}
+	return out, nil
 }
 
 func (s *Service) decrypt(blob []byte) string {

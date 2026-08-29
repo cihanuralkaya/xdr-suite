@@ -66,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devices", s.authed(s.handleListDevices))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
+	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
 	return securityHeaders(mux)
 }
 
@@ -214,6 +215,12 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request, _ string)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"summary": summary})
+func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, _ string) {
+	audit, err := s.reader.Audit(r.Context(), intParam(r, "limit"))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"audit": audit})
 }
 
 // --- yardımcılar ---
