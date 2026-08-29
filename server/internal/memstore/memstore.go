@@ -44,8 +44,21 @@ type tokenInfo struct {
 
 type certRec struct {
 	deviceID    string
+	serial      string
 	fingerprint []byte
+	notBefore   time.Time
+	notAfter    time.Time
 	revoked     bool
+}
+
+// cmdRec, komut geçmişi kaydıdır. PendingCommands teslimde bekleyen kuyruğu
+// temizlediğinden, geçmiş kaybolmasın diye ayrı tutulur.
+type cmdRec struct {
+	deviceID    string
+	cmdType     string
+	issuedBy    string
+	createdAt   time.Time
+	deliveredAt *time.Time
 }
 
 type policyRule struct {
@@ -79,6 +92,7 @@ type Store struct {
 	tokens     map[string]*tokenInfo       // tokenIndex(hex) -> token
 	certs      []certRec                   // sertifikalar (iptal takibi)
 	commands   map[string][]*xdrv1.Command // deviceID -> bekleyen komutlar
+	cmdHistory []cmdRec                    // komut geçmişi (teslimde temizlenmez)
 	policies   map[string]*policyRec       // policyID -> politika
 	events     []eventRec                  // olay logları
 	admins     map[string]*adminRec        // email -> admin
@@ -173,7 +187,10 @@ func (s *Store) UpsertEnrollingDevice(_ context.Context, in enroll.DeviceEnrollm
 func (s *Store) SaveCertificate(_ context.Context, c enroll.CertRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.certs = append(s.certs, certRec{deviceID: c.DeviceID, fingerprint: c.Fingerprint})
+	s.certs = append(s.certs, certRec{
+		deviceID: c.DeviceID, serial: c.Serial, fingerprint: c.Fingerprint,
+		notBefore: c.NotBefore, notAfter: c.NotAfter,
+	})
 	return nil
 }
 
@@ -201,6 +218,17 @@ func (s *Store) PendingCommands(_ context.Context, deviceID string) ([]*xdrv1.Co
 	defer s.mu.Unlock()
 	out := s.commands[deviceID]
 	s.commands[deviceID] = nil
+	// Bekleyen komutlar teslim edildi: geçmişteki teslim edilmemiş kayıtları
+	// işaretle (geçmiş listesi ayrı tutulur, temizlenmez).
+	if len(out) > 0 {
+		now := time.Now()
+		for i := range s.cmdHistory {
+			if s.cmdHistory[i].deviceID == deviceID && s.cmdHistory[i].deliveredAt == nil {
+				t := now
+				s.cmdHistory[i].deliveredAt = &t
+			}
+		}
+	}
 	return out, nil
 }
 
@@ -274,11 +302,15 @@ func (s *Store) SaveEnrollmentToken(_ context.Context, tokenIndex []byte, create
 	return nil
 }
 
-func (s *Store) EnqueueCommand(_ context.Context, deviceID, cmdType, _ string) error {
+func (s *Store) EnqueueCommand(_ context.Context, deviceID, cmdType, issuedBy string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.commands[deviceID] = append(s.commands[deviceID], &xdrv1.Command{
 		CommandId: randID("cmd-"), Type: commandTypeToProto(cmdType),
+	})
+	// Geçmişe de ekle (bekleyen kuyruk teslimde temizlense de geçmiş kalır).
+	s.cmdHistory = append(s.cmdHistory, cmdRec{
+		deviceID: deviceID, cmdType: cmdType, issuedBy: issuedBy, createdAt: time.Now(),
 	})
 	return nil
 }
@@ -355,6 +387,65 @@ func (s *Store) ListEvents(_ context.Context, deviceID string, limit int) ([]adm
 		}
 	}
 	return out, nil
+}
+
+func (s *Store) DeviceByID(_ context.Context, id string) (adminread.DeviceRow, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.devices[id]
+	if !ok {
+		return adminread.DeviceRow{}, false, nil
+	}
+	return adminread.DeviceRow{
+		ID: d.id, Status: d.status, AgentVersion: d.agentVersion, OSPlatform: d.osPlatform,
+		LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc,
+	}, true, nil
+}
+
+func (s *Store) CertsByDevice(_ context.Context, id string) ([]adminread.CertRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []adminread.CertRow
+	for _, c := range s.certs {
+		if c.deviceID != id {
+			continue
+		}
+		out = append(out, adminread.CertRow{
+			Serial:      c.serial,
+			Fingerprint: hex.EncodeToString(c.fingerprint),
+			NotBefore:   c.notBefore,
+			NotAfter:    c.notAfter,
+			Revoked:     c.revoked,
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) CommandHistory(_ context.Context, id string) ([]adminread.CmdRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []adminread.CmdRow
+	// En yeniden eskiye.
+	for i := len(s.cmdHistory) - 1; i >= 0; i-- {
+		c := s.cmdHistory[i]
+		if c.deviceID != id {
+			continue
+		}
+		out = append(out, adminread.CmdRow{
+			Type: c.cmdType, IssuedBy: c.issuedBy, CreatedAt: c.createdAt, DeliveredAt: c.deliveredAt,
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) AssignedPolicy(_ context.Context, id string) (string, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.devices[id]
+	if !ok {
+		return "", "", nil
+	}
+	return d.policyID, d.policyVersion, nil
 }
 
 // --- revocation.Source ---
