@@ -148,6 +148,13 @@
   .out.show{ display:block; } .out.ok{ border-color:var(--ok); } .out.err{ border-color:var(--crit); color:var(--crit); }
   .divider { height:1px; background:var(--line); margin:16px 0; }
   .lbl { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); font-weight:600; }
+  .detail { margin-top:14px; font-size:12.5px; display:none; }
+  .detail.show { display:block; }
+  .detail h4 { margin:12px 0 6px; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
+  .detail .kv { display:flex; justify-content:space-between; gap:10px; padding:3px 0; border-bottom:1px solid var(--line); }
+  .detail .kv span:first-child { color:var(--muted); }
+  .detail .kv span:last-child { font-family:var(--mono); font-size:12px; text-align:right; word-break:break-all; }
+  .detail .mini { font-family:var(--mono); font-size:11.5px; color:var(--muted); padding:2px 0; }
 
   /* ---------- TOAST ---------- */
   #toasts { position:fixed; right:18px; bottom:18px; display:flex; flex-direction:column; gap:10px; z-index:60; }
@@ -237,6 +244,17 @@
           </div>
           <div id="evt-empty" class="empty">Olay yok.</div>
         </div>
+
+        <!-- AUDIT -->
+        <div class="card">
+          <div class="head"><h2>📝 Denetim İzi <span id="aud-count" class="count">0</span></h2>
+            <span class="sp"></span><button class="btn ghost sm" id="aud-refresh">↻</button></div>
+          <div class="tbl-wrap">
+            <table><thead><tr><th>Zaman</th><th>Yönetici</th><th>Eylem</th><th>Hedef</th></tr></thead>
+              <tbody id="aud-body"></tbody></table>
+          </div>
+          <div id="aud-empty" class="empty">Kayıt yok.</div>
+        </div>
       </div>
 
       <!-- ACTIONS -->
@@ -255,6 +273,7 @@
             <div class="field"><input id="a-pol" placeholder="Politika ID"></div>
             <button class="btn sm" data-act="assignPolicy" disabled style="margin-top:10px">Seçili cihaza ata</button>
             <div id="o-dev" class="out"></div>
+            <div id="dev-detail" class="detail"></div>
           </div>
         </div>
 
@@ -270,6 +289,20 @@
             <div class="field"><input id="p-ver" placeholder="Sürüm (ör. v1)"></div>
             <button class="btn sm" data-act="createPolicy" style="margin-top:10px">Oluştur</button>
             <div id="o-pol" class="out"></div>
+            <div class="divider"></div>
+            <div class="lbl">Politika kuralı ekle</div>
+            <div class="field"><input id="r-pol" placeholder="Politika ID"></div>
+            <div class="field"><select id="r-type">
+              <option value="APP_BLOCK_ALWAYS">Uygulama — her zaman yasak</option>
+              <option value="APP_TIME_BLOCK">Uygulama — saat aralığında yasak</option>
+            </select></div>
+            <div class="field"><input id="r-target" placeholder="Hedef (ör. oyun.exe)"></div>
+            <div class="row" id="r-times" style="display:none;margin-top:8px">
+              <input id="r-start" placeholder="Başlangıç 18:00">
+              <input id="r-end" placeholder="Bitiş 08:00">
+            </div>
+            <button class="btn sm" data-act="addRule" style="margin-top:10px">Kural Ekle</button>
+            <div id="o-rule" class="out"></div>
           </div>
         </div>
       </div>
@@ -335,14 +368,20 @@
 
   // ---------- rendering ----------
   function renderStats(){
-    var total=state.devices.length;
-    var online=state.devices.filter(isOnline).length;
-    var quar=state.devices.filter(function(d){return d.status==="QUARANTINED";}).length;
-    var disc=0, crit=0;
-    state.events.forEach(function(e){
-      if(e.category==="NETWORK_DISCOVERY") disc++;
-      if(e.severity==="CRITICAL"||e.severity==="HIGH") crit++;
-    });
+    var s=state.summary, total, online, quar, disc=0, crit=0;
+    if(s){
+      total=s.devices_total; online=s.devices_online; quar=s.devices_quarantined;
+      var sev=s.events_by_severity||{}, cat=s.events_by_category||{};
+      disc=cat["NETWORK_DISCOVERY"]||0; crit=(sev.HIGH||0)+(sev.CRITICAL||0);
+    } else {
+      total=state.devices.length;
+      online=state.devices.filter(isOnline).length;
+      quar=state.devices.filter(function(d){return d.status==="QUARANTINED";}).length;
+      state.events.forEach(function(e){
+        if(e.category==="NETWORK_DISCOVERY") disc++;
+        if(e.severity==="CRITICAL"||e.severity==="HIGH") crit++;
+      });
+    }
     var tiles=[
       {k:"Toplam cihaz", v:total, cls:""},
       {k:"Çevrimiçi", v:online+" <small>/ "+total+"</small>", cls:online?"good":""},
@@ -412,6 +451,8 @@
       var needsSel = ["quarantine","release","revoke","assignPolicy"].indexOf(b.dataset.act)>=0;
       if(needsSel) b.disabled = !state.sel;
     });
+    var det=$("dev-detail");
+    if(state.sel){ loadDetail(state.sel); } else { det.className="detail"; det.innerHTML=""; }
     renderDevices();
   }
 
@@ -420,15 +461,49 @@
     var el=$("live"); el.className="live"+(ok?"":" off");
     $("live-txt").textContent = ok ? ("canlı · "+new Date().toLocaleTimeString()) : "bağlantı yok";
   }
+  function soft(p){ return p.catch(function(){ return {}; }); }
   function refresh(){
     return Promise.all([
       api("/api/devices?limit=500"),
-      api("/api/events?limit=200")
+      api("/api/events?limit=200"),
+      soft(api("/api/summary")),
+      soft(api("/api/audit?limit=100"))
     ]).then(function(r){
       state.devices = r[0].devices || [];
       state.events = r[1].events || [];
-      renderStats(); renderDevices(); renderEvents(); setLive(true);
+      state.summary = (r[2] && r[2].summary) || null;
+      state.audit = (r[3] && r[3].audit) || [];
+      renderStats(); renderDevices(); renderEvents(); renderAudit(); setLive(true);
+      if(state.sel) loadDetail(state.sel);
     }).catch(function(e){ setLive(false); });
+  }
+  function renderAudit(){
+    var body=$("aud-body"); body.innerHTML="";
+    var a=state.audit||[];
+    $("aud-count").textContent=a.length;
+    $("aud-empty").style.display=a.length?"none":"block";
+    a.forEach(function(x){
+      var tr=document.createElement("tr");
+      tr.appendChild(cell(relTime(x.created_at)));
+      tr.appendChild(cell(x.admin_email||"—"));
+      var ac=document.createElement("td"); var chip=document.createElement("span");
+      chip.className="chip"; chip.textContent=x.action||"-"; ac.appendChild(chip); tr.appendChild(ac);
+      tr.appendChild(cell((x.target_type||"")+(x.target_id?(" · "+x.target_id):""),"mono"));
+      body.appendChild(tr);
+    });
+  }
+  function loadDetail(id){
+    api("/api/devices/"+encodeURIComponent(id)).then(function(r){
+      var d=r.device_detail; if(!d) return;
+      var el=$("dev-detail"); el.className="detail show";
+      var certs=(d.certs||[]).map(function(c){ return "<div class='mini'>#"+esc(c.serial)+" · "+(c.revoked?"⛔ İPTAL":"✓ geçerli")+"</div>"; }).join("")||"<div class='mini'>—</div>";
+      var cmds=(d.commands||[]).map(function(c){ return "<div class='mini'>"+esc(c.type)+" · "+(c.delivered_at?"teslim":"bekliyor")+"</div>"; }).join("")||"<div class='mini'>—</div>";
+      el.innerHTML =
+        "<h4>Atanmış politika</h4><div class='mini'>"+(d.assigned_policy_id?(esc(d.assigned_policy_id)+" ("+esc(d.assigned_policy_version)+")"):"— yok")+"</div>"+
+        "<h4>Sertifikalar</h4>"+certs+
+        "<h4>Komut geçmişi</h4>"+cmds;
+      if(d.assigned_policy_id){ if(!$("r-pol").value) $("r-pol").value=d.assigned_policy_id; if(!$("a-pol").value) $("a-pol").value=d.assigned_policy_id; }
+    }).catch(function(){});
   }
   function startAuto(){ stopAuto(); state.timer=setInterval(refresh, 5000); }
   function stopAuto(){ if(state.timer){ clearInterval(state.timer); state.timer=null; } }
@@ -452,14 +527,21 @@
     assignPolicy: function(){
       if(!$("a-pol").value){ showOut("o-dev","Politika ID girin.","err"); return Promise.resolve(); }
       return api("/api/policies/assign","POST",{device_id:state.sel,policy_id:$("a-pol").value}).then(function(){
-        showOut("o-dev","Politika atandı (ajana anında iletilir).","ok"); toast("Politika atandı","Anlık push gönderildi","ok"); }); }
+        showOut("o-dev","Politika atandı (ajana anında iletilir).","ok"); toast("Politika atandı","Anlık push gönderildi","ok"); }); },
+    addRule: function(){
+      var pol=$("r-pol").value; if(!pol){ showOut("o-rule","Politika ID girin.","err"); return Promise.resolve(); }
+      var type=$("r-type").value, body={type:type, target:$("r-target").value};
+      if(type==="APP_TIME_BLOCK"){ body.start=$("r-start").value; body.end=$("r-end").value; body.active_days=[1,2,3,4,5]; }
+      return api("/api/policies/"+encodeURIComponent(pol)+"/rules","POST",body).then(function(){
+        showOut("o-rule","Kural eklendi — atanmış cihazlara anında iletildi.","ok"); toast("Kural eklendi","Sürüm yükseltildi + push","ok"); }); }
   };
   function bindActions(){
     document.querySelectorAll("[data-act]").forEach(function(btn){
       btn.addEventListener("click", function(){
         var fn=actions[btn.dataset.act]; if(!fn) return;
         var out = ["quarantine","release","revoke","assignPolicy"].indexOf(btn.dataset.act)>=0 ? "o-dev"
-                : btn.dataset.act==="token" ? "o-token" : "o-pol";
+                : btn.dataset.act==="token" ? "o-token"
+                : btn.dataset.act==="addRule" ? "o-rule" : "o-pol";
         fn().catch(function(e){ showOut(out, e.message, "err"); toast("İşlem başarısız", e.message, "err"); });
       });
     });
@@ -493,6 +575,8 @@
     b.onclick=function(){ document.querySelectorAll("#sevfilter button").forEach(function(x){x.className="";}); b.className="on";
       state.sevFilter=b.dataset.sev; renderEvents(); };
   });
+  $("aud-refresh").onclick=refresh;
+  $("r-type").onchange=function(){ $("r-times").style.display = this.value==="APP_TIME_BLOCK" ? "flex" : "none"; };
   bindActions();
 
   // Sayfa yenilendiğinde oturumu geri yükle (token geçersizse 401 → login).
