@@ -62,6 +62,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/devices/revoke", s.authed(s.handleRevoke))
 	mux.HandleFunc("POST /api/policies", s.authed(s.handleCreatePolicy))
 	mux.HandleFunc("POST /api/policies/assign", s.authed(s.handleAssignPolicy))
+	// Kural editörü: politikaya kural ekle / kuralları listele (Go 1.22 {id}).
+	mux.HandleFunc("POST /api/policies/{id}/rules", s.authed(s.handleAddRule))
+	mux.HandleFunc("GET /api/policies/{id}/rules", s.authed(s.handleListRules))
 	// Okuma (görünürlük) uçları — herhangi bir kimlik doğrulanmış admin (VIEWER+).
 	mux.HandleFunc("GET /api/devices", s.authed(s.handleListDevices))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
@@ -191,6 +194,35 @@ func (s *Server) handleAssignPolicy(w http.ResponseWriter, r *http.Request, admi
 	writeJSON(w, http.StatusOK, map[string]string{"status": "assigned"})
 }
 
+func (s *Server) handleAddRule(w http.ResponseWriter, r *http.Request, adminID string) {
+	policyID := r.PathValue("id")
+	var req struct {
+		Type       string  `json:"type"`
+		Target     string  `json:"target"`
+		Start      string  `json:"start"`
+		End        string  `json:"end"`
+		ActiveDays []int32 `json:"active_days"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	in := admin.RuleInput{
+		Type: req.Type, Target: req.Target, Start: req.Start, End: req.End, ActiveDays: req.ActiveDays,
+	}
+	if respondErr(w, s.adminSvc.AddPolicyRule(r.Context(), adminID, policyID, in)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "rule_added"})
+}
+
+func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request, adminID string) {
+	rules, err := s.adminSvc.ListPolicyRules(r.Context(), adminID, r.PathValue("id"))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rules": rules})
+}
+
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request, _ string) {
 	devices, err := s.reader.Devices(r.Context(), intParam(r, "limit"))
 	if respondErr(w, err) {
@@ -252,6 +284,10 @@ func respondErr(w http.ResponseWriter, err error) bool {
 	}
 	if errors.Is(err, admin.ErrForbidden) {
 		writeErr(w, http.StatusForbidden, "yetki yetersiz")
+		return true
+	}
+	if errors.Is(err, admin.ErrInvalidRule) {
+		writeErr(w, http.StatusBadRequest, "geçersiz kural")
 		return true
 	}
 	writeErr(w, http.StatusInternalServerError, "işlem başarısız")

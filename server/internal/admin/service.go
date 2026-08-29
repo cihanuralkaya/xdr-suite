@@ -41,6 +41,28 @@ func rank(r Role) int {
 // ErrForbidden, çağıran yöneticinin yetkisi yetersiz olduğunda döner.
 var ErrForbidden = errors.New("admin: yetki yetersiz")
 
+// ErrInvalidRule, kural girdisi doğrulamayı geçemediğinde döner (istemci hatası).
+var ErrInvalidRule = errors.New("admin: geçersiz kural")
+
+// RuleInput, bir politikaya eklenecek kuralın girdisidir.
+type RuleInput struct {
+	Type       string  // APP_TIME_BLOCK | APP_BLOCK_ALWAYS | NETWORK_RULE
+	Target     string  // hedef (uygulama adı / ağ hedefi)
+	Start      string  // "HH:MM" (APP_TIME_BLOCK için zorunlu; aksi halde boş)
+	End        string  // "HH:MM"
+	ActiveDays []int32 // 0=Pazar .. 6=Cumartesi (boşsa depoda varsayılan uygulanır)
+}
+
+// RuleView, bir politika kuralının okunabilir görünümüdür.
+type RuleView struct {
+	ID         string  `json:"id"`
+	Type       string  `json:"type"`
+	Target     string  `json:"target"`
+	Start      string  `json:"start"`
+	End        string  `json:"end"`
+	ActiveDays []int32 `json:"active_days"`
+}
+
 // Store, admin işlemlerinin ihtiyaç duyduğu kalıcılıktır.
 type Store interface {
 	AdminRole(ctx context.Context, adminID string) (Role, error)
@@ -50,6 +72,24 @@ type Store interface {
 	WriteAudit(ctx context.Context, adminID, action, targetType, targetID string) error
 	CreatePolicy(ctx context.Context, name, version string) (policyID string, err error)
 	AssignPolicy(ctx context.Context, deviceID, policyID string) error
+	// AddPolicyRule, politikaya yeni bir kural ekler.
+	AddPolicyRule(ctx context.Context, policyID string, in RuleInput) error
+	// BumpPolicyVersion, politikanın sürümünü yükseltir ve yeni sürümü döner.
+	BumpPolicyVersion(ctx context.Context, policyID string) (newVersion string, err error)
+	// DevicesForPolicy, politikaya atanmış cihaz id'lerini döner (republish için).
+	DevicesForPolicy(ctx context.Context, policyID string) ([]string, error)
+	// ListPolicyRules, politikanın kurallarını döner.
+	ListPolicyRules(ctx context.Context, policyID string) ([]RuleView, error)
+}
+
+// validRuleType, kabul edilen kural tiplerini doğrular.
+func validRuleType(t string) bool {
+	switch t {
+	case "APP_TIME_BLOCK", "APP_BLOCK_ALWAYS", "NETWORK_RULE":
+		return true
+	default:
+		return false
+	}
 }
 
 // Publisher, bir cihaza politika atandığında anlık push tetiklemek için
@@ -173,6 +213,49 @@ func (s *Service) AssignPolicy(ctx context.Context, adminID, deviceID, policyID 
 		s.pub.Publish(deviceID)
 	}
 	return nil
+}
+
+// AddPolicyRule, bir politikaya yeni bir kural ekler (ADMIN). Kuralı ekler,
+// politikanın sürümünü yükseltir, denetim izine yazar ve politikaya atanmış her
+// cihaza anlık push tetikler (açık StreamPolicies akışını uyandırır).
+func (s *Service) AddPolicyRule(ctx context.Context, adminID, policyID string, in RuleInput) error {
+	if err := s.require(ctx, adminID, RoleAdmin); err != nil {
+		return err
+	}
+	// Doğrulama: tip geçerli olmalı; APP_TIME_BLOCK ise Start ve End zorunlu.
+	if !validRuleType(in.Type) {
+		return ErrInvalidRule
+	}
+	if in.Type == "APP_TIME_BLOCK" && (in.Start == "" || in.End == "") {
+		return ErrInvalidRule
+	}
+	if err := s.store.AddPolicyRule(ctx, policyID, in); err != nil {
+		return err
+	}
+	// Kural değişti; ajanların yeni paketi çekmesi için sürümü yükselt.
+	if _, err := s.store.BumpPolicyVersion(ctx, policyID); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "ADD_POLICY_RULE", "policy", policyID)
+	// Politikaya atanmış her cihazın açık akışını uyandır (anlık push).
+	if s.pub != nil {
+		devices, err := s.store.DevicesForPolicy(ctx, policyID)
+		if err != nil {
+			return err
+		}
+		for _, deviceID := range devices {
+			s.pub.Publish(deviceID)
+		}
+	}
+	return nil
+}
+
+// ListPolicyRules, bir politikanın kurallarını döner (OPERATOR+).
+func (s *Service) ListPolicyRules(ctx context.Context, adminID, policyID string) ([]RuleView, error) {
+	if err := s.require(ctx, adminID, RoleOperator); err != nil {
+		return nil, err
+	}
+	return s.store.ListPolicyRules(ctx, policyID)
 }
 
 // defaultGenToken, 20 baytlık rastgele, okunabilir (base32) bir token üretir.

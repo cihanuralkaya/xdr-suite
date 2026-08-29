@@ -24,12 +24,19 @@ type memStore struct {
 	cipher   *security.FieldCipher
 	devRows  []adminread.DeviceRow
 	evtRows  []adminread.EventRow
+	rules    map[string][]admin.RuleInput // policyID -> kurallar
+	assigned map[string]string            // deviceID -> policyID
 }
 
 type adminRec struct{ id, hash string }
 
 func newMemStore() *memStore {
-	return &memStore{roles: map[string]admin.Role{}, emails: map[string]adminRec{}}
+	return &memStore{
+		roles:    map[string]admin.Role{},
+		emails:   map[string]adminRec{},
+		rules:    map[string][]admin.RuleInput{},
+		assigned: map[string]string{},
+	}
 }
 
 // admin.Store
@@ -51,7 +58,36 @@ func (m *memStore) WriteAudit(_ context.Context, _, _, _, _ string) error { retu
 func (m *memStore) CreatePolicy(_ context.Context, _, _ string) (string, error) {
 	return "pol-1", nil
 }
-func (m *memStore) AssignPolicy(_ context.Context, _, _ string) error { return nil }
+func (m *memStore) AssignPolicy(_ context.Context, deviceID, policyID string) error {
+	m.assigned[deviceID] = policyID
+	return nil
+}
+func (m *memStore) AddPolicyRule(_ context.Context, policyID string, in admin.RuleInput) error {
+	m.rules[policyID] = append(m.rules[policyID], in)
+	return nil
+}
+func (m *memStore) BumpPolicyVersion(_ context.Context, _ string) (string, error) {
+	return "v2", nil
+}
+func (m *memStore) DevicesForPolicy(_ context.Context, policyID string) ([]string, error) {
+	var out []string
+	for dev, pol := range m.assigned {
+		if pol == policyID {
+			out = append(out, dev)
+		}
+	}
+	return out, nil
+}
+func (m *memStore) ListPolicyRules(_ context.Context, policyID string) ([]admin.RuleView, error) {
+	var out []admin.RuleView
+	for i, r := range m.rules[policyID] {
+		out = append(out, admin.RuleView{
+			ID: "r-" + string(rune('0'+i)), Type: r.Type, Target: r.Target,
+			Start: r.Start, End: r.End, ActiveDays: r.ActiveDays,
+		})
+	}
+	return out, nil
+}
 
 // adminapi.AuthStore
 func (m *memStore) LookupAdmin(_ context.Context, email string) (string, string, error) {
@@ -272,6 +308,67 @@ func TestViewerForbidden(t *testing.T) {
 	}
 	if len(store.commands) != 0 {
 		t.Fatal("reddedilen istek komut üretmemeli")
+	}
+}
+
+func TestPolicyRuleEditorHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "ad1", "admin@x", "secret", admin.RoleAdmin)
+
+	_, adBody := post(t, ts.URL+"/api/login", "", map[string]string{"email": "admin@x", "password": "secret"})
+	token := adBody["token"]
+
+	// Politika oluştur.
+	code, body := post(t, ts.URL+"/api/policies", token, map[string]string{"name": "Mesai", "version": "v1"})
+	if code != http.StatusOK || body["policy_id"] == "" {
+		t.Fatalf("politika oluşturulmalı: code=%d body=%v", code, body)
+	}
+	policyID := body["policy_id"]
+
+	// Kural ekle.
+	code, _ = post(t, ts.URL+"/api/policies/"+policyID+"/rules", token, map[string]any{
+		"type": "APP_TIME_BLOCK", "target": "oyun.exe", "start": "09:00", "end": "18:00",
+		"active_days": []int{1, 2, 3, 4, 5},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("kural eklenebilmeli, code=%d", code)
+	}
+
+	// Kuralları listele.
+	req, _ := http.NewRequest("GET", ts.URL+"/api/policies/"+policyID+"/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("kural listesi 200 dönmeliydi, %d", resp.StatusCode)
+	}
+	var out struct {
+		Rules []struct {
+			Type       string  `json:"type"`
+			Target     string  `json:"target"`
+			Start      string  `json:"start"`
+			End        string  `json:"end"`
+			ActiveDays []int32 `json:"active_days"`
+		} `json:"rules"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Rules) != 1 || out.Rules[0].Type != "APP_TIME_BLOCK" || out.Rules[0].Target != "oyun.exe" ||
+		out.Rules[0].Start != "09:00" || out.Rules[0].End != "18:00" {
+		t.Fatalf("eklenen kural listede dönmeliydi: %+v", out.Rules)
+	}
+
+	// Geçersiz kural (APP_TIME_BLOCK ama zaman aralığı yok) → 400.
+	code, _ = post(t, ts.URL+"/api/policies/"+policyID+"/rules", token, map[string]any{
+		"type": "APP_TIME_BLOCK", "target": "x",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("geçersiz kural 400 dönmeliydi, %d", code)
 	}
 }
 
