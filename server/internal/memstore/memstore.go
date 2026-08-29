@@ -376,6 +376,82 @@ func (s *Store) AssignPolicy(_ context.Context, deviceID, policyID string) error
 	return nil
 }
 
+func (s *Store) AddPolicyRule(_ context.Context, policyID string, in admin.RuleInput) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.policies[policyID]
+	if !ok {
+		return nil
+	}
+	days := make([]uint32, 0, len(in.ActiveDays))
+	for _, d := range in.ActiveDays {
+		if d >= 0 {
+			days = append(days, uint32(d))
+		}
+	}
+	if len(days) == 0 {
+		days = []uint32{1, 2, 3, 4, 5, 6, 0}
+	}
+	p.rules = append(p.rules, policyRule{
+		id: randID("r-"), typ: in.Type, target: in.Target,
+		start: in.Start, end: in.End, activeDays: days,
+	})
+	return nil
+}
+
+// BumpPolicyVersion, politikanın sürümünü yeni bir zaman-damgası etiketine
+// yükseltir ve o politikaya atanmış cihazların policyVersion'ını da günceller
+// (heartbeat eden ajanlar yeni sürümü görüp yeni paketi çeker).
+func (s *Store) BumpPolicyVersion(_ context.Context, policyID string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.policies[policyID]
+	if !ok {
+		return "", nil
+	}
+	nv := time.Now().UTC().Format("20060102150405.000000000")
+	p.version = nv
+	for _, d := range s.devices {
+		if d.policyID == policyID {
+			d.policyVersion = nv
+		}
+	}
+	return nv, nil
+}
+
+func (s *Store) DevicesForPolicy(_ context.Context, policyID string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, d := range s.devices {
+		if d.policyID == policyID {
+			out = append(out, d.id)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) ListPolicyRules(_ context.Context, policyID string) ([]admin.RuleView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.policies[policyID]
+	if !ok {
+		return nil, nil
+	}
+	var out []admin.RuleView
+	for _, r := range p.rules {
+		days := make([]int32, 0, len(r.activeDays))
+		for _, d := range r.activeDays {
+			days = append(days, int32(d))
+		}
+		out = append(out, admin.RuleView{
+			ID: r.id, Type: r.typ, Target: r.target,
+			Start: r.start, End: r.end, ActiveDays: days,
+		})
+	}
+	return out, nil
+}
+
 // --- adminread.Store ---
 
 // Derleme-zamanı arayüz kontrolü.
