@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package xdr.v1;
+
+option go_package = "xdr.corp/suite/gen/xdr/v1;xdrv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "xdr/v1/common.proto";
+
+// AgentService, kayıtlı bir ajanın C2 ile tüm rutin iletişimidir.
+// TAMAMI mTLS üzerinden çalışır: sunucu, ajanın kimliğini istemci
+// sertifikasından doğrular ve gövdedeki device_id'ye körü körüne güvenmez.
+service AgentService {
+  // Periyodik yaşam sinyali. Yanıt SUNUCU SAATİNİ taşır; ajan, mesai-saati
+  // politikalarını değerlendirirken yerel saate değil bu çıpaya dayanır
+  // (yerel saat manipülasyonuna karşı koruma).
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Politika akışı. Sunucu, politika değiştiğinde ajana yeni sürümü iter.
+  // Ajan mevcut policy_version'ını bildirir; sunucu yalnızca değişiklikte gönderir.
+  rpc StreamPolicies(PolicySubscribeRequest) returns (stream PolicyBundle);
+
+  // Olay/log gönderimi. Ajan, çevrimdışıyken tamponladığı olayları
+  // (store-and-forward) toplu olarak gönderir. Sunucu en son kabul edilen
+  // sequence numarasını döner; ajan yalnızca onaylananları tamponundan siler.
+  rpc ReportEvents(stream EventBatch) returns (EventAck);
+
+  // OTA güncelleme kontrolü. Yanıt yalnızca metadata + İMZA taşır; ikili paket
+  // ayrı, imzalı bir kanaldan indirilir ve ajan İMZAYI doğrular (yalnız hash yetmez).
+  rpc CheckUpdate(UpdateCheckRequest) returns (UpdateManifest);
+}
+
+message HeartbeatRequest {
+  AgentIdentity identity = 1;
+  string current_policy_version = 2;
+  DeviceStatus self_reported_status = 3;
+  ResourceMetrics metrics = 4; // Lokal ML/baseline için hafif metrikler.
+}
+
+message HeartbeatResponse {
+  // Sunucu saati — politika zaman pencerelerinin güvenilir çıpası.
+  google.protobuf.Timestamp server_time = 1;
+  bool policy_update_available = 2;
+  bool update_available = 3;
+  // Sunucudan ajana anlık komut (örn. karantinaya al, karantinadan çıkar).
+  repeated Command pending_commands = 4;
+}
+
+message ResourceMetrics {
+  double cpu_percent = 1;
+  double mem_percent = 2;
+  uint32 active_connections = 3;
+}
+
+message Command {
+  string command_id = 1;
+  CommandType type = 2;
+  google.protobuf.Struct params = 3;
+
+  enum CommandType {
+    COMMAND_TYPE_UNSPECIFIED = 0;
+    COMMAND_TYPE_QUARANTINE = 1;    // Ağ izolasyonu uygula.
+    COMMAND_TYPE_UNQUARANTINE = 2;
+    COMMAND_TYPE_RUN_SIGNED_SCRIPT = 3; // İmzalı script çalıştır (sandbox'ta).
+    COMMAND_TYPE_UNINSTALL = 4;     // Yalnız imzalı/OTP doğrulanmış kaldırma.
+    COMMAND_TYPE_COLLECT_DIAGNOSTICS = 5;
+  }
+}
+
+message PolicySubscribeRequest {
+  AgentIdentity identity = 1;
+  string current_policy_version = 2;
+}
+
+// Ajana itilen tam politika paketi. Sürümlüdür; ajan diske şifreli yazar.
+message PolicyBundle {
+  string policy_version = 1;
+  repeated PolicyRule rules = 2;
+  google.protobuf.Timestamp issued_at = 3;
+  bytes signature = 4; // Sunucunun imzası; ajan içeriği doğrular.
+}
+
+// Tek bir kural. DB'deki policy_rules ile eşleşir.
+message PolicyRule {
+  string rule_id = 1;
+  RuleType type = 2;
+  string target_value = 3;      // Örn. yasaklı uygulama adı / path / hash.
+  string start_time = 4;        // "HH:MM" (sunucu saat diliminde).
+  string end_time = 5;          // "HH:MM"
+  repeated uint32 active_days = 6; // 0=Pazar ... 6=Cumartesi.
+
+  enum RuleType {
+    RULE_TYPE_UNSPECIFIED = 0;
+    RULE_TYPE_APP_TIME_BLOCK = 1;   // Mesai dışı uygulama yasağı.
+    RULE_TYPE_APP_BLOCK_ALWAYS = 2;
+    RULE_TYPE_NETWORK_RULE = 3;
+  }
+}
+
+message EventBatch {
+  AgentIdentity identity = 1;
+  repeated Event events = 2;
+}
+
+message Event {
+  uint64 sequence = 1;          // Ajan-lokal monoton sıra no (ack için).
+  EventCategory category = 2;
+  Severity severity = 3;
+  string message = 4;
+  google.protobuf.Struct details = 5;
+  google.protobuf.Timestamp occurred_at = 6; // Ajanın gözlemlediği an.
+}
+
+message EventAck {
+  uint64 last_accepted_sequence = 1; // Ajan bu no'ya kadar olanları silebilir.
+}
+
+message UpdateCheckRequest {
+  AgentIdentity identity = 1;
+}
+
+// OTA güncelleme manifestosu. Ajan, ikiliyi indirdikten SONRA bu imzayı
+// public key ile doğrular; yalnız SHA-256 eşleşmesi yeterli DEĞİLDİR.
+message UpdateManifest {
+  bool update_available = 1;
+  string target_version = 2;
+  string download_url = 3;
+  string sha256_hex = 4;       // Bütünlük (transport hatası tespiti).
+  bytes signature = 5;         // Kimlik+bütünlük: Ed25519/Authenticode imzası.
+  bool mandatory = 6;
+  uint32 rollout_percent = 7;  // Kademeli dağıtım (canary).
+}

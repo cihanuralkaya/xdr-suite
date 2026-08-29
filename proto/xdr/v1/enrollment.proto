@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package xdr.v1;
+
+option go_package = "xdr.corp/suite/gen/xdr/v1;xdrv1";
+
+import "google/protobuf/timestamp.proto";
+
+// EnrollmentService, ajanın ilk güven tesisini (PKI bootstrap) yönetir.
+//
+// Bu servis, mTLS'in HENÜZ kurulamadığı tek yerdir: ajan henüz bir istemci
+// sertifikasına sahip değildir. Bu nedenle enrollment endpoint'i:
+//   * Sunucu tarafında TLS (tek yönlü) ile korunur (ajan sunucuyu doğrular).
+//   * Tek kullanımlık, süreli bir "enrollment token" ile yetkilendirilir
+//     (IT tarafından cihaz kurulumu sırasında dağıtılır).
+//   * Ajanın ürettiği CSR'ı imzalayıp kısa ömürlü bir istemci sertifikası döner.
+//
+// Bundan sonraki TÜM iletişim (AgentService) mTLS iledir.
+service EnrollmentService {
+  // Ajan, cihaz kurulumunda aldığı tek kullanımlık token + kendi ürettiği CSR
+  // ile kaydolur. Başarılıysa imzalı istemci sertifikası ve CA zinciri döner.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+
+  // Sertifika süresi dolmadan yenileme. Bu çağrı MEVCUT mTLS bağlantısı
+  // üzerinden yapılır (ajanın hâlâ geçerli bir sertifikası vardır).
+  rpc RenewCertificate(RenewRequest) returns (EnrollResponse);
+}
+
+message EnrollRequest {
+  // IT tarafından cihaz kurulumunda verilen tek kullanımlık, süreli token.
+  string enrollment_token = 1;
+
+  // Ajanın lokal olarak ürettiği anahtar çiftinin CSR'ı (PEM). Özel anahtar
+  // cihazdan HİÇBİR zaman çıkmaz.
+  bytes csr_pem = 2;
+
+  // Kanıtlama/envanter için toplanan cihaz bilgileri (deşifre edilmiş düz metin;
+  // sunucu şifreleyerek saklar).
+  string hostname = 3;
+  string mac_address = 4;
+  string os_info = 5;
+}
+
+message RenewRequest {
+  bytes csr_pem = 1;
+}
+
+message EnrollResponse {
+  string device_id = 1;            // Sunucunun atadığı UUID.
+  bytes client_cert_pem = 2;       // İmzalanmış istemci sertifikası.
+  bytes ca_chain_pem = 3;          // Ajanın sunucuyu doğrulaması için CA zinciri.
+  google.protobuf.Timestamp cert_not_after = 4; // Yenileme zamanlaması için.
+}

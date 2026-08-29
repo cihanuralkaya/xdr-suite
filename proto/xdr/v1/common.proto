@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package xdr.v1;
+
+option go_package = "xdr.corp/suite/gen/xdr/v1;xdrv1";
+
+// Cihazın yaşam döngüsü durumu. DB'deki device_status ENUM'u ile birebir eşleşir.
+enum DeviceStatus {
+  DEVICE_STATUS_UNSPECIFIED = 0;
+  DEVICE_STATUS_PENDING_ENROLLMENT = 1; // Kayıt token'ı üretildi, henüz sertifika almadı.
+  DEVICE_STATUS_ACTIVE = 2;
+  DEVICE_STATUS_OFFLINE = 3;
+  DEVICE_STATUS_QUARANTINED = 4;
+  DEVICE_STATUS_UNINSTALLED = 5;
+}
+
+// Olay kategorisi. DB'deki event_category ENUM'u ile eşleşir.
+enum EventCategory {
+  EVENT_CATEGORY_UNSPECIFIED = 0;
+  EVENT_CATEGORY_SYSTEM = 1;
+  EVENT_CATEGORY_SECURITY = 2;
+  EVENT_CATEGORY_NETWORK_DISCOVERY = 3;
+  EVENT_CATEGORY_POLICY_VIOLATION = 4;
+  EVENT_CATEGORY_AGENT_UPDATE = 5;
+}
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;
+  SEVERITY_LOW = 2;
+  SEVERITY_MEDIUM = 3;
+  SEVERITY_HIGH = 4;
+  SEVERITY_CRITICAL = 5;
+}
+
+// Ajanı tanımlayan, sertifika CN'ine bağlı kimlik. Sunucu bu değeri istemci
+// sertifikasından (mTLS) alır; istemcinin gövdede gönderdiği değere GÜVENMEZ.
+message AgentIdentity {
+  string device_id = 1;      // UUID
+  string agent_version = 2;
+  string os_platform = 3;    // "windows", "linux"
+}

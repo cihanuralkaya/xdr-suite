@@ -1,0 +1,249 @@
+// Package db, PostgreSQL erişim katmanıdır (pgx). enroll.Store gibi domain
+// arayüzlerini somut sorgularla karşılar.
+//
+// NOT: Bu paket harici bağımlılık (github.com/jackc/pgx/v5) kullanır; derlenmesi
+// için `go get` / `go mod tidy` gerekir. Çekirdek security/enroll paketleri buna
+// bağımlı DEĞİLDİR ve tek başlarına test edilebilir.
+package db
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	xdrv1 "xdr.corp/suite/gen/xdr/v1"
+	"xdr.corp/suite/server/internal/enroll"
+	"xdr.corp/suite/server/internal/model"
+)
+
+// Store, pgx havuzu üzerinden domain depolama arayüzlerini uygular.
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+// New, DSN'den bir bağlantı havuzu açar.
+func New(ctx context.Context, dsn string) (*Store, error) {
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("db: havuz açılamadı: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("db: ping başarısız: %w", err)
+	}
+	return &Store{pool: pool}, nil
+}
+
+// Close, havuzu kapatır.
+func (s *Store) Close() { s.pool.Close() }
+
+// Derleme-zamanı arayüz kontrolü.
+var _ enroll.Store = (*Store)(nil)
+
+// ConsumeEnrollmentToken, token'ı ATOMİK olarak doğrular ve kullanılmış işaretler.
+// Tek bir UPDATE ... RETURNING ile yarış koşulu olmadan tek-kullanım garanti edilir.
+func (s *Store) ConsumeEnrollmentToken(ctx context.Context, tokenIndex []byte, _ time.Time) (string, error) {
+	// Zaman çıpası olarak DB'nin now()'ı kullanılır (tek otorite); domain
+	// arayüzündeki time.Time parametresi burada gerekmez.
+	const q = `
+		UPDATE enrollment_tokens
+		   SET used_at = now()
+		 WHERE token_hash = $1
+		   AND used_at IS NULL
+		   AND expires_at > now()
+	 RETURNING COALESCE(device_id::text, '')`
+	var boundDeviceID string
+	err := s.pool.QueryRow(ctx, q, tokenIndex).Scan(&boundDeviceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", enroll.ErrInvalidToken
+	}
+	if err != nil {
+		return "", fmt.Errorf("db: token tüketme: %w", err)
+	}
+	return boundDeviceID, nil
+}
+
+// UpsertEnrollingDevice, cihazı oluşturur/günceller ve device_id döner.
+func (s *Store) UpsertEnrollingDevice(ctx context.Context, in enroll.DeviceEnrollment) (string, error) {
+	if in.PreferredDeviceID != "" {
+		const upd = `
+			UPDATE devices
+			   SET hostname_encrypted = $2,
+			       mac_address_encrypted = $3,
+			       os_info_encrypted = $4,
+			       mac_address_bidx = $5,
+			       os_platform = $6,
+			       agent_version = $7,
+			       status = 'ACTIVE'
+			 WHERE id = $1
+		 RETURNING id::text`
+		var id string
+		err := s.pool.QueryRow(ctx, upd, in.PreferredDeviceID, in.HostnameEnc, in.MACEnc,
+			in.OSInfoEnc, in.MACBlindIndex, in.OSPlatform, in.AgentVersion).Scan(&id)
+		if err != nil {
+			return "", fmt.Errorf("db: cihaz güncelleme: %w", err)
+		}
+		return id, nil
+	}
+
+	const ins = `
+		INSERT INTO devices
+			(hostname_encrypted, mac_address_encrypted, os_info_encrypted,
+			 mac_address_bidx, os_platform, agent_version, status)
+		VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE')
+		ON CONFLICT (mac_address_bidx) DO UPDATE SET
+			hostname_encrypted = EXCLUDED.hostname_encrypted,
+			mac_address_encrypted = EXCLUDED.mac_address_encrypted,
+			os_info_encrypted = EXCLUDED.os_info_encrypted,
+			os_platform = EXCLUDED.os_platform,
+			agent_version = EXCLUDED.agent_version,
+			status = 'ACTIVE'
+	 RETURNING id::text`
+	var id string
+	err := s.pool.QueryRow(ctx, ins, in.HostnameEnc, in.MACEnc, in.OSInfoEnc,
+		in.MACBlindIndex, in.OSPlatform, in.AgentVersion).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("db: cihaz ekleme: %w", err)
+	}
+	return id, nil
+}
+
+// SaveCertificate, imzalanan istemci sertifikasını kaydeder.
+func (s *Store) SaveCertificate(ctx context.Context, c enroll.CertRecord) error {
+	const q = `
+		INSERT INTO agent_certificates
+			(device_id, serial_number, fingerprint, not_before, not_after)
+		VALUES ($1, $2::numeric, $3, $4, $5)`
+	_, err := s.pool.Exec(ctx, q, c.DeviceID, c.Serial, c.Fingerprint, c.NotBefore, c.NotAfter)
+	if err != nil {
+		return fmt.Errorf("db: sertifika kaydı: %w", err)
+	}
+	return nil
+}
+
+// --- AgentService (heartbeat/olay) depolaması ---
+
+// TouchHeartbeat, last_seen ve agent_version günceller; cihazın sunucudaki
+// geçerli politika sürümünü döner.
+func (s *Store) TouchHeartbeat(ctx context.Context, deviceID, agentVersion string, at time.Time) (string, error) {
+	const q = `
+		UPDATE devices
+		   SET last_seen = $2,
+		       agent_version = COALESCE(NULLIF($3, ''), agent_version),
+		       status = CASE WHEN status = 'OFFLINE' THEN 'ACTIVE' ELSE status END
+		 WHERE id = $1
+	 RETURNING COALESCE(current_policy_version, '')`
+	var v string
+	err := s.pool.QueryRow(ctx, q, deviceID, at, agentVersion).Scan(&v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("db: bilinmeyen cihaz: %s", deviceID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("db: heartbeat güncelleme: %w", err)
+	}
+	return v, nil
+}
+
+// PendingCommands, cihaz için bekleyen komutları döner ve teslim edildi olarak
+// işaretler (en-fazla-bir-kez teslim). Tek UPDATE...RETURNING ile atomiktir.
+func (s *Store) PendingCommands(ctx context.Context, deviceID string) ([]*xdrv1.Command, error) {
+	const q = `
+		UPDATE device_commands
+		   SET delivered_at = now()
+		 WHERE id IN (
+		       SELECT id FROM device_commands
+		        WHERE device_id = $1 AND delivered_at IS NULL
+		        ORDER BY created_at
+		        LIMIT 100)
+	 RETURNING id::text, type`
+	rows, err := s.pool.Query(ctx, q, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("db: komut sorgusu: %w", err)
+	}
+	defer rows.Close()
+
+	var cmds []*xdrv1.Command
+	for rows.Next() {
+		var id, typ string
+		if err := rows.Scan(&id, &typ); err != nil {
+			return nil, fmt.Errorf("db: komut okuma: %w", err)
+		}
+		cmds = append(cmds, &xdrv1.Command{CommandId: id, Type: commandTypeToProto(typ)})
+	}
+	return cmds, rows.Err()
+}
+
+// EnqueueCommand, cihaz için bir komut kuyruğa ekler (admin aksiyonu).
+func (s *Store) EnqueueCommand(ctx context.Context, deviceID, cmdType, issuedBy string) error {
+	const q = `
+		INSERT INTO device_commands (device_id, type, issued_by)
+		VALUES ($1, $2::command_type, NULLIF($3,'')::uuid)`
+	_, err := s.pool.Exec(ctx, q, deviceID, cmdType, issuedBy)
+	if err != nil {
+		return fmt.Errorf("db: komut kuyruğa eklenemedi: %w", err)
+	}
+	return nil
+}
+
+func commandTypeToProto(t string) xdrv1.Command_CommandType {
+	switch t {
+	case "QUARANTINE":
+		return xdrv1.Command_COMMAND_TYPE_QUARANTINE
+	case "UNQUARANTINE":
+		return xdrv1.Command_COMMAND_TYPE_UNQUARANTINE
+	case "RUN_SIGNED_SCRIPT":
+		return xdrv1.Command_COMMAND_TYPE_RUN_SIGNED_SCRIPT
+	case "UNINSTALL":
+		return xdrv1.Command_COMMAND_TYPE_UNINSTALL
+	case "COLLECT_DIAGNOSTICS":
+		return xdrv1.Command_COMMAND_TYPE_COLLECT_DIAGNOSTICS
+	default:
+		return xdrv1.Command_COMMAND_TYPE_UNSPECIFIED
+	}
+}
+
+// SaveEvents, gelen olayları event_logs'a yazar ve kabul edilen son sırayı döner.
+//
+// Batch AÇIK bir transaction içinde çalışır (hepsi-ya-hiç): tek bir ifade
+// başarısız olursa hiçbiri yazılmaz, fonksiyon 0 döner, ajan tüm partiyi yeniden
+// gönderir ve KISMEN yazılmış olaylardan kaynaklı DUPLİKASYON oluşmaz.
+// (Ack kaybında tüm parti yeniden gelebilir; teslim en-az-bir-kez'dir.)
+func (s *Store) SaveEvents(ctx context.Context, deviceID string, evs []model.Event) (uint64, error) {
+	if len(evs) == 0 {
+		return 0, nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("db: olay transaction başlatma: %w", err)
+	}
+	defer tx.Rollback(ctx) // commit sonrası no-op
+
+	const q = `
+		INSERT INTO event_logs (device_id, category, severity, message, occurred_at)
+		VALUES ($1, $2::event_category, $3::severity, $4, $5)`
+	batch := &pgx.Batch{}
+	var last uint64
+	for _, e := range evs {
+		batch.Queue(q, deviceID, e.Category, e.Severity, e.Message, e.OccurredAt)
+		if e.Sequence > last {
+			last = e.Sequence
+		}
+	}
+	br := tx.SendBatch(ctx, batch)
+	for range evs {
+		if _, err := br.Exec(); err != nil {
+			_ = br.Close()
+			return 0, fmt.Errorf("db: olay yazma: %w", err)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return 0, fmt.Errorf("db: olay batch kapatma: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("db: olay commit: %w", err)
+	}
+	return last, nil
+}

@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XDR Komuta Merkezi</title>
+<style>
+  /* Koyu güvenlik-operasyon teması (bilinçli tek tema; her renk açıkça boyanır). */
+  :root {
+    --bg:#0a0d12; --bg2:#0e131a; --panel:#121924; --panel2:#0f1620;
+    --line:#1f2a37; --line2:#2a3746;
+    --ink:#e6edf3; --muted:#8b98a8; --faint:#5f6d7e;
+    --accent:#38bdf8; --accent2:#0ea5e9; --accent-dim:#0b3a52;
+    --ok:#22c55e; --ok-dim:#0f2e1c; --warn:#f59e0b; --warn-dim:#332208;
+    --crit:#ef4444; --crit-dim:#3a1414; --med:#fb923c;
+    --radius:12px; --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    margin:0; background:
+      radial-gradient(1200px 600px at 80% -10%, #0f2233 0%, transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:var(--sans); font-size:14px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  button { font-family:inherit; cursor:pointer; }
+  ::selection { background:var(--accent-dim); }
+
+  /* ---------- LOGIN ---------- */
+  #login { min-height:100%; display:grid; place-items:center; padding:24px; }
+  .login-card {
+    width:100%; max-width:360px; background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:28px; box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px; letter-spacing:-.01em; }
+  .brand .logo { font-size:22px; }
+  .brand .sub { display:block; font-size:11px; font-weight:500; color:var(--faint);
+    letter-spacing:.14em; text-transform:uppercase; margin-top:2px; }
+  .login-card h1 { font-size:15px; margin:22px 0 4px; }
+  .login-card p.hint { color:var(--muted); font-size:12.5px; margin:0 0 18px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:14px 0 6px; letter-spacing:.02em; }
+  input, select {
+    width:100%; padding:10px 12px; background:var(--panel2); color:var(--ink);
+    border:1px solid var(--line2); border-radius:9px; font-size:14px; outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(56,189,248,.15); }
+  .btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    padding:9px 14px; border-radius:9px; border:1px solid transparent; font-size:13px; font-weight:600;
+    background:var(--accent); color:#04121c; transition:filter .15s, transform .05s;
+  }
+  .btn:hover { filter:brightness(1.08); }
+  .btn:active { transform:translateY(1px); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.block { width:100%; margin-top:20px; padding:11px; }
+  .btn.ghost { background:transparent; color:var(--ink); border-color:var(--line2); }
+  .btn.ghost:hover { border-color:var(--accent); color:var(--accent); filter:none; }
+  .btn.danger { background:var(--crit); color:#fff; }
+  .btn.warn { background:var(--warn); color:#1a1204; }
+  .btn.sm { padding:6px 10px; font-size:12px; }
+  .err { color:var(--crit); font-size:12.5px; margin-top:12px; min-height:16px; }
+
+  /* ---------- APP SHELL ---------- */
+  #app { display:none; min-height:100%; grid-template-rows:auto 1fr; }
+  header.top {
+    display:flex; align-items:center; gap:16px; padding:12px 20px;
+    background:linear-gradient(var(--panel),var(--panel2)); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:20;
+  }
+  header.top .brand { font-size:15px; }
+  header.top .sp { flex:1; }
+  .live { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--muted);
+    font-family:var(--mono); }
+  .live .dot { width:8px; height:8px; border-radius:50%; background:var(--ok);
+    box-shadow:0 0 0 0 rgba(34,197,94,.5); animation:pulse 2s infinite; }
+  .live.off .dot { background:var(--crit); animation:none; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(34,197,94,.45);} 70%{box-shadow:0 0 0 7px rgba(34,197,94,0);} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0);} }
+  @media (prefers-reduced-motion:reduce){ .live .dot{animation:none;} }
+  .whoami { font-size:12.5px; color:var(--muted); }
+  .whoami b { color:var(--ink); font-weight:600; }
+
+  main { padding:20px; display:flex; flex-direction:column; gap:18px; max-width:1400px; margin:0 auto; width:100%; }
+
+  /* ---------- STAT TILES ---------- */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px 18px; position:relative; overflow:hidden; }
+  .stat::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent); opacity:.8; }
+  .stat.good::before{ background:var(--ok);} .stat.warn::before{ background:var(--warn);} .stat.crit::before{ background:var(--crit);}
+  .stat .k { font-size:12px; color:var(--muted); letter-spacing:.03em; }
+  .stat .v { font-size:30px; font-weight:700; font-family:var(--mono); font-variant-numeric:tabular-nums;
+    line-height:1.1; margin-top:6px; }
+  .stat .v small { font-size:13px; color:var(--faint); font-weight:500; }
+
+  /* ---------- GRID ---------- */
+  .grid { display:grid; grid-template-columns:2fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:960px){ .grid{ grid-template-columns:1fr; } }
+  .col { display:flex; flex-direction:column; gap:18px; }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+  .card > .head { display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid var(--line); }
+  .card > .head h2 { font-size:13px; margin:0; font-weight:650; letter-spacing:.02em; display:flex; align-items:center; gap:8px; }
+  .card > .head .count { font-family:var(--mono); font-size:12px; color:var(--faint);
+    background:var(--panel2); border:1px solid var(--line); border-radius:20px; padding:1px 9px; }
+  .card > .head .sp { flex:1; }
+  .card > .body { padding:14px 16px; }
+
+  /* ---------- TABLES ---------- */
+  .tbl-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  thead th { text-align:left; padding:9px 14px; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--faint); border-bottom:1px solid var(--line); font-weight:600; white-space:nowrap; }
+  tbody td { padding:10px 14px; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:middle; }
+  tbody tr:last-child td { border-bottom:0; }
+  tbody tr.sel td { background:var(--accent-dim); }
+  tbody tr.click { cursor:pointer; }
+  tbody tr.click:hover td { background:var(--panel2); }
+  td.mono, .mono { font-family:var(--mono); font-size:12px; }
+  .empty { padding:26px 16px; text-align:center; color:var(--faint); font-size:13px; }
+
+  /* ---------- PILLS / CHIPS ---------- */
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600;
+    padding:2px 9px; border-radius:20px; border:1px solid transparent; font-family:var(--mono); white-space:nowrap; }
+  .pill::before { content:""; width:6px; height:6px; border-radius:50%; }
+  .pill.on { color:var(--ok); background:var(--ok-dim); } .pill.on::before{ background:var(--ok); }
+  .pill.offl { color:var(--faint); background:#141c26; } .pill.offl::before{ background:var(--faint); }
+  .pill.q { color:var(--crit); background:var(--crit-dim); } .pill.q::before{ background:var(--crit); }
+  .chip { font-size:10.5px; font-family:var(--mono); color:var(--muted); background:var(--panel2);
+    border:1px solid var(--line); border-radius:5px; padding:1px 6px; letter-spacing:.03em; }
+  .sev { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:12px; }
+  .sev::before { content:""; width:7px; height:7px; border-radius:2px; background:var(--faint); }
+  .sev.INFO::before{ background:var(--faint);} .sev.LOW::before{ background:var(--accent);}
+  .sev.MEDIUM{ color:var(--med);} .sev.MEDIUM::before{ background:var(--med);}
+  .sev.HIGH{ color:var(--warn);} .sev.HIGH::before{ background:var(--warn);}
+  .sev.CRITICAL{ color:var(--crit);} .sev.CRITICAL::before{ background:var(--crit);}
+
+  /* ---------- ACTION PANEL ---------- */
+  .sel-head { font-size:12.5px; color:var(--muted); }
+  .sel-head b { color:var(--ink); }
+  .sel-none { color:var(--faint); font-style:italic; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .field { margin-top:12px; }
+  .out { margin-top:12px; font-size:12.5px; font-family:var(--mono); word-break:break-all;
+    background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:10px 12px; display:none; }
+  .out.show{ display:block; } .out.ok{ border-color:var(--ok); } .out.err{ border-color:var(--crit); color:var(--crit); }
+  .divider { height:1px; background:var(--line); margin:16px 0; }
+  .lbl { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); font-weight:600; }
+
+  /* ---------- TOAST ---------- */
+  #toasts { position:fixed; right:18px; bottom:18px; display:flex; flex-direction:column; gap:10px; z-index:60; }
+  .toast { background:var(--panel); border:1px solid var(--line2); border-left:3px solid var(--accent);
+    border-radius:10px; padding:11px 14px; font-size:13px; box-shadow:0 12px 30px rgba(0,0,0,.5);
+    min-width:220px; max-width:340px; animation:slidein .2s ease; }
+  .toast.ok{ border-left-color:var(--ok);} .toast.err{ border-left-color:var(--crit);} .toast.warn{ border-left-color:var(--warn);}
+  .toast .t { font-weight:600; margin-bottom:2px; }
+  .toast .d { color:var(--muted); font-size:12px; }
+  @keyframes slidein { from{ transform:translateY(8px); opacity:0; } to{ transform:none; opacity:1; } }
+
+  .row { display:flex; gap:8px; align-items:center; }
+  .seg { display:inline-flex; border:1px solid var(--line2); border-radius:8px; overflow:hidden; }
+  .seg button { background:var(--panel2); color:var(--muted); border:0; padding:5px 10px; font-size:12px; }
+  .seg button.on { background:var(--accent-dim); color:var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="login-card">
+    <div class="brand"><span class="logo">🛡️</span><span>XDR Komuta Merkezi<span class="sub">Endpoint Security · MDM</span></span></div>
+    <h1>Yönetici Girişi</h1>
+    <p class="hint">Kurumsal uç nokta güvenlik ve ajan yönetim konsolu.</p>
+    <label for="l-email">E-posta</label>
+    <input id="l-email" type="email" autocomplete="username" placeholder="admin@sirket.local">
+    <label for="l-pass">Parola</label>
+    <input id="l-pass" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button id="l-btn" class="btn block">Giriş Yap</button>
+    <div id="l-err" class="err"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header class="top">
+    <div class="brand"><span class="logo">🛡️</span> XDR Komuta Merkezi</div>
+    <span class="sp"></span>
+    <span id="live" class="live"><span class="dot"></span><span id="live-txt">bağlanıyor…</span></span>
+    <div class="seg" title="Otomatik yenileme">
+      <button id="rf-on" class="on">Canlı</button>
+      <button id="rf-off">Durdur</button>
+    </div>
+    <span class="whoami">👤 <b id="who"></b></span>
+    <button id="logout" class="btn ghost sm">Çıkış</button>
+  </header>
+
+  <main>
+    <section class="stats" id="stats"></section>
+
+    <div class="grid">
+      <div class="col">
+        <!-- DEVICES -->
+        <div class="card">
+          <div class="head">
+            <h2>💻 Cihazlar <span id="dev-count" class="count">0</span></h2>
+            <span class="sp"></span>
+            <button class="btn ghost sm" id="dev-refresh">↻ Yenile</button>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>Durum</th><th>Hostname</th><th>MAC</th><th>Sürüm</th><th>Son görülme</th></tr></thead>
+              <tbody id="dev-body"></tbody>
+            </table>
+          </div>
+          <div id="dev-empty" class="empty">Henüz kayıtlı cihaz yok. Sağdan bir <b>enrollment token</b> üretip ajanı kurun.</div>
+        </div>
+
+        <!-- EVENTS -->
+        <div class="card">
+          <div class="head">
+            <h2>📡 Olaylar <span id="evt-count" class="count">0</span></h2>
+            <span class="sp"></span>
+            <div class="seg" id="sevfilter" title="Öneme göre süz">
+              <button data-sev="" class="on">Tümü</button>
+              <button data-sev="HIGH">Yüksek+</button>
+              <button data-sev="CRITICAL">Kritik</button>
+            </div>
+            <button class="btn ghost sm" id="evt-refresh">↻</button>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>Zaman</th><th>Kategori</th><th>Önem</th><th>Mesaj</th></tr></thead>
+              <tbody id="evt-body"></tbody>
+            </table>
+          </div>
+          <div id="evt-empty" class="empty">Olay yok.</div>
+        </div>
+      </div>
+
+      <!-- ACTIONS -->
+      <div class="col">
+        <div class="card">
+          <div class="head"><h2>⚡ Cihaz Eylemleri</h2></div>
+          <div class="body">
+            <div id="sel-head" class="sel-head sel-none">Bir cihaz seçmek için tablodan satıra tıklayın.</div>
+            <div class="actions">
+              <button class="btn warn sm" data-act="quarantine" disabled>🔒 Karantina</button>
+              <button class="btn ghost sm" data-act="release" disabled>🔓 Serbest</button>
+              <button class="btn danger sm" data-act="revoke" disabled>⛔ Sertifika İptal</button>
+            </div>
+            <div class="divider"></div>
+            <div class="lbl">Politika Ata</div>
+            <div class="field"><input id="a-pol" placeholder="Politika ID"></div>
+            <button class="btn sm" data-act="assignPolicy" disabled style="margin-top:10px">Seçili cihaza ata</button>
+            <div id="o-dev" class="out"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h2>🎫 Kayıt & Politika</h2></div>
+          <div class="body">
+            <div class="lbl">Yeni cihaz kaydı</div>
+            <button class="btn sm" data-act="token" style="margin-top:10px">Enrollment Token Üret</button>
+            <div id="o-token" class="out"></div>
+            <div class="divider"></div>
+            <div class="lbl">Politika oluştur</div>
+            <div class="field"><input id="p-name" placeholder="Ad (ör. Mesai Politikası)"></div>
+            <div class="field"><input id="p-ver" placeholder="Sürüm (ör. v1)"></div>
+            <button class="btn sm" data-act="createPolicy" style="margin-top:10px">Oluştur</button>
+            <div id="o-pol" class="out"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", auto:true, timer:null };
+
+  // ---------- API ----------
+  function api(path, method, body) {
+    var opt = { method: method || "GET", headers: {} };
+    if (state.token) opt.headers["Authorization"] = "Bearer " + state.token;
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (res) {
+      return res.json().catch(function(){ return {}; }).then(function (data) {
+        if (res.status === 401) { sessionExpired(); throw new Error(data.error || "Oturum süresi doldu"); }
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        return data;
+      });
+    });
+  }
+
+  function sessionExpired(){
+    if(!state.token) return;
+    stopAuto(); state.token=""; state.sel=null;
+    try { sessionStorage.removeItem("xdr_tok"); sessionStorage.removeItem("xdr_email"); } catch(e){}
+    $("app").style.display="none"; $("login").style.display="grid";
+    $("l-err").textContent="Oturum süresi doldu — tekrar giriş yapın.";
+  }
+  function selName(){
+    var d=state.devices.filter(function(x){return x.id===state.sel;})[0];
+    return d ? (d.hostname || d.id) : state.sel;
+  }
+
+  // ---------- helpers ----------
+  function esc(s){ return s == null ? "" : String(s); }
+  function cell(text, cls){ var td=document.createElement("td"); td.textContent=esc(text); if(cls) td.className=cls; return td; }
+  function relTime(iso){
+    if(!iso) return "-";
+    var t=new Date(iso).getTime(); if(isNaN(t)) return "-";
+    var s=Math.max(0,Math.round((Date.now()-t)/1000));
+    if(s<10) return "az önce"; if(s<60) return s+" sn önce";
+    var m=Math.round(s/60); if(m<60) return m+" dk önce";
+    var h=Math.round(m/60); if(h<24) return h+" sa önce";
+    return Math.round(h/24)+" gün önce";
+  }
+  function isOnline(d){ var t=new Date(d.last_seen).getTime(); return !isNaN(t) && (Date.now()-t) < 30000; }
+  function toast(title, detail, kind){
+    var el=document.createElement("div"); el.className="toast "+(kind||"");
+    var t=document.createElement("div"); t.className="t"; t.textContent=title; el.appendChild(t);
+    if(detail){ var d=document.createElement("div"); d.className="d"; d.textContent=detail; el.appendChild(d); }
+    $("toasts").appendChild(el);
+    setTimeout(function(){ el.style.opacity="0"; el.style.transition="opacity .3s"; setTimeout(function(){ el.remove(); },300); }, 3200);
+  }
+  function showOut(id,msg,kind){ var el=$(id); el.textContent=msg; el.className="out show "+(kind||""); }
+
+  // ---------- rendering ----------
+  function renderStats(){
+    var total=state.devices.length;
+    var online=state.devices.filter(isOnline).length;
+    var quar=state.devices.filter(function(d){return d.status==="QUARANTINED";}).length;
+    var disc=0, crit=0;
+    state.events.forEach(function(e){
+      if(e.category==="NETWORK_DISCOVERY") disc++;
+      if(e.severity==="CRITICAL"||e.severity==="HIGH") crit++;
+    });
+    var tiles=[
+      {k:"Toplam cihaz", v:total, cls:""},
+      {k:"Çevrimiçi", v:online+" <small>/ "+total+"</small>", cls:online?"good":""},
+      {k:"Ağ keşfi (olay)", v:disc, cls:disc?"warn":""},
+      {k:"Kritik / yüksek olay", v:crit, cls:crit?"crit":""}
+    ];
+    if(quar>0) tiles.push({k:"Karantinada", v:quar, cls:"crit"});
+    $("stats").innerHTML = tiles.map(function(t){
+      return '<div class="stat '+t.cls+'"><div class="k">'+t.k+'</div><div class="v">'+t.v+'</div></div>';
+    }).join("");
+  }
+
+  function renderDevices(){
+    var body=$("dev-body"); body.innerHTML="";
+    $("dev-count").textContent=state.devices.length;
+    $("dev-empty").style.display = state.devices.length ? "none" : "block";
+    state.devices.forEach(function(d){
+      var tr=document.createElement("tr"); tr.className="click"; if(state.sel===d.id) tr.className+=" sel";
+      var st=document.createElement("td");
+      var online=isOnline(d), q=d.status==="QUARANTINED";
+      var pill=document.createElement("span");
+      pill.className="pill "+(q?"q":(online?"on":"offl"));
+      pill.textContent = q?"KARANTİNA":(online?"ÇEVRİMİÇİ":"ÇEVRİMDIŞI");
+      st.appendChild(pill); tr.appendChild(st);
+      tr.appendChild(cell(d.hostname||"-"));
+      tr.appendChild(cell(d.mac||"-","mono"));
+      tr.appendChild(cell(d.agent_version||"-","mono"));
+      tr.appendChild(cell(relTime(d.last_seen)));
+      tr.onclick=function(){ selectDevice(d.id); };
+      body.appendChild(tr);
+    });
+  }
+
+  function renderEvents(){
+    var body=$("evt-body"); body.innerHTML="";
+    var list=state.events.filter(function(e){
+      if(!state.sevFilter) return true;
+      if(state.sevFilter==="CRITICAL") return e.severity==="CRITICAL";
+      return e.severity==="CRITICAL"||e.severity==="HIGH";
+    });
+    $("evt-count").textContent=list.length;
+    $("evt-empty").style.display = list.length ? "none" : "block";
+    list.forEach(function(e){
+      var tr=document.createElement("tr");
+      tr.appendChild(cell(relTime(e.created_at)));
+      var c=document.createElement("td"); var chip=document.createElement("span");
+      chip.className="chip"; chip.textContent=e.category||"-"; c.appendChild(chip); tr.appendChild(c);
+      var sv=document.createElement("td"); var s=document.createElement("span");
+      s.className="sev "+(e.severity||""); s.textContent=e.severity||"-"; sv.appendChild(s); tr.appendChild(sv);
+      var msg=cell(e.message||"-"); msg.style.whiteSpace="normal"; tr.appendChild(msg);
+      body.appendChild(tr);
+    });
+  }
+
+  function selectDevice(id){
+    state.sel = (state.sel===id) ? null : id;
+    var d = state.devices.filter(function(x){return x.id===id;})[0];
+    var head=$("sel-head");
+    if(state.sel && d){
+      head.className="sel-head";
+      head.innerHTML="Seçili: <b>"+esc(d.hostname||d.id)+"</b> &nbsp;<span class='mono' style='color:var(--faint)'>"+esc(d.id)+"</span>";
+    } else {
+      head.className="sel-head sel-none";
+      head.textContent="Bir cihaz seçmek için tablodan satıra tıklayın.";
+    }
+    document.querySelectorAll("[data-act]").forEach(function(b){
+      var needsSel = ["quarantine","release","revoke","assignPolicy"].indexOf(b.dataset.act)>=0;
+      if(needsSel) b.disabled = !state.sel;
+    });
+    renderDevices();
+  }
+
+  // ---------- refresh loop ----------
+  function setLive(ok){
+    var el=$("live"); el.className="live"+(ok?"":" off");
+    $("live-txt").textContent = ok ? ("canlı · "+new Date().toLocaleTimeString()) : "bağlantı yok";
+  }
+  function refresh(){
+    return Promise.all([
+      api("/api/devices?limit=500"),
+      api("/api/events?limit=200")
+    ]).then(function(r){
+      state.devices = r[0].devices || [];
+      state.events = r[1].events || [];
+      renderStats(); renderDevices(); renderEvents(); setLive(true);
+    }).catch(function(e){ setLive(false); });
+  }
+  function startAuto(){ stopAuto(); state.timer=setInterval(refresh, 5000); }
+  function stopAuto(){ if(state.timer){ clearInterval(state.timer); state.timer=null; } }
+
+  // ---------- actions ----------
+  var actions = {
+    token: function(){ return api("/api/enrollment-tokens","POST",{}).then(function(d){
+      showOut("o-token","Token (bir kez): "+d.enrollment_token,"ok"); toast("Enrollment token üretildi","Kopyalayıp ajan kurulumunda kullanın","ok"); }); },
+    createPolicy: function(){ return api("/api/policies","POST",{name:$("p-name").value,version:$("p-ver").value}).then(function(d){
+      showOut("o-pol","Oluşturuldu · Politika ID: "+d.policy_id,"ok"); toast("Politika oluşturuldu",d.policy_id,"ok"); }); },
+    quarantine: function(){
+      if(!confirm("“"+selName()+"” cihazı KARANTİNAYA alınacak (yalnız C2 ile haberleşebilir). Onaylıyor musunuz?")) return Promise.resolve();
+      return api("/api/devices/quarantine","POST",{device_id:state.sel}).then(function(){
+        showOut("o-dev","Karantina komutu kuyruğa alındı.","ok"); toast("Karantinaya alındı","Komut ajana teslim edilecek","warn"); }); },
+    release: function(){ return api("/api/devices/release","POST",{device_id:state.sel}).then(function(){
+      showOut("o-dev","Serbest bırakma komutu kuyruğa alındı.","ok"); toast("Serbest bırakıldı",null,"ok"); }); },
+    revoke: function(){
+      if(!confirm("“"+selName()+"” cihazının sertifikası İPTAL edilecek. Bu GERİ ALINAMAZ — cihaz yeniden kaydolana kadar bağlanamaz. Onaylıyor musunuz?")) return Promise.resolve();
+      return api("/api/devices/revoke","POST",{device_id:state.sel}).then(function(){
+        showOut("o-dev","Sertifika iptal edildi (sonraki bağlantıda reddedilir).","ok"); toast("Sertifika iptal edildi",null,"err"); }); },
+    assignPolicy: function(){
+      if(!$("a-pol").value){ showOut("o-dev","Politika ID girin.","err"); return Promise.resolve(); }
+      return api("/api/policies/assign","POST",{device_id:state.sel,policy_id:$("a-pol").value}).then(function(){
+        showOut("o-dev","Politika atandı (ajana anında iletilir).","ok"); toast("Politika atandı","Anlık push gönderildi","ok"); }); }
+  };
+  function bindActions(){
+    document.querySelectorAll("[data-act]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var fn=actions[btn.dataset.act]; if(!fn) return;
+        var out = ["quarantine","release","revoke","assignPolicy"].indexOf(btn.dataset.act)>=0 ? "o-dev"
+                : btn.dataset.act==="token" ? "o-token" : "o-pol";
+        fn().catch(function(e){ showOut(out, e.message, "err"); toast("İşlem başarısız", e.message, "err"); });
+      });
+    });
+  }
+
+  // ---------- login ----------
+  function doLogin(){
+    $("l-err").textContent="";
+    api("/api/login","POST",{email:$("l-email").value,password:$("l-pass").value}).then(function(d){
+      enterApp(d.token, $("l-email").value);
+    }).catch(function(e){ $("l-err").textContent=e.message; });
+  }
+  function enterApp(token, email){
+    state.token=token; state.email=email;
+    try { sessionStorage.setItem("xdr_tok", token); sessionStorage.setItem("xdr_email", email); } catch(e){}
+    $("who").textContent=email;
+    $("login").style.display="none"; $("app").style.display="grid";
+    refresh().then(startAuto);
+  }
+
+  // ---------- wire ----------
+  $("l-btn").onclick=doLogin;
+  $("l-pass").addEventListener("keydown",function(e){ if(e.key==="Enter") doLogin(); });
+  $("logout").onclick=function(){ stopAuto(); state.token=""; state.sel=null;
+    try { sessionStorage.removeItem("xdr_tok"); sessionStorage.removeItem("xdr_email"); } catch(e){}
+    $("app").style.display="none"; $("login").style.display="grid"; $("l-pass").value=""; };
+  $("dev-refresh").onclick=refresh; $("evt-refresh").onclick=refresh;
+  $("rf-on").onclick=function(){ state.auto=true; $("rf-on").className="on"; $("rf-off").className=""; startAuto(); refresh(); };
+  $("rf-off").onclick=function(){ state.auto=false; $("rf-on").className=""; $("rf-off").className="on"; stopAuto(); setLive(true); $("live-txt").textContent="duraklatıldı"; };
+  document.querySelectorAll("#sevfilter button").forEach(function(b){
+    b.onclick=function(){ document.querySelectorAll("#sevfilter button").forEach(function(x){x.className="";}); b.className="on";
+      state.sevFilter=b.dataset.sev; renderEvents(); };
+  });
+  bindActions();
+
+  // Sayfa yenilendiğinde oturumu geri yükle (token geçersizse 401 → login).
+  try {
+    var savedTok = sessionStorage.getItem("xdr_tok");
+    if (savedTok) enterApp(savedTok, sessionStorage.getItem("xdr_email") || "");
+  } catch(e){}
+})();
+</script>
+</body>
+</html>

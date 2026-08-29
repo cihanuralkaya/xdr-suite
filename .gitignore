@@ -1,0 +1,36 @@
+# Go
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Üretilen proto kodu (buf generate ile yeniden üretilir)
+/gen/
+
+# Sertifikalar / sırlar — ASLA commit etme
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+/secrets/
+.env
+.env.*
+
+# Derleme çıktıları / installer'lar
+/dist/
+/build/
+*.msi
+*.deb
+*.rpm
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
