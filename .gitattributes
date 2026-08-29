@@ -1,0 +1,9 @@
+server/internal/adminapi/server.go            merge=union
+server/internal/adminapi/server_test.go       merge=union
+server/internal/adminread/service.go          merge=union
+server/internal/adminread/service_test.go     merge=union
+server/internal/admin/service.go              merge=union
+server/internal/admin/service_test.go         merge=union
+server/internal/memstore/memstore.go          merge=union
+server/internal/db/read.go                    merge=union
+server/internal/db/policy.go                  merge=union
