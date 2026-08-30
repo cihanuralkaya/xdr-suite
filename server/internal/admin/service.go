@@ -68,6 +68,9 @@ type Store interface {
 	AdminRole(ctx context.Context, adminID string) (Role, error)
 	SaveEnrollmentToken(ctx context.Context, tokenIndex []byte, createdBy string, expiresAt time.Time) error
 	EnqueueCommand(ctx context.Context, deviceID, cmdType, issuedBy string) error
+	// SetDeviceStatus, cihazın durum sütununu doğrudan ayarlar (komut kuyruğa
+	// girdikten sonra durumun UI'da yansıması için).
+	SetDeviceStatus(ctx context.Context, deviceID, status string) error
 	RevokeDeviceCerts(ctx context.Context, deviceID, reason string) error
 	WriteAudit(ctx context.Context, adminID, action, targetType, targetID string) error
 	CreatePolicy(ctx context.Context, name, version string) (policyID string, err error)
@@ -152,17 +155,23 @@ func (s *Service) IssueEnrollmentToken(ctx context.Context, adminID string) (str
 	return token, nil
 }
 
-// QuarantineDevice, cihazı karantinaya alma komutu kuyruğa ekler (OPERATOR+).
+// QuarantineDevice, cihazı karantinaya alma komutu kuyruğa ekler (OPERATOR+) ve
+// durum sütununu QUARANTINED olarak yansıtır.
 func (s *Service) QuarantineDevice(ctx context.Context, adminID, deviceID string) error {
-	return s.command(ctx, adminID, deviceID, "QUARANTINE")
+	return s.command(ctx, adminID, deviceID, "QUARANTINE", "QUARANTINED")
 }
 
-// ReleaseDevice, karantinayı kaldırma komutu kuyruğa ekler (OPERATOR+).
+// ReleaseDevice, karantinayı kaldırma komutu kuyruğa ekler (OPERATOR+) ve durum
+// sütununu ACTIVE olarak geri yansıtır.
 func (s *Service) ReleaseDevice(ctx context.Context, adminID, deviceID string) error {
-	return s.command(ctx, adminID, deviceID, "UNQUARANTINE")
+	return s.command(ctx, adminID, deviceID, "UNQUARANTINE", "ACTIVE")
 }
 
-func (s *Service) command(ctx context.Context, adminID, deviceID, cmdType string) error {
+// command, RBAC kontrolü sonrası komutu kuyruğa ekler, denetim izine yazar ve
+// (reflectStatus boş değilse) cihazın durum sütununu günceller. Durum güncelleme
+// hatası akışı BOZMAZ: komut zaten kuyruğa girmiştir; hata yutulur (best-effort
+// yansıma), çünkü asıl doğruluk kaynağı komut kuyruğudur.
+func (s *Service) command(ctx context.Context, adminID, deviceID, cmdType, reflectStatus string) error {
 	if err := s.require(ctx, adminID, RoleOperator); err != nil {
 		return err
 	}
@@ -170,6 +179,10 @@ func (s *Service) command(ctx context.Context, adminID, deviceID, cmdType string
 		return err
 	}
 	_ = s.store.WriteAudit(ctx, adminID, cmdType, "device", deviceID)
+	if reflectStatus != "" {
+		// Best-effort: komut kuyruğa girdiği için hata olsa da akışı bozma.
+		_ = s.store.SetDeviceStatus(ctx, deviceID, reflectStatus)
+	}
 	return nil
 }
 

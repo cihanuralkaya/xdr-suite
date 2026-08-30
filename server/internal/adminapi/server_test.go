@@ -31,6 +31,7 @@ type memStore struct {
 	polVer    string
 	rules     map[string][]admin.RuleInput // policyID -> kurallar
 	assigned  map[string]string            // deviceID -> policyID
+	statuses  map[string]string            // deviceID -> son ayarlanan durum
 }
 
 type adminRec struct{ id, hash string }
@@ -53,6 +54,13 @@ func (m *memStore) SaveEnrollmentToken(_ context.Context, _ []byte, _ string, _ 
 }
 func (m *memStore) EnqueueCommand(_ context.Context, deviceID, cmdType, _ string) error {
 	m.commands = append(m.commands, deviceID+":"+cmdType)
+	return nil
+}
+func (m *memStore) SetDeviceStatus(_ context.Context, deviceID, status string) error {
+	if m.statuses == nil {
+		m.statuses = map[string]string{}
+	}
+	m.statuses[deviceID] = status
 	return nil
 }
 func (m *memStore) RevokeDeviceCerts(_ context.Context, deviceID, _ string) error {

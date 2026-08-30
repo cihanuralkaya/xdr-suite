@@ -19,6 +19,7 @@ type memStore struct {
 	versions  map[string]string      // id -> version
 	rules     map[string][]RuleInput // id -> kurallar
 	assigned  map[string]string      // deviceID -> policyID
+	statuses  map[string]string      // deviceID -> son ayarlanan durum
 	nextPolID int
 }
 
@@ -33,6 +34,7 @@ func newMemStore() *memStore {
 		versions: map[string]string{},
 		rules:    map[string][]RuleInput{},
 		assigned: map[string]string{},
+		statuses: map[string]string{},
 	}
 }
 
@@ -50,6 +52,10 @@ func (m *memStore) SaveEnrollmentToken(_ context.Context, idx []byte, createdBy 
 }
 func (m *memStore) EnqueueCommand(_ context.Context, deviceID, cmdType, issuedBy string) error {
 	m.commands = append(m.commands, cmd{deviceID, cmdType, issuedBy})
+	return nil
+}
+func (m *memStore) SetDeviceStatus(_ context.Context, deviceID, status string) error {
+	m.statuses[deviceID] = status
 	return nil
 }
 func (m *memStore) RevokeDeviceCerts(_ context.Context, deviceID, _ string) error {
@@ -133,6 +139,28 @@ func TestRBACQuarantineRequiresOperator(t *testing.T) {
 	}
 	if len(store.audits) != 1 || store.audits[0].action != "QUARANTINE" {
 		t.Fatalf("denetim izi yazılmalıydı: %+v", store.audits)
+	}
+}
+
+func TestQuarantineReleaseReflectsStatus(t *testing.T) {
+	store := newMemStore()
+	store.roles["op1"] = RoleOperator
+	svc, _ := newService(t, store)
+
+	// Karantina: durum QUARANTINED olarak yansımalı.
+	if err := svc.QuarantineDevice(context.Background(), "op1", "dev-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.statuses["dev-1"]; got != "QUARANTINED" {
+		t.Fatalf("karantina sonrası durum QUARANTINED olmalı, dönen: %q", got)
+	}
+
+	// Serbest bırakma: durum ACTIVE'e dönmeli.
+	if err := svc.ReleaseDevice(context.Background(), "op1", "dev-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.statuses["dev-1"]; got != "ACTIVE" {
+		t.Fatalf("serbest bırakma sonrası durum ACTIVE olmalı, dönen: %q", got)
 	}
 }
 

@@ -45,6 +45,10 @@ type Backend interface {
 	revocation.Source
 	retention.Store
 	adminapi.AuthStore
+
+	// MarkStaleOffline, last_seen'i eşiğin gerisinde kalan ACTIVE cihazları
+	// OFFLINE işaretler (bayat-OFFLINE görevi). Hem db hem memstore uygular.
+	MarkStaleOffline(ctx context.Context, olderThan time.Time) (int, error)
 }
 
 // openBackend, XDR_DATABASE_URL varsa PostgreSQL, yoksa bellek-içi demo deposu
@@ -188,6 +192,27 @@ func run() error {
 		for {
 			if err := retSvc.Run(ctx, time.Now()); err != nil {
 				log.Printf("saklama görevi hatası: %v", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+
+	// Bayat-OFFLINE görevi: belirli süredir heartbeat göndermeyen ACTIVE
+	// cihazları OFFLINE işaretle (durum sütunu ve özet sayaçları güvenilir
+	// olsun). Eşik (~90 sn) heartbeat aralığının birkaç katıdır; her 1 dk taranır.
+	const staleThreshold = 90 * time.Second
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			if n, err := backend.MarkStaleOffline(ctx, time.Now().Add(-staleThreshold)); err != nil {
+				log.Printf("[status] bayat-OFFLINE görevi hatası: %v", err)
+			} else if n > 0 {
+				log.Printf("[status] %d cihaz OFFLINE işaretlendi", n)
 			}
 			select {
 			case <-ctx.Done():

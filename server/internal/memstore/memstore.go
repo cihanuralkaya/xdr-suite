@@ -224,6 +224,32 @@ func (s *Store) TouchHeartbeat(_ context.Context, deviceID, agentVersion string,
 	return d.policyVersion, nil
 }
 
+// MarkStaleOffline, last_seen'i olderThan'dan eski olan ACTIVE cihazları
+// OFFLINE işaretler ve etkilenen sayıyı döner (db.Store ile eşdeğer davranış).
+func (s *Store) MarkStaleOffline(_ context.Context, olderThan time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, d := range s.devices {
+		if d.status == "ACTIVE" && d.lastSeen.Before(olderThan) {
+			d.status = "OFFLINE"
+			n++
+		}
+	}
+	return n, nil
+}
+
+// SetDeviceStatus, cihaz durumunu doğrudan ayarlar (admin aksiyonu yansıması).
+// Bilinmeyen cihaz sessizce yok sayılır (db UPDATE'in 0 satır etkilemesi gibi).
+func (s *Store) SetDeviceStatus(_ context.Context, deviceID, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d, ok := s.devices[deviceID]; ok {
+		d.status = status
+	}
+	return nil
+}
+
 func (s *Store) PendingCommands(_ context.Context, deviceID string) ([]*xdrv1.Command, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
