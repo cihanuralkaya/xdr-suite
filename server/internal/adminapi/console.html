@@ -283,6 +283,16 @@
             <div class="lbl">Yeni cihaz kaydı</div>
             <button class="btn sm" data-act="token" style="margin-top:10px">Enrollment Token Üret</button>
             <div id="o-token" class="out"></div>
+            <div class="field lbl" style="margin-top:14px;display:flex;align-items:center;gap:8px">
+              Aktif token'lar <span id="tok-count" class="count">0</span>
+              <span class="sp" style="flex:1"></span>
+              <button class="btn ghost sm" data-act="loadTokens" style="padding:3px 8px">↻</button>
+            </div>
+            <div class="tbl-wrap" style="margin-top:6px">
+              <table><thead><tr><th>ID</th><th>Üreten</th><th>Durum</th><th></th></tr></thead>
+                <tbody id="tok-body"></tbody></table>
+            </div>
+            <div id="tok-empty" class="empty" style="padding:14px">Aktif token yok.</div>
             <div class="divider"></div>
             <div class="lbl">Politika oluştur</div>
             <div class="field"><input id="p-name" placeholder="Ad (ör. Mesai Politikası)"></div>
@@ -305,6 +315,30 @@
             <div id="o-rule" class="out"></div>
           </div>
         </div>
+
+        <!-- ADMINS -->
+        <div class="card">
+          <div class="head"><h2>👥 Yöneticiler <span id="adm-count" class="count">0</span></h2>
+            <span class="sp"></span><button class="btn ghost sm" data-act="loadAdmins">↻</button></div>
+          <div class="body">
+            <div class="tbl-wrap">
+              <table><thead><tr><th>E-posta</th><th>Rol</th><th>Durum</th><th></th></tr></thead>
+                <tbody id="adm-body"></tbody></table>
+            </div>
+            <div id="adm-empty" class="empty" style="padding:14px">Yönetici listesi yükleniyor…</div>
+            <div class="divider"></div>
+            <div class="lbl">Yeni yönetici ekle</div>
+            <div class="field"><input id="ad-email" type="email" placeholder="E-posta (ör. soc@sirket.local)"></div>
+            <div class="field"><input id="ad-pass" type="password" placeholder="Geçici parola (min 8)"></div>
+            <div class="field"><select id="ad-role">
+              <option value="VIEWER">VIEWER — yalnız izleme</option>
+              <option value="OPERATOR" selected>OPERATOR — eylem uygulayabilir</option>
+              <option value="ADMIN">ADMIN — tam yetki</option>
+            </select></div>
+            <button class="btn sm" data-act="createAdmin" style="margin-top:10px">Yönetici Oluştur</button>
+            <div id="o-adm" class="out"></div>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -316,7 +350,8 @@
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", auto:true, timer:null };
+  var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", auto:true, timer:null,
+    evtOpen:{}, tokens:[], admins:[] };
 
   // ---------- API ----------
   function api(path, method, body) {
@@ -425,14 +460,29 @@
     $("evt-count").textContent=list.length;
     $("evt-empty").style.display = list.length ? "none" : "block";
     list.forEach(function(e){
+      var hasDet = e.details != null && JSON.stringify(e.details) !== "null" && JSON.stringify(e.details) !== "{}";
       var tr=document.createElement("tr");
+      if(hasDet){ tr.className="click"; tr.title="Ayrıntı için tıklayın"; }
       tr.appendChild(cell(relTime(e.created_at)));
       var c=document.createElement("td"); var chip=document.createElement("span");
       chip.className="chip"; chip.textContent=e.category||"-"; c.appendChild(chip); tr.appendChild(c);
       var sv=document.createElement("td"); var s=document.createElement("span");
       s.className="sev "+(e.severity||""); s.textContent=e.severity||"-"; sv.appendChild(s); tr.appendChild(sv);
-      var msg=cell(e.message||"-"); msg.style.whiteSpace="normal"; tr.appendChild(msg);
+      var msg=cell((hasDet?"▸ ":"")+(e.message||"-")); msg.style.whiteSpace="normal"; tr.appendChild(msg);
       body.appendChild(tr);
+      if(hasDet){
+        var open = state.evtOpen[e.id];
+        if(open) msg.firstChild && (msg.textContent="▾ "+(e.message||"-"));
+        tr.onclick=function(){ state.evtOpen[e.id]=!state.evtOpen[e.id]; renderEvents(); };
+        if(open){
+          var dr=document.createElement("tr"); var dtd=document.createElement("td");
+          dtd.colSpan=4; dtd.style.background="var(--panel2)";
+          var pre=document.createElement("pre");
+          pre.style.cssText="margin:0;font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto";
+          try { pre.textContent=JSON.stringify(e.details,null,2); } catch(x){ pre.textContent=String(e.details); }
+          dtd.appendChild(pre); dr.appendChild(dtd); body.appendChild(dr);
+        }
+      }
     });
   }
 
@@ -467,13 +517,17 @@
       api("/api/devices?limit=500"),
       api("/api/events?limit=200"),
       soft(api("/api/summary")),
-      soft(api("/api/audit?limit=100"))
+      soft(api("/api/audit?limit=100")),
+      soft(api("/api/enrollment-tokens?limit=100")),
+      soft(api("/api/admins"))
     ]).then(function(r){
       state.devices = r[0].devices || [];
       state.events = r[1].events || [];
       state.summary = (r[2] && r[2].summary) || null;
       state.audit = (r[3] && r[3].audit) || [];
-      renderStats(); renderDevices(); renderEvents(); renderAudit(); setLive(true);
+      state.tokens = (r[4] && r[4].tokens) || [];
+      if(r[5] && r[5].admins) state.admins = r[5].admins;
+      renderStats(); renderDevices(); renderEvents(); renderAudit(); renderTokens(); renderAdmins(); setLive(true);
       if(state.sel) loadDetail(state.sel);
     }).catch(function(e){ setLive(false); });
   }
@@ -490,6 +544,92 @@
       chip.className="chip"; chip.textContent=x.action||"-"; ac.appendChild(chip); tr.appendChild(ac);
       tr.appendChild(cell((x.target_type||"")+(x.target_id?(" · "+x.target_id):""),"mono"));
       body.appendChild(tr);
+    });
+  }
+  function roleBadge(role){
+    var s=document.createElement("span"); s.className="chip"; s.textContent=role||"-";
+    if(role==="ADMIN") s.style.cssText="color:var(--accent);border-color:var(--accent-dim)";
+    else if(role==="VIEWER") s.style.color="var(--faint)";
+    return s;
+  }
+  function renderTokens(){
+    var body=$("tok-body"); body.innerHTML="";
+    var list=(state.tokens||[]).filter(function(t){ return !t.used; });
+    $("tok-count").textContent=list.length;
+    $("tok-empty").style.display=list.length?"none":"block";
+    list.forEach(function(t){
+      var tr=document.createElement("tr");
+      tr.appendChild(cell((t.id||"").slice(0,8)+"…","mono"));
+      tr.appendChild(cell(t.created_by_email||"—"));
+      var stTd=document.createElement("td"); var p=document.createElement("span");
+      var expd = t.expires_at && new Date(t.expires_at).getTime() < Date.now();
+      p.className="pill "+(expd?"offl":"on"); p.textContent=expd?"SÜRESİ DOLDU":"AKTİF";
+      stTd.appendChild(p); tr.appendChild(stTd);
+      var actTd=document.createElement("td");
+      var b=document.createElement("button"); b.className="btn danger sm"; b.textContent="İptal";
+      b.onclick=function(){
+        if(!confirm("Bu enrollment token iptal edilecek — bir daha kullanılamaz. Onaylıyor musunuz?")) return;
+        api("/api/enrollment-tokens/"+encodeURIComponent(t.id)+"/revoke","POST",{}).then(function(){
+          toast("Token iptal edildi",null,"warn"); loadTokens();
+        }).catch(function(e){ toast("İptal başarısız",e.message,"err"); });
+      };
+      actTd.appendChild(b); tr.appendChild(actTd);
+      body.appendChild(tr);
+    });
+  }
+  function loadTokens(){
+    return api("/api/enrollment-tokens?limit=100").then(function(r){
+      state.tokens=r.tokens||[]; renderTokens();
+    }).catch(function(){});
+  }
+  function renderAdmins(){
+    var body=$("adm-body"); body.innerHTML="";
+    var a=state.admins||[];
+    $("adm-count").textContent=a.length;
+    $("adm-empty").style.display=a.length?"none":"block";
+    a.forEach(function(x){
+      var tr=document.createElement("tr");
+      tr.appendChild(cell(x.email||"—"));
+      var rTd=document.createElement("td"); rTd.appendChild(roleBadge(x.role)); tr.appendChild(rTd);
+      var stTd=document.createElement("td"); var p=document.createElement("span");
+      p.className="pill "+(x.active?"on":"offl"); p.textContent=x.active?"AKTİF":"PASİF";
+      stTd.appendChild(p); tr.appendChild(stTd);
+      var actTd=document.createElement("td"); actTd.style.whiteSpace="nowrap";
+      var self = x.email===state.email;
+      var sel=document.createElement("select");
+      sel.style.cssText="width:auto;padding:3px 6px;font-size:11px;display:inline-block";
+      ["VIEWER","OPERATOR","ADMIN"].forEach(function(rn){
+        var o=document.createElement("option"); o.value=rn; o.textContent=rn; if(rn===x.role) o.selected=true; sel.appendChild(o);
+      });
+      sel.title = self ? "Kendi rolünüzü değiştiremezsiniz" : "Rolü değiştir";
+      sel.disabled = self;
+      sel.onchange=function(){
+        api("/api/admins/"+encodeURIComponent(x.id)+"/role","POST",{role:sel.value}).then(function(){
+          toast("Rol güncellendi",x.email+" → "+sel.value,"ok"); loadAdmins();
+        }).catch(function(e){ toast("Rol değişmedi",e.message,"err"); loadAdmins(); });
+      };
+      actTd.appendChild(sel);
+      if(x.active && !self){
+        var b=document.createElement("button"); b.className="btn ghost sm"; b.textContent="Pasifleştir";
+        b.style.marginLeft="6px";
+        b.onclick=function(){
+          if(!confirm("“"+x.email+"” yöneticisi devre dışı bırakılacak (giriş yapamaz). Onaylıyor musunuz?")) return;
+          api("/api/admins/"+encodeURIComponent(x.id)+"/deactivate","POST",{}).then(function(){
+            toast("Yönetici pasifleştirildi",x.email,"warn"); loadAdmins();
+          }).catch(function(e){ toast("İşlem başarısız",e.message,"err"); });
+        };
+        actTd.appendChild(b);
+      }
+      tr.appendChild(actTd);
+      body.appendChild(tr);
+    });
+  }
+  function loadAdmins(){
+    return api("/api/admins").then(function(r){
+      state.admins=r.admins||[]; renderAdmins();
+    }).catch(function(e){
+      $("adm-empty").textContent="Yönetici listesi görüntülenemedi ("+e.message+").";
+      $("adm-empty").style.display="block";
     });
   }
   function loadDetail(id){
@@ -511,7 +651,15 @@
   // ---------- actions ----------
   var actions = {
     token: function(){ return api("/api/enrollment-tokens","POST",{}).then(function(d){
-      showOut("o-token","Token (bir kez): "+d.enrollment_token,"ok"); toast("Enrollment token üretildi","Kopyalayıp ajan kurulumunda kullanın","ok"); }); },
+      showOut("o-token","Token (bir kez): "+d.enrollment_token,"ok"); toast("Enrollment token üretildi","Kopyalayıp ajan kurulumunda kullanın","ok"); loadTokens(); }); },
+    loadTokens: function(){ return loadTokens(); },
+    loadAdmins: function(){ return loadAdmins(); },
+    createAdmin: function(){
+      var email=$("ad-email").value.trim(), pass=$("ad-pass").value, role=$("ad-role").value;
+      if(!email || pass.length<8){ showOut("o-adm","Geçerli e-posta ve en az 8 karakter parola girin.","err"); return Promise.resolve(); }
+      return api("/api/admins","POST",{email:email,password:pass,role:role}).then(function(d){
+        showOut("o-adm","Yönetici oluşturuldu · ID: "+d.admin_id,"ok"); toast("Yönetici oluşturuldu",email+" ("+role+")","ok");
+        $("ad-email").value=""; $("ad-pass").value=""; loadAdmins(); }); },
     createPolicy: function(){ return api("/api/policies","POST",{name:$("p-name").value,version:$("p-ver").value}).then(function(d){
       showOut("o-pol","Oluşturuldu · Politika ID: "+d.policy_id,"ok"); toast("Politika oluşturuldu",d.policy_id,"ok"); }); },
     quarantine: function(){
@@ -541,6 +689,7 @@
         var fn=actions[btn.dataset.act]; if(!fn) return;
         var out = ["quarantine","release","revoke","assignPolicy"].indexOf(btn.dataset.act)>=0 ? "o-dev"
                 : btn.dataset.act==="token" ? "o-token"
+                : btn.dataset.act==="createAdmin" ? "o-adm"
                 : btn.dataset.act==="addRule" ? "o-rule" : "o-pol";
         fn().catch(function(e){ showOut(out, e.message, "err"); toast("İşlem başarısız", e.message, "err"); });
       });

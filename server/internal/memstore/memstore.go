@@ -757,7 +757,9 @@ func (s *Store) DropPartition(context.Context, time.Time) error      { return ni
 func (s *Store) LookupAdmin(_ context.Context, email string) (string, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if a, ok := s.admins[email]; ok {
+	// db implementasyonuyla aynı: yalnız aktif yöneticiler giriş yapabilir
+	// (pasifleştirilmiş hesap "bulunamadı" gibi ele alınır — hesap sızdırmaz).
+	if a, ok := s.admins[email]; ok && a.active {
 		return a.id, a.passwordHash, nil
 	}
 	return "", "", nil

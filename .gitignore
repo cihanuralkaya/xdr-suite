@@ -34,3 +34,5 @@ vendor/
 .vscode/
 .DS_Store
 Thumbs.db
+_demo/
+c2demo.exe
