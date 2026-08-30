@@ -339,6 +339,14 @@ func TestRevokeEnrollmentTokenRBAC(t *testing.T) {
 	var found bool
 	for _, a := range store.audits {
 		if a.action == "REVOKE_ENROLLMENT_TOKEN" && a.targetType == "token" && a.targetID == "tok-1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("token iptali denetim izine yazılmalıydı")
+	}
+}
+
 func TestCreateAdminRBACHashingAndAudit(t *testing.T) {
 	store := newMemStore()
 	store.roles["op1"] = RoleOperator

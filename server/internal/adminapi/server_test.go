@@ -35,20 +35,7 @@ type memStore struct {
 	polVer    string
 	rules     map[string][]admin.RuleInput // policyID -> kurallar
 	assigned  map[string]string            // deviceID -> policyID
-	statuses  map[string]string            // deviceID -> son ayarlanan durum
-	roles      map[string]admin.Role
-	emails     map[string]adminRec // email -> (id, hash)
-	commands   []string            // "deviceID:type"
-	cipher     *security.FieldCipher
-	devRows    []adminread.DeviceRow
-	evtRows    []adminread.EventRow
-	auditRows  []adminread.AuditRow
-	certRows   []adminread.CertRow
-	cmdRows    []adminread.CmdRow
-	polID      string
-	polVer     string
-	rules      map[string][]admin.RuleInput // policyID -> kurallar
-	assigned   map[string]string            // deviceID -> policyID
+	statuses   map[string]string            // deviceID -> son ayarlanan durum
 	adminInfos map[string]*admin.AdminInfo  // id -> yönetici görünümü
 	nextAdmID  int
 }
