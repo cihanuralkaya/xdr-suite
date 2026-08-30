@@ -19,11 +19,18 @@ type memStore struct {
 	versions  map[string]string      // id -> version
 	rules     map[string][]RuleInput // id -> kurallar
 	assigned  map[string]string      // deviceID -> policyID
+	admins    map[string]*adminEntry // id -> yönetici
 	nextPolID int
+	nextAdmID int
 }
 
 type cmd struct{ deviceID, cmdType, issuedBy string }
 type audit struct{ adminID, action, targetType, targetID string }
+type adminEntry struct {
+	email, hash string
+	role        Role
+	active      bool
+}
 
 func newMemStore() *memStore {
 	return &memStore{
@@ -33,6 +40,7 @@ func newMemStore() *memStore {
 		versions: map[string]string{},
 		rules:    map[string][]RuleInput{},
 		assigned: map[string]string{},
+		admins:   map[string]*adminEntry{},
 	}
 }
 
@@ -96,6 +104,34 @@ func (m *memStore) ListPolicyRules(_ context.Context, policyID string) ([]RuleVi
 			ID: "r-" + string(rune('0'+i)), Type: r.Type, Target: r.Target,
 			Start: r.Start, End: r.End, ActiveDays: r.ActiveDays,
 		})
+	}
+	return out, nil
+}
+
+func (m *memStore) CreateAdmin(_ context.Context, email, passwordHash string, role Role) (string, error) {
+	m.nextAdmID++
+	id := "adm-" + string(rune('0'+m.nextAdmID))
+	m.admins[id] = &adminEntry{email: email, hash: passwordHash, role: role, active: true}
+	m.roles[id] = role
+	return id, nil
+}
+func (m *memStore) SetAdminRole(_ context.Context, id string, role Role) error {
+	if a, ok := m.admins[id]; ok {
+		a.role = role
+	}
+	m.roles[id] = role
+	return nil
+}
+func (m *memStore) DeactivateAdmin(_ context.Context, id string) error {
+	if a, ok := m.admins[id]; ok {
+		a.active = false
+	}
+	return nil
+}
+func (m *memStore) ListAdmins(_ context.Context) ([]AdminInfo, error) {
+	var out []AdminInfo
+	for id, a := range m.admins {
+		out = append(out, AdminInfo{ID: id, Email: a.email, Role: a.role, Active: a.active})
 	}
 	return out, nil
 }
@@ -242,6 +278,116 @@ func TestIssueEnrollmentTokenStoresHMACIndex(t *testing.T) {
 	}
 	if len(store.audits) != 1 || store.audits[0].action != "ISSUE_ENROLLMENT_TOKEN" {
 		t.Fatal("token üretimi denetim izine yazılmalıydı")
+	}
+}
+
+func TestCreateAdminRBACHashingAndAudit(t *testing.T) {
+	store := newMemStore()
+	store.roles["op1"] = RoleOperator
+	store.roles["admin1"] = RoleAdmin
+	svc, _ := newService(t, store)
+
+	// OPERATOR yeni yönetici oluşturamamalı (403).
+	if _, err := svc.CreateAdmin(context.Background(), "op1", "yeni@x", "parola12", RoleViewer); err != ErrForbidden {
+		t.Fatalf("OPERATOR admin oluşturamamalı, dönen: %v", err)
+	}
+	if len(store.admins) != 0 {
+		t.Fatal("reddedilen işlem yönetici oluşturmamalı")
+	}
+
+	// Kısa parola reddedilmeli (400/ErrInvalidInput).
+	if _, err := svc.CreateAdmin(context.Background(), "admin1", "yeni@x", "kisa", RoleViewer); err != ErrInvalidInput {
+		t.Fatalf("kısa parola reddedilmeli, dönen: %v", err)
+	}
+	// Boş e-posta reddedilmeli.
+	if _, err := svc.CreateAdmin(context.Background(), "admin1", "", "parola12", RoleViewer); err != ErrInvalidInput {
+		t.Fatalf("boş e-posta reddedilmeli, dönen: %v", err)
+	}
+	// Geçersiz rol reddedilmeli.
+	if _, err := svc.CreateAdmin(context.Background(), "admin1", "yeni@x", "parola12", Role("BOGUS")); err != ErrInvalidInput {
+		t.Fatalf("geçersiz rol reddedilmeli, dönen: %v", err)
+	}
+
+	// ADMIN başarılı olmalı.
+	const plain = "parola12"
+	id, err := svc.CreateAdmin(context.Background(), "admin1", "yeni@x", plain, RoleOperator)
+	if err != nil || id == "" {
+		t.Fatalf("ADMIN yönetici oluşturabilmeli: %v", err)
+	}
+	rec, ok := store.admins[id]
+	if !ok {
+		t.Fatal("yeni yönetici depoda olmalı")
+	}
+	// Parola düz metin DEĞİL, Argon2id hash olarak saklanmalı.
+	if rec.hash == plain || rec.hash == "" {
+		t.Fatalf("parola düz metin saklanmamalı: %q", rec.hash)
+	}
+	valid, err := security.VerifyPassword(rec.hash, plain)
+	if err != nil || !valid {
+		t.Fatalf("saklanan hash parolayı doğrulamalı: valid=%v err=%v", valid, err)
+	}
+	// Audit yazılmalı.
+	var found bool
+	for _, a := range store.audits {
+		if a.action == "CREATE_ADMIN" && a.targetType == "admin" && a.targetID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("CREATE_ADMIN denetim izi yazılmalıydı: %+v", store.audits)
+	}
+}
+
+func TestListAdminsNoHashAndRBAC(t *testing.T) {
+	store := newMemStore()
+	store.roles["viewer1"] = RoleViewer
+	store.roles["op1"] = RoleOperator
+	store.roles["admin1"] = RoleAdmin
+	svc, _ := newService(t, store)
+
+	id, err := svc.CreateAdmin(context.Background(), "admin1", "u@x", "parola12", RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// VIEWER listeleyememeli (OPERATOR+ gerekir).
+	if _, err := svc.ListAdmins(context.Background(), "viewer1"); err != ErrForbidden {
+		t.Fatalf("VIEWER listeleyememeli, dönen: %v", err)
+	}
+
+	// OPERATOR listeleyebilmeli; AdminView'de parola hash'i alanı YOKTUR.
+	views, err := svc.ListAdmins(context.Background(), "op1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen bool
+	for _, v := range views {
+		if v.ID == id && v.Email == "u@x" && v.Role == RoleViewer && v.Active {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatalf("oluşturulan yönetici listede görünmeliydi: %+v", views)
+	}
+
+	// Rol değiştir ve doğrula.
+	if err := svc.SetAdminRole(context.Background(), "admin1", id, RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	// Pasifleştir ve doğrula.
+	if err := svc.DeactivateAdmin(context.Background(), "admin1", id); err != nil {
+		t.Fatal(err)
+	}
+	views, _ = svc.ListAdmins(context.Background(), "op1")
+	for _, v := range views {
+		if v.ID == id {
+			if v.Role != RoleAdmin {
+				t.Fatalf("rol ADMIN olmalıydı: %v", v.Role)
+			}
+			if v.Active {
+				t.Fatal("yönetici pasifleştirilmiş olmalıydı")
+			}
+		}
 	}
 }
 
