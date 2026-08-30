@@ -12,4 +12,7 @@ type Event struct {
 	Severity   string
 	Message    string
 	OccurredAt time.Time
+	// Details, olaya iliştirilen yapılandırılmış ek veridir (serbest biçimli JSON
+	// nesnesi). Boş string, ayrıntı olmadığını belirtir (DB'de NULL saklanır).
+	Details string
 }

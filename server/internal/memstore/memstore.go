@@ -78,6 +78,7 @@ type eventRec struct {
 	message    string
 	occurredAt time.Time
 	createdAt  time.Time
+	details    string // serbest biçimli JSON metni ("" = ayrıntı yok)
 }
 
 type adminRec struct {
@@ -254,6 +255,7 @@ func (s *Store) SaveEvents(_ context.Context, deviceID string, evs []model.Event
 		s.events = append(s.events, eventRec{
 			deviceID: deviceID, category: e.Category, severity: e.Severity,
 			message: e.Message, occurredAt: e.OccurredAt, createdAt: now,
+			details: e.Details,
 		})
 		if e.Sequence > last {
 			last = e.Sequence
@@ -473,7 +475,7 @@ func (s *Store) ListDevices(_ context.Context, limit int) ([]adminread.DeviceRow
 	return out, nil
 }
 
-func (s *Store) ListEvents(_ context.Context, deviceID string, limit int) ([]adminread.EventRow, error) {
+func (s *Store) ListEvents(_ context.Context, deviceID, severity, category string, limit int) ([]adminread.EventRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []adminread.EventRow
@@ -483,9 +485,20 @@ func (s *Store) ListEvents(_ context.Context, deviceID string, limit int) ([]adm
 		if deviceID != "" && e.deviceID != deviceID {
 			continue
 		}
+		if severity != "" && e.severity != severity {
+			continue
+		}
+		if category != "" && e.category != category {
+			continue
+		}
+		var details []byte
+		if e.details != "" {
+			details = []byte(e.details)
+		}
 		out = append(out, adminread.EventRow{
 			ID: randID("evt-"), Category: e.category, Severity: e.severity,
 			Message: e.message, OccurredAt: e.occurredAt, CreatedAt: e.createdAt,
+			Details: details,
 		})
 		if limit > 0 && len(out) >= limit {
 			break

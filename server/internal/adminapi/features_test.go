@@ -105,6 +105,52 @@ func TestListAudit(t *testing.T) {
 	}
 }
 
+func TestListEventsFilter(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	now := time.Now()
+	store.evtRows = []adminread.EventRow{
+		{ID: "e1", Category: "SECURITY", Severity: "HIGH", Message: "yüksek", OccurredAt: now, CreatedAt: now,
+			Details: json.RawMessage(`{"pid":42}`)},
+		{ID: "e2", Category: "SYSTEM", Severity: "INFO", Message: "bilgi", OccurredAt: now, CreatedAt: now},
+	}
+
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	token := body["token"]
+
+	resp, err := authedGET(t, ts.URL+"/api/events?severity=HIGH", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("200 beklenirdi, %d", resp.StatusCode)
+	}
+	var out struct {
+		Events []struct {
+			ID       string          `json:"id"`
+			Severity string          `json:"severity"`
+			Details  json.RawMessage `json:"details"`
+		} `json:"events"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Events) != 1 || out.Events[0].ID != "e1" || out.Events[0].Severity != "HIGH" {
+		t.Fatalf("severity=HIGH filtresi yalnız e1 dönmeliydi: %+v", out.Events)
+	}
+	if string(out.Events[0].Details) != `{"pid":42}` {
+		t.Fatalf("details ham JSON olarak dönmeliydi: %q", string(out.Events[0].Details))
+	}
+
+	// Token'sız erişim reddedilmeli.
+	if r2, _ := http.Get(ts.URL + "/api/events"); r2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız olay listesi 401 dönmeliydi, %d", r2.StatusCode)
+	}
+}
+
 func TestDeviceDetailEndpoint(t *testing.T) {
 	ts, store := setup(t)
 	defer ts.Close()
