@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"sort"
 	"sync"
 	"time"
 
@@ -36,10 +37,12 @@ type device struct {
 }
 
 type tokenInfo struct {
+	id        string
 	createdBy string
 	expiresAt time.Time
 	used      bool
 	boundDev  string
+	createdAt time.Time
 }
 
 type certRec struct {
@@ -309,7 +312,23 @@ func (s *Store) AdminRole(_ context.Context, adminID string) (admin.Role, error)
 func (s *Store) SaveEnrollmentToken(_ context.Context, tokenIndex []byte, createdBy string, expiresAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tokens[hex.EncodeToString(tokenIndex)] = &tokenInfo{createdBy: createdBy, expiresAt: expiresAt}
+	s.tokens[hex.EncodeToString(tokenIndex)] = &tokenInfo{
+		id: randID("etok-"), createdBy: createdBy, expiresAt: expiresAt, createdAt: time.Now(),
+	}
+	return nil
+}
+
+// RevokeEnrollmentToken, id ile token'ı bulup kullanılmış işaretler (used=true).
+// Zaten kullanılmış/yok token için sessiz (no-op) — db davranışını taklit eder.
+func (s *Store) RevokeEnrollmentToken(_ context.Context, tokenID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.tokens {
+		if t.id == tokenID && !t.used {
+			t.used = true
+			break
+		}
+	}
 	return nil
 }
 
@@ -605,6 +624,31 @@ func (s *Store) AssignedPolicy(_ context.Context, id string) (string, string, er
 		return "", "", nil
 	}
 	return d.policyID, d.policyVersion, nil
+}
+
+// ListEnrollmentTokens, token meta verisini en yeniden eskiye döner. Ham token
+// asla saklanmaz; createdBy admin id'si adminsByID'den e-postaya çözülür (db
+// LEFT JOIN davranışını taklit eder — eşleşmezse boş kalır).
+func (s *Store) ListEnrollmentTokens(_ context.Context, limit int) ([]adminread.EnrollmentTokenRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]adminread.EnrollmentTokenRow, 0, len(s.tokens))
+	for _, t := range s.tokens {
+		var email string
+		if a, ok := s.adminsByID[t.createdBy]; ok {
+			email = a.email
+		}
+		out = append(out, adminread.EnrollmentTokenRow{
+			ID: t.id, CreatedByEmail: email, ExpiresAt: t.expiresAt,
+			Used: t.used, CreatedAt: t.createdAt,
+		})
+	}
+	// En yeniden eskiye (created_at DESC).
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 // --- revocation.Source ---

@@ -2,7 +2,9 @@ package adminapi
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +104,80 @@ func TestListAudit(t *testing.T) {
 	}
 	if r2, _ := http.Get(ts.URL + "/api/audit"); r2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("token'sız denetim izi 401 dönmeliydi, %d", r2.StatusCode)
+	}
+}
+
+func TestEnrollmentTokenLifecycleHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	token := body["token"]
+
+	// Token'sız listeleme reddedilmeli.
+	if r, _ := http.Get(ts.URL + "/api/enrollment-tokens"); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız liste 401 dönmeliydi, %d", r.StatusCode)
+	}
+
+	// Token üret (ham token yalnız burada, bir kez döner).
+	code, issued := post(t, ts.URL+"/api/enrollment-tokens", token, map[string]string{})
+	if code != http.StatusOK || issued["enrollment_token"] == "" {
+		t.Fatalf("token üretilmeliydi: code=%d body=%v", code, issued)
+	}
+	rawToken := issued["enrollment_token"]
+
+	// Listele: meta veri dönmeli; HAM TOKEN GÖRÜNMEMELİ.
+	resp, err := authedGET(t, ts.URL+"/api/enrollment-tokens", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("200 beklenirdi, %d", resp.StatusCode)
+	}
+	rawBody, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(rawBody), rawToken) {
+		t.Fatal("ham enrollment token listede ASLA görünmemeli")
+	}
+	var out struct {
+		Tokens []struct {
+			ID             string `json:"id"`
+			CreatedByEmail string `json:"created_by_email"`
+			Used           bool   `json:"used"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal(rawBody, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Tokens) != 1 || out.Tokens[0].ID == "" {
+		t.Fatalf("token meta verisi listelenmiş olmalı: %+v", out.Tokens)
+	}
+	if out.Tokens[0].CreatedByEmail != "op@x" {
+		t.Fatalf("üreten admin e-postası dönmeliydi: %+v", out.Tokens[0])
+	}
+	if out.Tokens[0].Used {
+		t.Fatalf("yeni token kullanılmamış olmalı: %+v", out.Tokens[0])
+	}
+	tokenID := out.Tokens[0].ID
+
+	// İptal et.
+	code, _ = post(t, ts.URL+"/api/enrollment-tokens/"+tokenID+"/revoke", token, map[string]string{})
+	if code != http.StatusOK {
+		t.Fatalf("token iptali 200 dönmeliydi, %d", code)
+	}
+
+	// Yeniden listele: token artık kullanılmış (iptal) görünmeli.
+	resp2, err := authedGET(t, ts.URL+"/api/enrollment-tokens", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if err := json.NewDecoder(resp2.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Tokens) != 1 || !out.Tokens[0].Used {
+		t.Fatalf("iptal sonrası token 'used' olmalıydı: %+v", out.Tokens)
 	}
 }
 
