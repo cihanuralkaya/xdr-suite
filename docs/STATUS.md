@@ -11,9 +11,11 @@ kanıtlandı** (`server/internal/e2e`). Kernel-seviye tamper koruması bilinçli
 olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
-- ~5 400 satır üretim Go + ~2 900 satır test.
-- **86 test fonksiyonu / 21 test paketi**, tümü geçiyor (`go test ./...`).
+- ~8 100 satır üretim Go + kapsamlı test.
+- **118 test fonksiyonu / 25 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
+- **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
+  enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
 
 ## Uçtan uca kanıtlanan zincir (e2e)
 
@@ -43,7 +45,11 @@ OTA imza + rollout kapısı → komut teslimi (karantina) → tek-kullanımlık 
 | Komut kuyruğu (karantina teslimi) | ✅ | `server/internal/db` + `grpc` | e2e |
 | Admin servisi (RBAC + denetim izi) | ✅ | `server/internal/admin` | birim |
 | Admin HTTP API + Argon2 + oturum | ✅ | `server/internal/adminapi` | birim (httptest) |
-| Web yönetim konsolu | ✅ | `adminapi/console.html` (embed) | httptest |
+| Yönetici yönetimi (oluştur/rol/pasifleştir) | ✅ | `admin/adminusers.go`, `db/admins.go` | birim + canlı demo |
+| Enrollment token yönetimi (listele/iptal) | ✅ | `db/tokens.go`, `adminread` | birim + canlı demo |
+| Olay ayrıntısı (yapısal JSON) + sunucu-taraflı süzme | ✅ | `adminread`, `grpc` | birim + canlı demo |
+| Cihaz OFFLINE otomasyonu (bayat heartbeat) | ✅ | `db/status.go`, `memstore` | birim |
+| Web yönetim konsolu (SOC paneli, canlı yenileme) | ✅ | `adminapi/console.html` (embed) | httptest + canlı demo |
 | Okuma API'si + görünürlük | ✅ | `server/internal/adminread` | birim |
 | KVKK saklama otomasyonu | ✅ mantık / DB derlendi | `server/internal/retention` | birim |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
@@ -54,6 +60,11 @@ Bkz. `docs/threat-model.md`. Özet: kırık şema düzeltildi, şifreli-log yeri
 at-rest + partitioning; düz-hash yerine **HMAC blind index**; yerel-saat yerine
 **sunucu-saati çıpası**; hash-yerine **imza** OTA'da; enrollment/PKI eklendi;
 RBAC + değişmez denetim izi.
+
+**Canlı demo sırasında yakalanan bulgu (düzeltildi):** bellek-içi
+`LookupAdmin` `is_active` süzmüyordu → pasifleştirilen yönetici hâlâ giriş
+yapabiliyordu. PostgreSQL yolu (`WHERE ... AND is_active`) zaten doğruydu;
+memstore ona eşitlendi + regresyon testi (`TestLookupAdminExcludesDeactivated`).
 
 ## Bilinçli olarak kapsam dışı / canlı doğrulanmayan
 
