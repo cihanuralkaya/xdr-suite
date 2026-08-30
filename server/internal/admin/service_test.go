@@ -13,6 +13,7 @@ import (
 type memStore struct {
 	roles     map[string]Role
 	tokens    map[string]string // tokenIndex(hex) -> createdBy
+	revoked   map[string]bool   // tokenID -> iptal edildi mi
 	commands  []cmd
 	audits    []audit
 	policies  map[string]string      // id -> name
@@ -30,6 +31,7 @@ func newMemStore() *memStore {
 	return &memStore{
 		roles:    map[string]Role{},
 		tokens:   map[string]string{},
+		revoked:  map[string]bool{},
 		policies: map[string]string{},
 		versions: map[string]string{},
 		rules:    map[string][]RuleInput{},
@@ -48,6 +50,10 @@ func (m *memStore) AdminRole(_ context.Context, adminID string) (Role, error) {
 }
 func (m *memStore) SaveEnrollmentToken(_ context.Context, idx []byte, createdBy string, _ time.Time) error {
 	m.tokens[string(idx)] = createdBy
+	return nil
+}
+func (m *memStore) RevokeEnrollmentToken(_ context.Context, tokenID string) error {
+	m.revoked[tokenID] = true
 	return nil
 }
 func (m *memStore) EnqueueCommand(_ context.Context, deviceID, cmdType, issuedBy string) error {
@@ -270,6 +276,38 @@ func TestIssueEnrollmentTokenStoresHMACIndex(t *testing.T) {
 	}
 	if len(store.audits) != 1 || store.audits[0].action != "ISSUE_ENROLLMENT_TOKEN" {
 		t.Fatal("token üretimi denetim izine yazılmalıydı")
+	}
+}
+
+func TestRevokeEnrollmentTokenRBAC(t *testing.T) {
+	store := newMemStore()
+	store.roles["viewer1"] = RoleViewer
+	store.roles["op1"] = RoleOperator
+	svc, _ := newService(t, store)
+
+	// VIEWER reddedilmeli; store'a dokunulmamalı.
+	if err := svc.RevokeEnrollmentToken(context.Background(), "viewer1", "tok-1"); err != ErrForbidden {
+		t.Fatalf("VIEWER token iptal edememeli, dönen: %v", err)
+	}
+	if store.revoked["tok-1"] {
+		t.Fatal("reddedilen işlem token iptal etmemeli")
+	}
+
+	// OPERATOR iptal edebilmeli ve audit yazmalı.
+	if err := svc.RevokeEnrollmentToken(context.Background(), "op1", "tok-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !store.revoked["tok-1"] {
+		t.Fatal("OPERATOR token'ı iptal etmeliydi")
+	}
+	var found bool
+	for _, a := range store.audits {
+		if a.action == "REVOKE_ENROLLMENT_TOKEN" && a.targetType == "token" && a.targetID == "tok-1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("REVOKE_ENROLLMENT_TOKEN denetim izi yazılmalıydı: %+v", store.audits)
 	}
 }
 

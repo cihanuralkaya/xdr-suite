@@ -63,6 +63,17 @@ type CmdRow struct {
 	DeliveredAt *time.Time
 }
 
+// EnrollmentTokenRow, DB'den okunan ham enrollment token satırıdır. Ham token
+// ASLA saklanmaz (yalnız HMAC hash'i); yalnız meta veri okunur. CreatedByEmail,
+// admins tablosuyla LEFT JOIN'den çözülür (admin silinmişse boş kalır).
+type EnrollmentTokenRow struct {
+	ID             string
+	CreatedByEmail string
+	ExpiresAt      time.Time
+	Used           bool
+	CreatedAt      time.Time
+}
+
 // Store, okuma sorgularının kalıcılık kaynağıdır.
 type Store interface {
 	ListDevices(ctx context.Context, limit int) ([]DeviceRow, error)
@@ -80,6 +91,9 @@ type Store interface {
 	CertsByDevice(ctx context.Context, id string) ([]CertRow, error)
 	CommandHistory(ctx context.Context, id string) ([]CmdRow, error)
 	AssignedPolicy(ctx context.Context, id string) (policyID, version string, err error)
+	// ListEnrollmentTokens, enrollment token'ların meta verisini en yeniden
+	// eskiye listeler (ham token asla okunmaz).
+	ListEnrollmentTokens(ctx context.Context, limit int) ([]EnrollmentTokenRow, error)
 }
 
 // DeviceDTO, konsola dönen deşifre edilmiş cihaz görünümüdür.
@@ -157,6 +171,16 @@ type AuditDTO struct {
 	TargetType string    `json:"target_type"`
 	TargetID   string    `json:"target_id"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+// EnrollmentTokenDTO, konsola dönen enrollment token görünümüdür. YALNIZ meta
+// veri içerir; ham token hiçbir zaman burada yer almaz (yalnız HMAC hash saklı).
+type EnrollmentTokenDTO struct {
+	ID             string    `json:"id"`
+	CreatedByEmail string    `json:"created_by_email"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	Used           bool      `json:"used"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // Service, okuma sorgularını yürütür ve şifreli alanları deşifre eder.
@@ -345,6 +369,27 @@ func (s *Service) Audit(ctx context.Context, limit int) ([]AuditDTO, error) {
 			TargetType: r.TargetType,
 			TargetID:   r.TargetID,
 			CreatedAt:  r.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+// EnrollmentTokens, enrollment token'ların meta verisini en yeniden eskiye
+// döner. Ham token asla dönmez; yalnız id, üreten admin e-postası, son geçerlilik,
+// kullanıldı-mı ve oluşturulma zamanı gösterilir.
+func (s *Service) EnrollmentTokens(ctx context.Context, limit int) ([]EnrollmentTokenDTO, error) {
+	rows, err := s.store.ListEnrollmentTokens(ctx, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EnrollmentTokenDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, EnrollmentTokenDTO{
+			ID:             r.ID,
+			CreatedByEmail: r.CreatedByEmail,
+			ExpiresAt:      r.ExpiresAt,
+			Used:           r.Used,
+			CreatedAt:      r.CreatedAt,
 		})
 	}
 	return out, nil

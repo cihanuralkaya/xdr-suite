@@ -7,3 +7,4 @@ server/internal/admin/service_test.go         merge=union
 server/internal/memstore/memstore.go          merge=union
 server/internal/db/read.go                    merge=union
 server/internal/db/policy.go                  merge=union
+server/internal/adminapi/features_test.go merge=union

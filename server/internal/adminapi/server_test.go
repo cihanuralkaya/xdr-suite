@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,8 @@ type memStore struct {
 	auditRows []adminread.AuditRow
 	certRows  []adminread.CertRow
 	cmdRows   []adminread.CmdRow
+	tokenRows []adminread.EnrollmentTokenRow
+	tokenSeq  int
 	polID     string
 	polVer    string
 	rules     map[string][]admin.RuleInput // policyID -> kurallar
@@ -49,8 +52,33 @@ func newMemStore() *memStore {
 func (m *memStore) AdminRole(_ context.Context, id string) (admin.Role, error) {
 	return m.roles[id], nil
 }
-func (m *memStore) SaveEnrollmentToken(_ context.Context, _ []byte, _ string, _ time.Time) error {
+func (m *memStore) SaveEnrollmentToken(_ context.Context, _ []byte, createdBy string, expiresAt time.Time) error {
+	m.tokenSeq++
+	// createdBy admin id'sini e-postaya çöz (db LEFT JOIN davranışını taklit et).
+	var email string
+	for e, r := range m.emails {
+		if r.id == createdBy {
+			email = e
+			break
+		}
+	}
+	m.tokenRows = append([]adminread.EnrollmentTokenRow{{
+		ID: "etok-" + strconv.Itoa(m.tokenSeq), CreatedByEmail: email,
+		ExpiresAt: expiresAt, Used: false, CreatedAt: time.Now(),
+	}}, m.tokenRows...)
 	return nil
+}
+func (m *memStore) RevokeEnrollmentToken(_ context.Context, tokenID string) error {
+	for i := range m.tokenRows {
+		if m.tokenRows[i].ID == tokenID && !m.tokenRows[i].Used {
+			m.tokenRows[i].Used = true
+			break
+		}
+	}
+	return nil
+}
+func (m *memStore) ListEnrollmentTokens(_ context.Context, _ int) ([]adminread.EnrollmentTokenRow, error) {
+	return m.tokenRows, nil
 }
 func (m *memStore) EnqueueCommand(_ context.Context, deviceID, cmdType, _ string) error {
 	m.commands = append(m.commands, deviceID+":"+cmdType)

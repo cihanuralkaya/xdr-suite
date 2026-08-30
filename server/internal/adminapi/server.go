@@ -57,6 +57,9 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/enrollment-tokens", s.authed(s.handleIssueToken))
+	// Enrollment token yönetimi: listele (meta veri; ham token asla) + iptal.
+	mux.HandleFunc("GET /api/enrollment-tokens", s.authed(s.handleListTokens))
+	mux.HandleFunc("POST /api/enrollment-tokens/{id}/revoke", s.authed(s.handleRevokeToken))
 	mux.HandleFunc("POST /api/devices/quarantine", s.authed(s.handleQuarantine))
 	mux.HandleFunc("POST /api/devices/release", s.authed(s.handleRelease))
 	mux.HandleFunc("POST /api/devices/revoke", s.authed(s.handleRevoke))
@@ -127,6 +130,21 @@ func (s *Server) handleIssueToken(w http.ResponseWriter, r *http.Request, adminI
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"enrollment_token": token})
+}
+
+func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request, _ string) {
+	tokens, err := s.reader.EnrollmentTokens(r.Context(), intParam(r, "limit"))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tokens": tokens})
+}
+
+func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.RevokeEnrollmentToken(r.Context(), adminID, r.PathValue("id"))) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "token_revoked"})
 }
 
 func (s *Server) handleQuarantine(w http.ResponseWriter, r *http.Request, adminID string) {

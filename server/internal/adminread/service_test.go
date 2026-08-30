@@ -16,6 +16,7 @@ type memStore struct {
 	audit    []AuditRow
 	certs    []CertRow
 	commands []CmdRow
+	tokens   []EnrollmentTokenRow
 	polID    string
 	polVer   string
 }
@@ -82,6 +83,9 @@ func (m *memStore) CommandHistory(_ context.Context, _ string) ([]CmdRow, error)
 }
 func (m *memStore) AssignedPolicy(_ context.Context, _ string) (string, string, error) {
 	return m.polID, m.polVer, nil
+}
+func (m *memStore) ListEnrollmentTokens(_ context.Context, _ int) ([]EnrollmentTokenRow, error) {
+	return m.tokens, nil
 }
 
 func newCipher(t *testing.T) *security.FieldCipher {
@@ -255,6 +259,28 @@ func TestDeviceDetailNotFound(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("bulunamayan cihaz için ok=false beklenirdi")
+	}
+}
+
+func TestEnrollmentTokensPassthrough(t *testing.T) {
+	now := time.Now()
+	store := &memStore{tokens: []EnrollmentTokenRow{
+		{ID: "etok-2", CreatedByEmail: "op@x", ExpiresAt: now.Add(time.Hour), Used: false, CreatedAt: now},
+		{ID: "etok-1", CreatedByEmail: "", ExpiresAt: now, Used: true, CreatedAt: now.Add(-time.Hour)},
+	}}
+	svc := NewService(store, newCipher(t))
+	dtos, err := svc.EnrollmentTokens(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dtos) != 2 {
+		t.Fatalf("2 token beklenirdi, %d", len(dtos))
+	}
+	if dtos[0].ID != "etok-2" || dtos[0].CreatedByEmail != "op@x" || dtos[0].Used {
+		t.Fatalf("token meta verisi aynen dönmeliydi: %+v", dtos[0])
+	}
+	if !dtos[1].Used || dtos[1].CreatedByEmail != "" {
+		t.Fatalf("kullanılmış/çözülemeyen token doğru yansımalıydı: %+v", dtos[1])
 	}
 }
 

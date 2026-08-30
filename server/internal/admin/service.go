@@ -67,6 +67,9 @@ type RuleView struct {
 type Store interface {
 	AdminRole(ctx context.Context, adminID string) (Role, error)
 	SaveEnrollmentToken(ctx context.Context, tokenIndex []byte, createdBy string, expiresAt time.Time) error
+	// RevokeEnrollmentToken, kullanılmamış bir enrollment token'ı iptal eder
+	// (used_at damgalar). Zaten kullanılmış/yok token için sessizdir (no-op).
+	RevokeEnrollmentToken(ctx context.Context, tokenID string) error
 	EnqueueCommand(ctx context.Context, deviceID, cmdType, issuedBy string) error
 	// SetDeviceStatus, cihazın durum sütununu doğrudan ayarlar (komut kuyruğa
 	// girdikten sonra durumun UI'da yansıması için).
@@ -157,6 +160,20 @@ func (s *Service) IssueEnrollmentToken(ctx context.Context, adminID string) (str
 
 // QuarantineDevice, cihazı karantinaya alma komutu kuyruğa ekler (OPERATOR+) ve
 // durum sütununu QUARANTINED olarak yansıtır.
+// RevokeEnrollmentToken, henüz kullanılmamış bir enrollment token'ı iptal eder
+// (OPERATOR+). İptal edilen token bir sonraki kayıt denemesinde reddedilir.
+func (s *Service) RevokeEnrollmentToken(ctx context.Context, adminID, tokenID string) error {
+	if err := s.require(ctx, adminID, RoleOperator); err != nil {
+		return err
+	}
+	if err := s.store.RevokeEnrollmentToken(ctx, tokenID); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "REVOKE_ENROLLMENT_TOKEN", "token", tokenID)
+	return nil
+}
+
+// QuarantineDevice, cihazı karantinaya alma komutu kuyruğa ekler (OPERATOR+).
 func (s *Service) QuarantineDevice(ctx context.Context, adminID, deviceID string) error {
 	return s.command(ctx, adminID, deviceID, "QUARANTINE", "QUARANTINED")
 }
