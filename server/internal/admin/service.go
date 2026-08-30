@@ -86,6 +86,15 @@ type Store interface {
 	DevicesForPolicy(ctx context.Context, policyID string) ([]string, error)
 	// ListPolicyRules, politikanın kurallarını döner.
 	ListPolicyRules(ctx context.Context, policyID string) ([]RuleView, error)
+	// CreateAdmin, yeni bir yönetici ekler ve id'sini döner. passwordHash zaten
+	// Argon2id ile hash'lenmiştir (depo düz metin görmez).
+	CreateAdmin(ctx context.Context, email, passwordHash string, role Role) (string, error)
+	// SetAdminRole, bir yöneticinin rolünü değiştirir.
+	SetAdminRole(ctx context.Context, id string, role Role) error
+	// DeactivateAdmin, bir yöneticiyi pasifleştirir (is_active=false).
+	DeactivateAdmin(ctx context.Context, id string) error
+	// ListAdmins, tüm yöneticileri döner (parola hash'i olmadan).
+	ListAdmins(ctx context.Context) ([]AdminInfo, error)
 }
 
 // validRuleType, kabul edilen kural tiplerini doğrular.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -35,16 +36,32 @@ type memStore struct {
 	rules     map[string][]admin.RuleInput // policyID -> kurallar
 	assigned  map[string]string            // deviceID -> policyID
 	statuses  map[string]string            // deviceID -> son ayarlanan durum
+	roles      map[string]admin.Role
+	emails     map[string]adminRec // email -> (id, hash)
+	commands   []string            // "deviceID:type"
+	cipher     *security.FieldCipher
+	devRows    []adminread.DeviceRow
+	evtRows    []adminread.EventRow
+	auditRows  []adminread.AuditRow
+	certRows   []adminread.CertRow
+	cmdRows    []adminread.CmdRow
+	polID      string
+	polVer     string
+	rules      map[string][]admin.RuleInput // policyID -> kurallar
+	assigned   map[string]string            // deviceID -> policyID
+	adminInfos map[string]*admin.AdminInfo  // id -> yönetici görünümü
+	nextAdmID  int
 }
 
 type adminRec struct{ id, hash string }
 
 func newMemStore() *memStore {
 	return &memStore{
-		roles:    map[string]admin.Role{},
-		emails:   map[string]adminRec{},
-		rules:    map[string][]admin.RuleInput{},
-		assigned: map[string]string{},
+		roles:      map[string]admin.Role{},
+		emails:     map[string]adminRec{},
+		rules:      map[string][]admin.RuleInput{},
+		assigned:   map[string]string{},
+		adminInfos: map[string]*admin.AdminInfo{},
 	}
 }
 
@@ -132,6 +149,35 @@ func (m *memStore) ListPolicyRules(_ context.Context, policyID string) ([]admin.
 			ID: "r-" + string(rune('0'+i)), Type: r.Type, Target: r.Target,
 			Start: r.Start, End: r.End, ActiveDays: r.ActiveDays,
 		})
+	}
+	return out, nil
+}
+
+func (m *memStore) CreateAdmin(_ context.Context, email, passwordHash string, role admin.Role) (string, error) {
+	m.nextAdmID++
+	id := "adm-" + string(rune('0'+m.nextAdmID))
+	m.roles[id] = role
+	m.emails[email] = adminRec{id: id, hash: passwordHash}
+	m.adminInfos[id] = &admin.AdminInfo{ID: id, Email: email, Role: role, Active: true}
+	return id, nil
+}
+func (m *memStore) SetAdminRole(_ context.Context, id string, role admin.Role) error {
+	m.roles[id] = role
+	if a, ok := m.adminInfos[id]; ok {
+		a.Role = role
+	}
+	return nil
+}
+func (m *memStore) DeactivateAdmin(_ context.Context, id string) error {
+	if a, ok := m.adminInfos[id]; ok {
+		a.Active = false
+	}
+	return nil
+}
+func (m *memStore) ListAdmins(_ context.Context) ([]admin.AdminInfo, error) {
+	var out []admin.AdminInfo
+	for _, a := range m.adminInfos {
+		out = append(out, *a)
 	}
 	return out, nil
 }
@@ -237,6 +283,7 @@ func addAdmin(t *testing.T, store *memStore, id, email, password string, role ad
 	}
 	store.roles[id] = role
 	store.emails[email] = adminRec{id: id, hash: hash}
+	store.adminInfos[id] = &admin.AdminInfo{ID: id, Email: email, Role: role, Active: true}
 }
 
 func post(t *testing.T, url, token string, body any) (int, map[string]string) {
@@ -473,6 +520,108 @@ func TestPolicyRuleEditorHTTP(t *testing.T) {
 	})
 	if code != http.StatusBadRequest {
 		t.Fatalf("geçersiz kural 400 dönmeliydi, %d", code)
+	}
+}
+
+func TestAdminUserManagementHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "ad1", "admin@x", "secret", admin.RoleAdmin)
+
+	_, adBody := post(t, ts.URL+"/api/login", "", map[string]string{"email": "admin@x", "password": "secret"})
+	token := adBody["token"]
+
+	// Kısa parola → 400.
+	if code, _ := post(t, ts.URL+"/api/admins", token, map[string]string{
+		"email": "kisa@x", "password": "123", "role": "VIEWER",
+	}); code != http.StatusBadRequest {
+		t.Fatalf("kısa parola 400 dönmeliydi, %d", code)
+	}
+
+	// Yeni yönetici oluştur.
+	code, body := post(t, ts.URL+"/api/admins", token, map[string]string{
+		"email": "yeni@x", "password": "parola12", "role": "OPERATOR",
+	})
+	if code != http.StatusOK || body["admin_id"] == "" {
+		t.Fatalf("yönetici oluşturulmalı: code=%d body=%v", code, body)
+	}
+	newID := body["admin_id"]
+
+	// Listede yeni yönetici görünmeli (parola hash'i JSON'da OLMAMALI).
+	resp, err := authedGET(t, ts.URL+"/api/admins", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("liste 200 dönmeliydi, %d", resp.StatusCode)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	if bytes.Contains(bytes.ToLower(raw), []byte("hash")) || bytes.Contains(raw, []byte("password")) {
+		t.Fatalf("yönetici listesi parola hash'i sızdırmamalı: %s", raw)
+	}
+	var out struct {
+		Admins []struct {
+			ID     string `json:"id"`
+			Email  string `json:"email"`
+			Role   string `json:"role"`
+			Active bool   `json:"active"`
+		} `json:"admins"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, a := range out.Admins {
+		if a.ID == newID {
+			found = true
+			if a.Email != "yeni@x" || a.Role != "OPERATOR" || !a.Active {
+				t.Fatalf("yeni yönetici alanları hatalı: %+v", a)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("yeni yönetici listede görünmeliydi: %+v", out.Admins)
+	}
+
+	// Rol değiştir → ADMIN.
+	if code, _ := post(t, ts.URL+"/api/admins/"+newID+"/role", token, map[string]string{"role": "ADMIN"}); code != http.StatusOK {
+		t.Fatalf("rol değiştirme 200 dönmeliydi, %d", code)
+	}
+	if store.roles[newID] != admin.RoleAdmin {
+		t.Fatalf("rol ADMIN olmalıydı: %v", store.roles[newID])
+	}
+
+	// Pasifleştir.
+	if code, _ := post(t, ts.URL+"/api/admins/"+newID+"/deactivate", token, map[string]string{}); code != http.StatusOK {
+		t.Fatalf("pasifleştirme 200 dönmeliydi, %d", code)
+	}
+	if store.adminInfos[newID].Active {
+		t.Fatal("yönetici pasifleştirilmiş olmalıydı")
+	}
+}
+
+func TestListAdminsRequiresOperatorHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	// OPERATOR listeleyebilmeli.
+	_, opBody := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	resp, err := authedGET(t, ts.URL+"/api/admins", opBody["token"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("OPERATOR yönetici listeleyebilmeli, %d", resp.StatusCode)
+	}
+
+	// OPERATOR yeni yönetici oluşturamamalı (ADMIN gerekir) → 403.
+	if code, _ := post(t, ts.URL+"/api/admins", opBody["token"], map[string]string{
+		"email": "x@x", "password": "parola12", "role": "VIEWER",
+	}); code != http.StatusForbidden {
+		t.Fatalf("OPERATOR admin oluşturamamalı, %d", code)
 	}
 }
 

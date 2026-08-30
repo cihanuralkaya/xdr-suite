@@ -87,6 +87,7 @@ type eventRec struct {
 type adminRec struct {
 	id, email, passwordHash string
 	role                    admin.Role
+	active                  bool
 }
 
 type auditRec struct {
@@ -140,7 +141,7 @@ func (s *Store) SeedAdmin(email, passwordHash string, role admin.Role) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := randID("admin-")
-	rec := &adminRec{id: id, email: email, passwordHash: passwordHash, role: role}
+	rec := &adminRec{id: id, email: email, passwordHash: passwordHash, role: role, active: true}
 	s.admins[email] = rec
 	s.adminsByID[id] = rec
 	return id
@@ -496,6 +497,47 @@ func (s *Store) ListPolicyRules(_ context.Context, policyID string) ([]admin.Rul
 			Start: r.start, End: r.end, ActiveDays: days,
 		})
 	}
+	return out, nil
+}
+
+// CreateAdmin, yeni bir yönetici ekler (aktif) ve id'sini döner.
+func (s *Store) CreateAdmin(_ context.Context, email, passwordHash string, role admin.Role) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := randID("admin-")
+	rec := &adminRec{id: id, email: email, passwordHash: passwordHash, role: role, active: true}
+	s.admins[email] = rec
+	s.adminsByID[id] = rec
+	return id, nil
+}
+
+func (s *Store) SetAdminRole(_ context.Context, id string, role admin.Role) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a, ok := s.adminsByID[id]; ok {
+		a.role = role
+	}
+	return nil
+}
+
+func (s *Store) DeactivateAdmin(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a, ok := s.adminsByID[id]; ok {
+		a.active = false
+	}
+	return nil
+}
+
+// ListAdmins, yöneticileri e-postaya göre sıralı döner (parola hash'i olmadan).
+func (s *Store) ListAdmins(_ context.Context) ([]admin.AdminInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]admin.AdminInfo, 0, len(s.adminsByID))
+	for _, a := range s.adminsByID {
+		out = append(out, admin.AdminInfo{ID: a.id, Email: a.email, Role: a.role, Active: a.active})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Email < out[j].Email })
 	return out, nil
 }
 

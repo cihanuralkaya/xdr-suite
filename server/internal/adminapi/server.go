@@ -68,6 +68,11 @@ func (s *Server) Handler() http.Handler {
 	// Kural editörü: politikaya kural ekle / kuralları listele (Go 1.22 {id}).
 	mux.HandleFunc("POST /api/policies/{id}/rules", s.authed(s.handleAddRule))
 	mux.HandleFunc("GET /api/policies/{id}/rules", s.authed(s.handleListRules))
+	// Yönetici (admin) kullanıcı yönetimi (listeleme OPERATOR+; mutasyonlar ADMIN).
+	mux.HandleFunc("GET /api/admins", s.authed(s.handleListAdmins))
+	mux.HandleFunc("POST /api/admins", s.authed(s.handleCreateAdmin))
+	mux.HandleFunc("POST /api/admins/{id}/role", s.authed(s.handleSetAdminRole))
+	mux.HandleFunc("POST /api/admins/{id}/deactivate", s.authed(s.handleDeactivateAdmin))
 	// Okuma (görünürlük) uçları — herhangi bir kimlik doğrulanmış admin (VIEWER+).
 	mux.HandleFunc("GET /api/devices", s.authed(s.handleListDevices))
 	mux.HandleFunc("GET /api/devices/{id}", s.authed(s.handleDeviceDetail))
@@ -244,6 +249,50 @@ func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request, adminID
 	writeJSON(w, http.StatusOK, map[string]any{"rules": rules})
 }
 
+func (s *Server) handleListAdmins(w http.ResponseWriter, r *http.Request, adminID string) {
+	admins, err := s.adminSvc.ListAdmins(r.Context(), adminID)
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"admins": admins})
+}
+
+func (s *Server) handleCreateAdmin(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	newID, err := s.adminSvc.CreateAdmin(r.Context(), adminID, req.Email, req.Password, admin.Role(req.Role))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"admin_id": newID})
+}
+
+func (s *Server) handleSetAdminRole(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Role string `json:"role"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if respondErr(w, s.adminSvc.SetAdminRole(r.Context(), adminID, r.PathValue("id"), admin.Role(req.Role))) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "role_updated"})
+}
+
+func (s *Server) handleDeactivateAdmin(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.DeactivateAdmin(r.Context(), adminID, r.PathValue("id"))) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
+}
+
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request, _ string) {
 	devices, err := s.reader.Devices(r.Context(), intParam(r, "limit"))
 	if respondErr(w, err) {
@@ -338,6 +387,10 @@ func respondErr(w http.ResponseWriter, err error) bool {
 	}
 	if errors.Is(err, admin.ErrInvalidRule) {
 		writeErr(w, http.StatusBadRequest, "geçersiz kural")
+		return true
+	}
+	if errors.Is(err, admin.ErrInvalidInput) {
+		writeErr(w, http.StatusBadRequest, "geçersiz girdi")
 		return true
 	}
 	writeErr(w, http.StatusInternalServerError, "işlem başarısız")
