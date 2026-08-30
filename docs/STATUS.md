@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **118 test fonksiyonu / 25 test paketi**, tümü geçiyor (`go test ./...`).
+- **120 test fonksiyonu / 25 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -47,6 +47,8 @@ OTA imza + rollout kapısı → komut teslimi (karantina) → tek-kullanımlık 
 | Admin HTTP API + Argon2 + oturum | ✅ | `server/internal/adminapi` | birim (httptest) |
 | Yönetici yönetimi (oluştur/rol/pasifleştir) | ✅ | `admin/adminusers.go`, `db/admins.go` | birim + canlı demo |
 | Enrollment token yönetimi (listele/iptal) | ✅ | `db/tokens.go`, `adminread` | birim + canlı demo |
+| Politika listeleme (kural + cihaz sayımı) | ✅ | `adminread.ListPolicies`, `db/policy.go` | birim + canlı demo |
+| Konsol: önem grafiği, cihaz arama, CSV dışa aktarma | ✅ | `adminapi/console.html` | canlı demo |
 | Olay ayrıntısı (yapısal JSON) + sunucu-taraflı süzme | ✅ | `adminread`, `grpc` | birim + canlı demo |
 | Cihaz OFFLINE otomasyonu (bayat heartbeat) | ✅ | `db/status.go`, `memstore` | birim |
 | Web yönetim konsolu (SOC paneli, canlı yenileme) | ✅ | `adminapi/console.html` (embed) | httptest + canlı demo |
