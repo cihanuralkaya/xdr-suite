@@ -19,6 +19,55 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
+func TestListPoliciesHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	store.polID = "pol-1"
+	store.polVer = "v2"
+	store.rules["pol-1"] = []admin.RuleInput{
+		{Type: "APP_BLOCK_ALWAYS", Target: "oyun.exe"},
+		{Type: "APP_TIME_BLOCK", Target: "steam.exe", Start: "18:00", End: "08:00"},
+	}
+	store.assigned["dev-a"] = "pol-1"
+	store.assigned["dev-b"] = "pol-1"
+
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	token := body["token"]
+
+	if r, _ := http.Get(ts.URL + "/api/policies"); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız politika listesi 401 dönmeliydi, %d", r.StatusCode)
+	}
+
+	resp, err := authedGET(t, ts.URL+"/api/policies", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("200 beklenirdi, %d", resp.StatusCode)
+	}
+	var out struct {
+		Policies []struct {
+			ID          string `json:"id"`
+			Version     string `json:"version"`
+			RuleCount   int    `json:"rule_count"`
+			DeviceCount int    `json:"device_count"`
+		} `json:"policies"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Policies) != 1 {
+		t.Fatalf("1 politika beklenirdi: %+v", out.Policies)
+	}
+	p := out.Policies[0]
+	if p.ID != "pol-1" || p.Version != "v2" || p.RuleCount != 2 || p.DeviceCount != 2 {
+		t.Fatalf("politika sayımları hatalı: %+v", p)
+	}
+}
+
 func TestSummaryEndpoint(t *testing.T) {
 	ts, store := setup(t)
 	defer ts.Close()

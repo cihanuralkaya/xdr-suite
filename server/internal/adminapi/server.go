@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/devices/quarantine", s.authed(s.handleQuarantine))
 	mux.HandleFunc("POST /api/devices/release", s.authed(s.handleRelease))
 	mux.HandleFunc("POST /api/devices/revoke", s.authed(s.handleRevoke))
+	mux.HandleFunc("GET /api/policies", s.authed(s.handleListPolicies))
 	mux.HandleFunc("POST /api/policies", s.authed(s.handleCreatePolicy))
 	mux.HandleFunc("POST /api/policies/assign", s.authed(s.handleAssignPolicy))
 	// Kural editörü: politikaya kural ekle / kuralları listele (Go 1.22 {id}).
@@ -311,6 +312,14 @@ func (s *Server) handleDeviceDetail(w http.ResponseWriter, r *http.Request, _ st
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"device_detail": detail})
+}
+
+func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request, _ string) {
+	policies, err := s.reader.Policies(r.Context(), intParam(r, "limit"))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"policies": policies})
 }
 
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, _ string) {

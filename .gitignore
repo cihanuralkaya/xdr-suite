@@ -36,3 +36,4 @@ vendor/
 Thumbs.db
 _demo/
 c2demo.exe
+preview_proxy.py

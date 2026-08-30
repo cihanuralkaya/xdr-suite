@@ -10,7 +10,35 @@ import (
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/server/internal/admin"
+	"xdr.corp/suite/server/internal/adminread"
 )
+
+// ListPolicies, tüm politikaları kural + atanmış cihaz sayımlarıyla, ada göre
+// sıralı listeler.
+func (s *Store) ListPolicies(ctx context.Context, limit int) ([]adminread.PolicyRow, error) {
+	const q = `
+		SELECT p.id::text, p.name, p.version,
+		       (SELECT COUNT(*) FROM policy_rules pr   WHERE pr.policy_id = p.id),
+		       (SELECT COUNT(*) FROM device_policies dp WHERE dp.policy_id = p.id)
+		  FROM policies p
+		 ORDER BY p.name, p.created_at
+		 LIMIT $1`
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("db: politika listesi: %w", err)
+	}
+	defer rows.Close()
+
+	var out []adminread.PolicyRow
+	for rows.Next() {
+		var p adminread.PolicyRow
+		if err := rows.Scan(&p.ID, &p.Name, &p.Version, &p.RuleCount, &p.DeviceCount); err != nil {
+			return nil, fmt.Errorf("db: politika okuma: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
 
 // CurrentPolicy, cihaza atanmış aktif politikayı proto PolicyBundle olarak kurar.
 // Atanmış politika yoksa (nil, nil) döner.

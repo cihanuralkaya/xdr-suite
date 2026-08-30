@@ -479,6 +479,36 @@ func (s *Store) DevicesForPolicy(_ context.Context, policyID string) ([]string, 
 	return out, nil
 }
 
+// ListPolicies, tüm politikaları kural + atanmış cihaz sayımlarıyla, ada göre
+// sıralı döner (deterministik çıktı).
+func (s *Store) ListPolicies(_ context.Context, limit int) ([]adminread.PolicyRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	assigned := map[string]int{}
+	for _, d := range s.devices {
+		if d.policyID != "" {
+			assigned[d.policyID]++
+		}
+	}
+	out := make([]adminread.PolicyRow, 0, len(s.policies))
+	for _, p := range s.policies {
+		out = append(out, adminread.PolicyRow{
+			ID: p.id, Name: p.name, Version: p.version,
+			RuleCount: len(p.rules), DeviceCount: assigned[p.id],
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 func (s *Store) ListPolicyRules(_ context.Context, policyID string) ([]admin.RuleView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

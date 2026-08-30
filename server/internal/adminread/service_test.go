@@ -17,8 +17,13 @@ type memStore struct {
 	certs    []CertRow
 	commands []CmdRow
 	tokens   []EnrollmentTokenRow
+	policies []PolicyRow
 	polID    string
 	polVer   string
+}
+
+func (m *memStore) ListPolicies(_ context.Context, _ int) ([]PolicyRow, error) {
+	return m.policies, nil
 }
 
 func (m *memStore) ListDevices(_ context.Context, _ int) ([]DeviceRow, error) {

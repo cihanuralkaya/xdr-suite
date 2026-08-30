@@ -84,6 +84,25 @@ func (m *memStore) RevokeEnrollmentToken(_ context.Context, tokenID string) erro
 func (m *memStore) ListEnrollmentTokens(_ context.Context, _ int) ([]adminread.EnrollmentTokenRow, error) {
 	return m.tokenRows, nil
 }
+
+func (m *memStore) ListPolicies(_ context.Context, _ int) ([]adminread.PolicyRow, error) {
+	counts := map[string]int{}
+	for _, pid := range m.assigned {
+		counts[pid]++
+	}
+	var out []adminread.PolicyRow
+	for id, rules := range m.rules {
+		ver := ""
+		if id == m.polID {
+			ver = m.polVer
+		}
+		out = append(out, adminread.PolicyRow{
+			ID: id, Name: id, Version: ver,
+			RuleCount: len(rules), DeviceCount: counts[id],
+		})
+	}
+	return out, nil
+}
 func (m *memStore) EnqueueCommand(_ context.Context, deviceID, cmdType, _ string) error {
 	m.commands = append(m.commands, deviceID+":"+cmdType)
 	return nil

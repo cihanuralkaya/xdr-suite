@@ -74,6 +74,16 @@ type EnrollmentTokenRow struct {
 	CreatedAt      time.Time
 }
 
+// PolicyRow, DB'den okunan ham politika satırıdır (kural + atanmış cihaz
+// sayımlarıyla). Politika adı/sürümü hassas değildir; şifrelenmez.
+type PolicyRow struct {
+	ID         string
+	Name       string
+	Version    string
+	RuleCount  int
+	DeviceCount int
+}
+
 // Store, okuma sorgularının kalıcılık kaynağıdır.
 type Store interface {
 	ListDevices(ctx context.Context, limit int) ([]DeviceRow, error)
@@ -94,6 +104,9 @@ type Store interface {
 	// ListEnrollmentTokens, enrollment token'ların meta verisini en yeniden
 	// eskiye listeler (ham token asla okunmaz).
 	ListEnrollmentTokens(ctx context.Context, limit int) ([]EnrollmentTokenRow, error)
+	// ListPolicies, tüm politikaları (kural sayısı + atanmış cihaz sayısıyla)
+	// listeler.
+	ListPolicies(ctx context.Context, limit int) ([]PolicyRow, error)
 }
 
 // DeviceDTO, konsola dönen deşifre edilmiş cihaz görünümüdür.
@@ -181,6 +194,15 @@ type EnrollmentTokenDTO struct {
 	ExpiresAt      time.Time `json:"expires_at"`
 	Used           bool      `json:"used"`
 	CreatedAt      time.Time `json:"created_at"`
+}
+
+// PolicyDTO, konsola dönen politika görünümüdür.
+type PolicyDTO struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	RuleCount   int    `json:"rule_count"`
+	DeviceCount int    `json:"device_count"`
 }
 
 // Service, okuma sorgularını yürütür ve şifreli alanları deşifre eder.
@@ -390,6 +412,25 @@ func (s *Service) EnrollmentTokens(ctx context.Context, limit int) ([]Enrollment
 			ExpiresAt:      r.ExpiresAt,
 			Used:           r.Used,
 			CreatedAt:      r.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+// Policies, tüm politikaları (kural + atanmış cihaz sayımlarıyla) döner.
+func (s *Service) Policies(ctx context.Context, limit int) ([]PolicyDTO, error) {
+	rows, err := s.store.ListPolicies(ctx, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PolicyDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, PolicyDTO{
+			ID:          r.ID,
+			Name:        r.Name,
+			Version:     r.Version,
+			RuleCount:   r.RuleCount,
+			DeviceCount: r.DeviceCount,
 		})
 	}
 	return out, nil
