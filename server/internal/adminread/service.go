@@ -6,6 +6,7 @@ package adminread
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"xdr.corp/suite/server/internal/security"
@@ -30,6 +31,8 @@ type EventRow struct {
 	Message    string
 	OccurredAt time.Time
 	CreatedAt  time.Time
+	// Details, olayın yapılandırılmış ek verisidir (ham JSON). Ayrıntı yoksa nil.
+	Details json.RawMessage
 }
 
 // AuditRow, DB'den okunan ham denetim izi satırıdır (admin e-postası çözülmüş).
@@ -63,7 +66,9 @@ type CmdRow struct {
 // Store, okuma sorgularının kalıcılık kaynağıdır.
 type Store interface {
 	ListDevices(ctx context.Context, limit int) ([]DeviceRow, error)
-	ListEvents(ctx context.Context, deviceID string, limit int) ([]EventRow, error)
+	// ListEvents, olayları en yeniden eskiye listeler. deviceID/severity/category
+	// boş ("") ise ilgili filtre uygulanmaz (opsiyonel sunucu-tarafı filtre).
+	ListEvents(ctx context.Context, deviceID, severity, category string, limit int) ([]EventRow, error)
 	// DeviceStatusCounts, cihaz durumuna göre (status -> adet) sayımları döner.
 	DeviceStatusCounts(ctx context.Context) (map[string]int, error)
 	// EventSeverityCounts, since'ten bu yana olayları önem seviyesine göre sayar.
@@ -118,12 +123,13 @@ type DeviceDetailDTO struct {
 
 // EventDTO, konsola dönen olay görünümüdür.
 type EventDTO struct {
-	ID         string    `json:"id"`
-	Category   string    `json:"category"`
-	Severity   string    `json:"severity"`
-	Message    string    `json:"message"`
-	OccurredAt time.Time `json:"occurred_at"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string          `json:"id"`
+	Category   string          `json:"category"`
+	Severity   string          `json:"severity"`
+	Message    string          `json:"message"`
+	OccurredAt time.Time       `json:"occurred_at"`
+	CreatedAt  time.Time       `json:"created_at"`
+	Details    json.RawMessage `json:"details,omitempty"`
 }
 
 // SummaryDTO, yönetim panosu için özet/KPI sayaçlarıdır.
@@ -242,9 +248,10 @@ func (s *Service) DeviceDetail(ctx context.Context, id string) (DeviceDetailDTO,
 	}, true, nil
 }
 
-// Events, bir cihazın (deviceID boşsa tümünün) olaylarını döner.
-func (s *Service) Events(ctx context.Context, deviceID string, limit int) ([]EventDTO, error) {
-	rows, err := s.store.ListEvents(ctx, deviceID, clampLimit(limit))
+// Events, bir cihazın (deviceID boşsa tümünün) olaylarını döner. severity ve
+// category boş ("") değilse sunucu-tarafında ilgili sütuna göre filtrelenir.
+func (s *Service) Events(ctx context.Context, deviceID, severity, category string, limit int) ([]EventDTO, error) {
+	rows, err := s.store.ListEvents(ctx, deviceID, severity, category, clampLimit(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +264,7 @@ func (s *Service) Events(ctx context.Context, deviceID string, limit int) ([]Eve
 			Message:    r.Message,
 			OccurredAt: r.OccurredAt,
 			CreatedAt:  r.CreatedAt,
+			Details:    r.Details,
 		})
 	}
 	return out, nil

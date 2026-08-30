@@ -41,14 +41,19 @@ func (s *Store) ListDevices(ctx context.Context, limit int) ([]adminread.DeviceR
 }
 
 // ListEvents, olay loglarını (deviceID boşsa tümünü) en yeniden eskiye listeler.
-func (s *Store) ListEvents(ctx context.Context, deviceID string, limit int) ([]adminread.EventRow, error) {
+// severity ve category boş ("") değilse ilgili ENUM sütununa göre sunucu-tarafında
+// filtre uygulanır. details, ham JSON metni olarak okunur (yoksa nil).
+func (s *Store) ListEvents(ctx context.Context, deviceID, severity, category string, limit int) ([]adminread.EventRow, error) {
 	const q = `
-		SELECT id::text, category::text, severity::text, message, occurred_at, created_at
+		SELECT id::text, category::text, severity::text, message, occurred_at, created_at,
+		       COALESCE(details::text, '')
 		  FROM event_logs
 		 WHERE ($1 = '' OR device_id = NULLIF($1,'')::uuid)
+		   AND ($2 = '' OR severity = $2::severity)
+		   AND ($3 = '' OR category = $3::event_category)
 		 ORDER BY created_at DESC
-		 LIMIT $2`
-	rows, err := s.pool.Query(ctx, q, deviceID, limit)
+		 LIMIT $4`
+	rows, err := s.pool.Query(ctx, q, deviceID, severity, category, limit)
 	if err != nil {
 		return nil, fmt.Errorf("db: olay listesi: %w", err)
 	}
@@ -57,8 +62,12 @@ func (s *Store) ListEvents(ctx context.Context, deviceID string, limit int) ([]a
 	var out []adminread.EventRow
 	for rows.Next() {
 		var e adminread.EventRow
-		if err := rows.Scan(&e.ID, &e.Category, &e.Severity, &e.Message, &e.OccurredAt, &e.CreatedAt); err != nil {
+		var details string
+		if err := rows.Scan(&e.ID, &e.Category, &e.Severity, &e.Message, &e.OccurredAt, &e.CreatedAt, &details); err != nil {
 			return nil, fmt.Errorf("db: olay okuma: %w", err)
+		}
+		if details != "" {
+			e.Details = []byte(details)
 		}
 		out = append(out, e)
 	}

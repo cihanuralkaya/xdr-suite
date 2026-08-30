@@ -3,6 +3,7 @@ package adminread
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -22,8 +23,18 @@ type memStore struct {
 func (m *memStore) ListDevices(_ context.Context, _ int) ([]DeviceRow, error) {
 	return m.devices, nil
 }
-func (m *memStore) ListEvents(_ context.Context, _ string, _ int) ([]EventRow, error) {
-	return m.events, nil
+func (m *memStore) ListEvents(_ context.Context, deviceID, severity, category string, _ int) ([]EventRow, error) {
+	var out []EventRow
+	for _, e := range m.events {
+		if severity != "" && e.Severity != severity {
+			continue
+		}
+		if category != "" && e.Category != category {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 func (m *memStore) DeviceStatusCounts(_ context.Context) (map[string]int, error) {
 	out := map[string]int{}
@@ -249,14 +260,56 @@ func TestDeviceDetailNotFound(t *testing.T) {
 
 func TestEventsPassthrough(t *testing.T) {
 	store := &memStore{events: []EventRow{
-		{ID: "e1", Category: "SECURITY", Severity: "HIGH", Message: "test", OccurredAt: time.Now()},
+		{ID: "e1", Category: "SECURITY", Severity: "HIGH", Message: "test", OccurredAt: time.Now(),
+			Details: json.RawMessage(`{"pid":42}`)},
 	}}
 	svc := NewService(store, newCipher(t))
-	dtos, err := svc.Events(context.Background(), "", 0)
+	dtos, err := svc.Events(context.Background(), "", "", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(dtos) != 1 || dtos[0].Message != "test" || dtos[0].Severity != "HIGH" {
 		t.Fatalf("olaylar aynen dönmeliydi: %+v", dtos)
+	}
+	// Details ham JSON olarak aynen geçmeli.
+	if string(dtos[0].Details) != `{"pid":42}` {
+		t.Fatalf("details ham JSON olarak geçmeliydi: %q", string(dtos[0].Details))
+	}
+}
+
+func TestEventsServerSideFilter(t *testing.T) {
+	now := time.Now()
+	store := &memStore{events: []EventRow{
+		{ID: "e1", Category: "SECURITY", Severity: "HIGH", Message: "a", OccurredAt: now},
+		{ID: "e2", Category: "SYSTEM", Severity: "INFO", Message: "b", OccurredAt: now},
+		{ID: "e3", Category: "SECURITY", Severity: "INFO", Message: "c", OccurredAt: now},
+	}}
+	svc := NewService(store, newCipher(t))
+
+	// severity filtresi.
+	high, err := svc.Events(context.Background(), "", "HIGH", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(high) != 1 || high[0].ID != "e1" {
+		t.Fatalf("severity=HIGH yalnız e1 dönmeliydi: %+v", high)
+	}
+
+	// category filtresi.
+	sec, err := svc.Events(context.Background(), "", "", "SECURITY", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sec) != 2 {
+		t.Fatalf("category=SECURITY 2 olay dönmeliydi: %+v", sec)
+	}
+
+	// severity + category birlikte.
+	both, err := svc.Events(context.Background(), "", "INFO", "SECURITY", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(both) != 1 || both[0].ID != "e3" {
+		t.Fatalf("INFO+SECURITY yalnız e3 dönmeliydi: %+v", both)
 	}
 }

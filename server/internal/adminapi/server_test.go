@@ -118,8 +118,18 @@ func (m *memStore) LookupAdmin(_ context.Context, email string) (string, string,
 func (m *memStore) ListDevices(_ context.Context, _ int) ([]adminread.DeviceRow, error) {
 	return m.devRows, nil
 }
-func (m *memStore) ListEvents(_ context.Context, _ string, _ int) ([]adminread.EventRow, error) {
-	return m.evtRows, nil
+func (m *memStore) ListEvents(_ context.Context, deviceID, severity, category string, _ int) ([]adminread.EventRow, error) {
+	var out []adminread.EventRow
+	for _, e := range m.evtRows {
+		if severity != "" && e.Severity != severity {
+			continue
+		}
+		if category != "" && e.Category != category {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 func (m *memStore) DeviceStatusCounts(_ context.Context) (map[string]int, error) {
 	out := map[string]int{}

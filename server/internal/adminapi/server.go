@@ -247,7 +247,8 @@ func (s *Server) handleDeviceDetail(w http.ResponseWriter, r *http.Request, _ st
 }
 
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, _ string) {
-	events, err := s.reader.Events(r.Context(), r.URL.Query().Get("device_id"), intParam(r, "limit"))
+	q := r.URL.Query()
+	events, err := s.reader.Events(r.Context(), q.Get("device_id"), q.Get("severity"), q.Get("category"), intParam(r, "limit"))
 	if respondErr(w, err) {
 		return
 	}

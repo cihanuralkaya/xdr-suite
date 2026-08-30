@@ -8,6 +8,8 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
@@ -131,6 +133,7 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 				Severity:   dbSeverity(e.GetSeverity()),
 				Message:    e.GetMessage(),
 				OccurredAt: e.GetOccurredAt().AsTime(),
+				Details:    detailsJSON(e.GetDetails()),
 			})
 		}
 		acc, err := h.events.SaveEvents(stream.Context(), deviceID, domainEvents)
@@ -141,6 +144,21 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 			lastAccepted = acc
 		}
 	}
+}
+
+// detailsJSON, proto Event.details (structpb.Struct) alanını kalıcılaştırılacak
+// JSON metnine çevirir. Ayrıntı yoksa (nil) boş string döner; böylece db katmanı
+// alanı NULL saklar. Serileştirme hatası olası değildir (structpb her zaman geçerli
+// JSON üretir), yine de güvenli tarafta boş string döneriz.
+func detailsJSON(d *structpb.Struct) string {
+	if d == nil {
+		return ""
+	}
+	b, err := protojson.Marshal(d)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // dbCategory, proto enum'unu DB event_category ENUM'una eşler
