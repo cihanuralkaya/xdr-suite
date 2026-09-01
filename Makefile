@@ -1,7 +1,7 @@
 # XDR/MDM — geliştirme görevleri
 # Not: Go, buf ve protoc-gen eklentileri kurulu olmalı (bkz. README).
 
-.PHONY: proto tidy build build-server build-agent build-watchdog test e2e dev-certs clean
+.PHONY: proto tidy build build-server build-agent build-watchdog test e2e dev-certs release clean
 
 ## proto: .proto dosyalarından Go kodunu üretir (gen/ altına).
 proto:
@@ -35,6 +35,11 @@ e2e:
 ## dev-certs: GELİŞTİRME CA + sunucu sertifikası üretir (./dev-certs).
 dev-certs:
 	go run ./tools/gencerts -out ./dev-certs -name xdr-c2
+
+## release: tüm ikilileri Windows+Linux için çapraz derler (dist/).
+##          Kullanım: make release VERSION=1.0.0
+release:
+	scripts/build-release.sh $(VERSION)
 
 clean:
 	rm -rf bin gen dist dev-certs

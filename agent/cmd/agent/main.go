@@ -482,7 +482,9 @@ func scanNetwork(src discovery.NeighborSource, tr *discovery.Tracker, buf *colle
 	}
 }
 
-const agentVersion = "0.1.0-dev"
+// agentVersion, sürüm etiketidir. Release derlemesinde ldflags ile damgalanır:
+//   -ldflags "-X main.agentVersion=1.0.0"
+var agentVersion = "0.1.0-dev"
 
 func protoCategory(s string) xdrv1.EventCategory {
 	if v, ok := xdrv1.EventCategory_value["EVENT_CATEGORY_"+s]; ok {
