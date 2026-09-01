@@ -1,7 +1,7 @@
 # XDR/MDM — geliştirme görevleri
 # Not: Go, buf ve protoc-gen eklentileri kurulu olmalı (bkz. README).
 
-.PHONY: proto tidy build build-server build-agent build-watchdog test e2e dev-certs release clean
+.PHONY: proto tidy build build-server build-agent build-watchdog test e2e dev-certs release smoke clean
 
 ## proto: .proto dosyalarından Go kodunu üretir (gen/ altına).
 proto:
@@ -31,6 +31,10 @@ test:
 ## e2e: yalnız uçtan-uca entegrasyon testini çalıştırır (gerçek mTLS gRPC).
 e2e:
 	go test -v ./server/internal/e2e/...
+
+## smoke: gerçek c2 + agent'ı ayağa kaldırıp uçtan uca zinciri iddialarla test eder.
+smoke:
+	bash scripts/smoke-test.sh
 
 ## dev-certs: GELİŞTİRME CA + sunucu sertifikası üretir (./dev-certs).
 dev-certs:

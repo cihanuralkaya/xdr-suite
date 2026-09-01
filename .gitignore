@@ -38,3 +38,4 @@ _demo/
 c2demo.exe
 preview_proxy.py
 dist/
+_smoke/
