@@ -100,6 +100,20 @@ go run ./tools/adminseed -email a@x -password '...' -role ADMIN
 
 ## Araçlar
 
-- `tools/gencerts` — dev CA + sunucu sertifikası.
+- `tools/gencerts` — dev/prod CA + sunucu sertifikası.
 - `tools/otasign` — OTA imza anahtarı üretimi + sürüm imzalama (+ SQL).
 - `tools/adminseed` — yönetici parolası (Argon2id) + INSERT SQL.
+- `tools/mkclient` — TEK DOSYA istemci kurulum betiği üreteci (benzersiz/token
+  gömülü veya paylaşımlı/kod girişli; ajan ikilisi base64 gömülü; Win/Linux).
+
+## Dağıtım / paketleme (nihai teslimat) — ✅
+
+- `scripts/build-release.sh` — c2/agent/watchdog/gencerts çapraz derleme
+  (Windows+Linux amd64 → `dist/`), sürüm ldflags ile damgalı.
+- **Sunucu kurulumu:** `deploy/server/install-linux.sh` (systemd),
+  `install-windows.ps1` (zamanlanmış görev) — PKI + ana anahtar + config +
+  servis otomasyonu. `c2.env.example` şablonu.
+- **İstemci kurulumu:** `mkclient` ile üretilen tek-dosya installer; token gömülü
+  (benzersiz) veya kod girişli (paylaşımlı); ajan+CA gömülü; servis kurar.
+- Ayrıntı: `deploy/README.md`. **Canlı doğrulandı:** üretilen benzersiz Windows
+  installer'ın gömülü yükü çalıştırıldığında cihaz başarıyla kaydoldu.
