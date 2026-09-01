@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,6 +18,56 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return http.DefaultClient.Do(req)
+}
+
+func TestStreamSSEDeliversNotice(t *testing.T) {
+	ts, store, bus := setupStream(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	token := body["token"]
+
+	// Token'sız akış 401.
+	if r, _ := http.Get(ts.URL + "/api/stream"); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("token'sız akış 401 dönmeliydi, %d", r.StatusCode)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/api/stream", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("200 beklenirdi, %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("text/event-stream beklenirdi, %q", ct)
+	}
+
+	// Bağlantı kurulduktan sonra yayın yap; frame gelmeli.
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		bus.PublishEvent("dev-1", "HIGH", "test olayı")
+	}()
+
+	buf := make([]byte, 4096)
+	var got string
+	for !strings.Contains(got, "test olayı") {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			got += string(buf[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	if !strings.Contains(got, `"type":"event"`) || !strings.Contains(got, "test olayı") || !strings.Contains(got, `"severity":"HIGH"`) {
+		t.Fatalf("SSE olay frame'i bekleniyordu, alınan: %q", got)
+	}
 }
 
 func TestListPoliciesHTTP(t *testing.T) {

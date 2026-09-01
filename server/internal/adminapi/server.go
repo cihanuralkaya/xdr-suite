@@ -10,6 +10,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"xdr.corp/suite/server/internal/admin"
 	"xdr.corp/suite/server/internal/adminread"
+	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/security"
 )
 
@@ -36,12 +38,17 @@ type Server struct {
 	sessions *security.SessionSigner
 	ttl      time.Duration
 	now      func() time.Time
+	stream   *eventbus.Bus
 }
 
 // New oluşturur.
 func New(adminSvc *admin.Service, reader *adminread.Service, auth AuthStore, sessions *security.SessionSigner, ttl time.Duration) *Server {
 	return &Server{adminSvc: adminSvc, reader: reader, auth: auth, sessions: sessions, ttl: ttl, now: time.Now}
 }
+
+// SetStream, canlı SSE akışını (/api/stream) etkinleştirir. nil ise akış ucu
+// 501 döner ve konsol yalnız periyodik yenilemeye düşer.
+func (s *Server) SetStream(bus *eventbus.Bus) { s.stream = bus }
 
 // Handler, yönlendirmeleri kayıtlı bir http.Handler döner.
 func (s *Server) Handler() http.Handler {
@@ -62,6 +69,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/enrollment-tokens/{id}/revoke", s.authed(s.handleRevokeToken))
 	mux.HandleFunc("POST /api/devices/quarantine", s.authed(s.handleQuarantine))
 	mux.HandleFunc("POST /api/devices/release", s.authed(s.handleRelease))
+	mux.HandleFunc("POST /api/devices/collect-diagnostics", s.authed(s.handleCollectDiagnostics))
 	mux.HandleFunc("POST /api/devices/revoke", s.authed(s.handleRevoke))
 	mux.HandleFunc("GET /api/policies", s.authed(s.handleListPolicies))
 	mux.HandleFunc("POST /api/policies", s.authed(s.handleCreatePolicy))
@@ -80,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
+	mux.HandleFunc("GET /api/stream", s.authed(s.handleStream))
 	return securityHeaders(mux)
 }
 
@@ -177,6 +186,19 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request, adminID s
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "release_queued"})
+}
+
+func (s *Server) handleCollectDiagnostics(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		DeviceID string `json:"device_id"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if respondErr(w, s.adminSvc.CollectDiagnostics(r.Context(), adminID, req.DeviceID)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "diagnostics_queued"})
 }
 
 func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request, adminID string) {
@@ -337,6 +359,54 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request, _ string)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"summary": summary})
+}
+
+// handleStream, Server-Sent Events (SSE) ile canlı değişiklik bildirimleri iletir.
+// Konsol bunu Authorization başlıklı fetch akışı ile tüketir (token URL'de YER
+// ALMAZ). Bildirim yalnız bir "değişti" tetikleyicisidir; konsol tazeler.
+func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, _ string) {
+	if s.stream == nil {
+		writeErr(w, http.StatusNotImplemented, "canlı akış devre dışı")
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "akış desteklenmiyor")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	ch, cancel := s.stream.Subscribe()
+	defer cancel()
+	fmt.Fprint(w, ": bağlandı\n\n")
+	flusher.Flush()
+
+	ping := time.NewTicker(20 * time.Second)
+	defer ping.Stop()
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ping.C:
+			fmt.Fprint(w, ": ping\n\n") // yorum satırı: bağlantıyı canlı tutar
+			flusher.Flush()
+		case n, ok := <-ch:
+			if !ok {
+				return
+			}
+			b, err := json.Marshal(n)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
+	}
 }
 
 func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, _ string) {

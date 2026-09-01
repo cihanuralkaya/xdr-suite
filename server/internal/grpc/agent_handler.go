@@ -58,6 +58,19 @@ func (noopNotifier) Subscribe(string) (<-chan struct{}, func()) {
 	return make(chan struct{}), func() {}
 }
 
+// AdminNotifier, ajan-kaynaklı değişiklikleri admin konsoluna (SSE) iletmek için
+// yayınlanır. nil verilmezse noop kullanılır; SSE bağımlılığı zorunlu değildir.
+type AdminNotifier interface {
+	PublishEvent(deviceID, severity, message string)
+	PublishDevice(deviceID string)
+}
+
+// noopAdminNotifier, admin notifier verilmediğinde kullanılır.
+type noopAdminNotifier struct{}
+
+func (noopAdminNotifier) PublishEvent(string, string, string) {}
+func (noopAdminNotifier) PublishDevice(string)                {}
+
 // AgentHandler, AgentService gRPC sunucusunu uygular.
 type AgentHandler struct {
 	xdrv1.UnimplementedAgentServiceServer
@@ -66,7 +79,16 @@ type AgentHandler struct {
 	policies PolicyProvider
 	updates  UpdateProvider
 	notifier PolicyNotifier
+	admin    AdminNotifier
 	now      func() time.Time
+}
+
+// SetAdminNotifier, admin-tarafı SSE yayınını etkinleştirir. nil ise noop kalır.
+func (h *AgentHandler) SetAdminNotifier(n AdminNotifier) {
+	if n == nil {
+		n = noopAdminNotifier{}
+	}
+	h.admin = n
 }
 
 // NewAgentHandler oluşturur. notifier nil ise anlık push devre dışıdır (akış
@@ -75,7 +97,7 @@ func NewAgentHandler(devices DeviceRegistry, events EventSink, policies PolicyPr
 	if notifier == nil {
 		notifier = noopNotifier{}
 	}
-	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, now: time.Now}
+	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, now: time.Now}
 }
 
 // Heartbeat, yaşam sinyalini işler. Yanıt SUNUCU SAATİNİ taşır — ajan, politika
@@ -96,6 +118,7 @@ func (h *AgentHandler) Heartbeat(ctx context.Context, req *xdrv1.HeartbeatReques
 	if err != nil {
 		return nil, status.Error(codes.Internal, "heartbeat kaydedilemedi")
 	}
+	h.admin.PublishDevice(deviceID) // konsola canlı: cihaz görüldü
 	cmds, err := h.devices.PendingCommands(ctx, deviceID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "komutlar alınamadı")
@@ -139,6 +162,9 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 		acc, err := h.events.SaveEvents(stream.Context(), deviceID, domainEvents)
 		if err != nil {
 			return status.Error(codes.Internal, "olaylar kaydedilemedi")
+		}
+		for _, e := range domainEvents {
+			h.admin.PublishEvent(deviceID, e.Severity, e.Message) // konsola canlı push
 		}
 		if acc > lastAccepted {
 			lastAccepted = acc

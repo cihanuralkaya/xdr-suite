@@ -280,6 +280,7 @@
             <div class="actions">
               <button class="btn warn sm" data-act="quarantine" disabled>🔒 Karantina</button>
               <button class="btn ghost sm" data-act="release" disabled>🔓 Serbest</button>
+              <button class="btn ghost sm" data-act="diagnostics" disabled>🩺 Tanılama Topla</button>
               <button class="btn danger sm" data-act="revoke" disabled>⛔ Sertifika İptal</button>
             </div>
             <div class="divider"></div>
@@ -376,7 +377,8 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", auto:true, timer:null,
-    evtOpen:{}, tokens:[], admins:[], policies:[], devSearch:"" };
+    evtOpen:{}, tokens:[], admins:[], policies:[], devSearch:"",
+    streamOn:false, streamCtrl:null, streamRetry:null };
 
   // ---------- API ----------
   function api(path, method, body) {
@@ -394,7 +396,7 @@
 
   function sessionExpired(){
     if(!state.token) return;
-    stopAuto(); state.token=""; state.sel=null;
+    stopAuto(); stopStream(); state.token=""; state.sel=null;
     try { sessionStorage.removeItem("xdr_tok"); sessionStorage.removeItem("xdr_email"); } catch(e){}
     $("app").style.display="none"; $("login").style.display="grid";
     $("l-err").textContent="Oturum süresi doldu — tekrar giriş yapın.";
@@ -580,7 +582,7 @@
       head.textContent="Bir cihaz seçmek için tablodan satıra tıklayın.";
     }
     document.querySelectorAll("[data-act]").forEach(function(b){
-      var needsSel = ["quarantine","release","revoke","assignPolicy"].indexOf(b.dataset.act)>=0;
+      var needsSel = ["quarantine","release","diagnostics","revoke","assignPolicy"].indexOf(b.dataset.act)>=0;
       if(needsSel) b.disabled = !state.sel;
     });
     var det=$("dev-detail");
@@ -591,7 +593,8 @@
   // ---------- refresh loop ----------
   function setLive(ok){
     var el=$("live"); el.className="live"+(ok?"":" off");
-    $("live-txt").textContent = ok ? ("canlı · "+new Date().toLocaleTimeString()) : "bağlantı yok";
+    var mode = state.streamOn ? "akış" : "yenileme";
+    $("live-txt").textContent = ok ? ("canlı ("+mode+") · "+new Date().toLocaleTimeString()) : "bağlantı yok";
   }
   function soft(p){ return p.catch(function(){ return {}; }); }
   function refresh(){
@@ -745,21 +748,85 @@
       state.policies=r.policies||[]; renderPolicies();
     }).catch(function(){});
   }
+  function sevDot(sev){ return "<span class='sev "+esc(sev)+"' style='font-size:11px'>"+esc(sev||"-")+"</span>"; }
   function loadDetail(id){
-    api("/api/devices/"+encodeURIComponent(id)).then(function(r){
-      var d=r.device_detail; if(!d) return;
+    Promise.all([
+      api("/api/devices/"+encodeURIComponent(id)),
+      soft(api("/api/events?device_id="+encodeURIComponent(id)+"&limit=15"))
+    ]).then(function(res){
+      if(state.sel!==id) return; // seçim değiştiyse eski yanıtı yazma
+      var d=res[0].device_detail; if(!d) return;
       var el=$("dev-detail"); el.className="detail show";
       var certs=(d.certs||[]).map(function(c){ return "<div class='mini'>#"+esc(c.serial)+" · "+(c.revoked?"⛔ İPTAL":"✓ geçerli")+"</div>"; }).join("")||"<div class='mini'>—</div>";
       var cmds=(d.commands||[]).map(function(c){ return "<div class='mini'>"+esc(c.type)+" · "+(c.delivered_at?"teslim":"bekliyor")+"</div>"; }).join("")||"<div class='mini'>—</div>";
+      var evs=(res[1]&&res[1].events)||[];
+      var evHtml=evs.length ? evs.map(function(e){
+        return "<div class='mini' style='display:flex;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px solid var(--line)'>"+
+          "<span style='color:var(--faint);min-width:62px'>"+esc(relTime(e.created_at))+"</span>"+
+          sevDot(e.severity)+"<span style='color:var(--ink);flex:1'>"+esc(e.message||"-")+"</span></div>";
+      }).join("") : "<div class='mini'>— bu cihaz için olay yok</div>";
       el.innerHTML =
         "<h4>Atanmış politika</h4><div class='mini'>"+(d.assigned_policy_id?(esc(d.assigned_policy_id)+" ("+esc(d.assigned_policy_version)+")"):"— yok")+"</div>"+
+        "<h4>Son olaylar ("+evs.length+")</h4>"+evHtml+
         "<h4>Sertifikalar</h4>"+certs+
         "<h4>Komut geçmişi</h4>"+cmds;
       if(d.assigned_policy_id){ if(!$("r-pol").value) $("r-pol").value=d.assigned_policy_id; if(!$("a-pol").value) $("a-pol").value=d.assigned_policy_id; }
     }).catch(function(){});
   }
-  function startAuto(){ stopAuto(); state.timer=setInterval(refresh, 5000); }
+  // SSE aktifken güvenlik ağı olarak seyrek (15 sn), değilse sık (5 sn) yenile.
+  function startAuto(){ stopAuto(); state.timer=setInterval(refresh, state.streamOn?15000:5000); }
   function stopAuto(){ if(state.timer){ clearInterval(state.timer); state.timer=null; } }
+
+  // ---------- canlı akış (SSE) ----------
+  var refreshDebounce=null;
+  function scheduleRefresh(){
+    if(refreshDebounce) return;
+    refreshDebounce=setTimeout(function(){ refreshDebounce=null; refresh(); }, 700);
+  }
+  function startStream(){
+    if(!window.fetch || !window.ReadableStream || !state.token) return;
+    stopStream();
+    var ctrl = new AbortController(); state.streamCtrl = ctrl;
+    fetch("/api/stream", { headers:{ Authorization:"Bearer "+state.token }, signal:ctrl.signal })
+      .then(function(res){
+        if(res.status===401){ sessionExpired(); return; }
+        if(!res.ok || !res.body){ throw new Error("akış yok"); }
+        state.streamOn=true; startAuto(); setLive(true);
+        var reader=res.body.getReader(), dec=new TextDecoder(), buf="";
+        function pump(){
+          return reader.read().then(function(r){
+            if(r.done){ throw new Error("akış kapandı"); }
+            buf += dec.decode(r.value,{stream:true});
+            var frames=buf.split("\n\n"); buf=frames.pop();
+            frames.forEach(function(f){
+              var dataLine=f.split("\n").filter(function(l){ return l.indexOf("data:")===0; })[0];
+              if(dataLine){ onNotice(dataLine.slice(5).trim()); }
+            });
+            return pump();
+          });
+        }
+        return pump();
+      })
+      .catch(function(){
+        // Akış koptu/başlamadı: yalnız yenilemeye düş, kısa süre sonra tekrar dene.
+        if(state.streamOn){ state.streamOn=false; startAuto(); }
+        if(state.token && state.auto){ clearTimeout(state.streamRetry);
+          state.streamRetry=setTimeout(startStream, 5000); }
+      });
+  }
+  function onNotice(json){
+    var n; try{ n=JSON.parse(json); }catch(e){ n=null; }
+    if(n && n.type==="event" && (n.severity==="CRITICAL"||n.severity==="HIGH")){
+      toast("Yeni "+n.severity+" olay", n.message||"", n.severity==="CRITICAL"?"err":"warn");
+    }
+    setLive(true);
+    scheduleRefresh(); // hafif tetik → veriyi tazele
+  }
+  function stopStream(){
+    state.streamOn=false;
+    clearTimeout(state.streamRetry);
+    if(state.streamCtrl){ try{ state.streamCtrl.abort(); }catch(e){} state.streamCtrl=null; }
+  }
 
   // ---------- actions ----------
   var actions = {
@@ -783,6 +850,9 @@
         showOut("o-dev","Karantina komutu kuyruğa alındı.","ok"); toast("Karantinaya alındı","Komut ajana teslim edilecek","warn"); }); },
     release: function(){ return api("/api/devices/release","POST",{device_id:state.sel}).then(function(){
       showOut("o-dev","Serbest bırakma komutu kuyruğa alındı.","ok"); toast("Serbest bırakıldı",null,"ok"); }); },
+    diagnostics: function(){ return api("/api/devices/collect-diagnostics","POST",{device_id:state.sel}).then(function(){
+      showOut("o-dev","Tanılama toplama komutu kuyruğa alındı — ajan sonraki bağlantıda uygular.","ok");
+      toast("Tanılama istendi",selName(),"ok"); if(state.sel) loadDetail(state.sel); }); },
     revoke: function(){
       if(!confirm("“"+selName()+"” cihazının sertifikası İPTAL edilecek. Bu GERİ ALINAMAZ — cihaz yeniden kaydolana kadar bağlanamaz. Onaylıyor musunuz?")) return Promise.resolve();
       return api("/api/devices/revoke","POST",{device_id:state.sel}).then(function(){
@@ -802,7 +872,7 @@
     document.querySelectorAll("[data-act]").forEach(function(btn){
       btn.addEventListener("click", function(){
         var fn=actions[btn.dataset.act]; if(!fn) return;
-        var out = ["quarantine","release","revoke","assignPolicy"].indexOf(btn.dataset.act)>=0 ? "o-dev"
+        var out = ["quarantine","release","diagnostics","revoke","assignPolicy"].indexOf(btn.dataset.act)>=0 ? "o-dev"
                 : btn.dataset.act==="token" ? "o-token"
                 : btn.dataset.act==="createAdmin" ? "o-adm"
                 : btn.dataset.act==="addRule" ? "o-rule" : "o-pol";
@@ -823,20 +893,20 @@
     try { sessionStorage.setItem("xdr_tok", token); sessionStorage.setItem("xdr_email", email); } catch(e){}
     $("who").textContent=email;
     $("login").style.display="none"; $("app").style.display="grid";
-    refresh().then(startAuto);
+    refresh().then(function(){ startAuto(); startStream(); });
   }
 
   // ---------- wire ----------
   $("l-btn").onclick=doLogin;
   $("l-pass").addEventListener("keydown",function(e){ if(e.key==="Enter") doLogin(); });
-  $("logout").onclick=function(){ stopAuto(); state.token=""; state.sel=null;
+  $("logout").onclick=function(){ stopAuto(); stopStream(); state.token=""; state.sel=null;
     try { sessionStorage.removeItem("xdr_tok"); sessionStorage.removeItem("xdr_email"); } catch(e){}
     $("app").style.display="none"; $("login").style.display="grid"; $("l-pass").value=""; };
   $("dev-refresh").onclick=refresh; $("evt-refresh").onclick=refresh;
   $("dev-search").addEventListener("input",function(){ state.devSearch=this.value; renderDevices(); });
   $("evt-csv").onclick=exportEvents; $("aud-csv").onclick=exportAudit;
-  $("rf-on").onclick=function(){ state.auto=true; $("rf-on").className="on"; $("rf-off").className=""; startAuto(); refresh(); };
-  $("rf-off").onclick=function(){ state.auto=false; $("rf-on").className=""; $("rf-off").className="on"; stopAuto(); setLive(true); $("live-txt").textContent="duraklatıldı"; };
+  $("rf-on").onclick=function(){ state.auto=true; $("rf-on").className="on"; $("rf-off").className=""; startAuto(); startStream(); refresh(); };
+  $("rf-off").onclick=function(){ state.auto=false; $("rf-on").className=""; $("rf-off").className="on"; stopAuto(); stopStream(); setLive(true); $("live-txt").textContent="duraklatıldı"; };
   document.querySelectorAll("#sevfilter button").forEach(function(b){
     b.onclick=function(){ document.querySelectorAll("#sevfilter button").forEach(function(x){x.className="";}); b.className="on";
       state.sevFilter=b.dataset.sev; renderEvents(); };

@@ -193,6 +193,12 @@ func (s *Service) ReleaseDevice(ctx context.Context, adminID, deviceID string) e
 	return s.command(ctx, adminID, deviceID, "UNQUARANTINE", "ACTIVE")
 }
 
+// CollectDiagnostics, cihazdan tanılama toplama komutu kuyruğa ekler (OPERATOR+).
+// Durum değiştirmez — zararsız, salt-toplama bir işlemdir.
+func (s *Service) CollectDiagnostics(ctx context.Context, adminID, deviceID string) error {
+	return s.command(ctx, adminID, deviceID, "COLLECT_DIAGNOSTICS", "")
+}
+
 // command, RBAC kontrolü sonrası komutu kuyruğa ekler, denetim izine yazar ve
 // (reflectStatus boş değilse) cihazın durum sütununu günceller. Durum güncelleme
 // hatası akışı BOZMAZ: komut zaten kuyruğa girmiştir; hata yutulur (best-effort

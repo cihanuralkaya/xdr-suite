@@ -15,26 +15,27 @@ import (
 
 	"xdr.corp/suite/server/internal/admin"
 	"xdr.corp/suite/server/internal/adminread"
+	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/security"
 )
 
 // memStore, hem admin.Store hem adminapi.AuthStore'u karşılar.
 type memStore struct {
-	roles     map[string]admin.Role
-	emails    map[string]adminRec // email -> (id, hash)
-	commands  []string            // "deviceID:type"
-	cipher    *security.FieldCipher
-	devRows   []adminread.DeviceRow
-	evtRows   []adminread.EventRow
-	auditRows []adminread.AuditRow
-	certRows  []adminread.CertRow
-	cmdRows   []adminread.CmdRow
-	tokenRows []adminread.EnrollmentTokenRow
-	tokenSeq  int
-	polID     string
-	polVer    string
-	rules     map[string][]admin.RuleInput // policyID -> kurallar
-	assigned  map[string]string            // deviceID -> policyID
+	roles      map[string]admin.Role
+	emails     map[string]adminRec // email -> (id, hash)
+	commands   []string            // "deviceID:type"
+	cipher     *security.FieldCipher
+	devRows    []adminread.DeviceRow
+	evtRows    []adminread.EventRow
+	auditRows  []adminread.AuditRow
+	certRows   []adminread.CertRow
+	cmdRows    []adminread.CmdRow
+	tokenRows  []adminread.EnrollmentTokenRow
+	tokenSeq   int
+	polID      string
+	polVer     string
+	rules      map[string][]admin.RuleInput // policyID -> kurallar
+	assigned   map[string]string            // deviceID -> policyID
 	statuses   map[string]string            // deviceID -> son ayarlanan durum
 	adminInfos map[string]*admin.AdminInfo  // id -> yönetici görünümü
 	nextAdmID  int
@@ -259,7 +260,7 @@ func (m *memStore) AssignedPolicy(_ context.Context, _ string) (string, string, 
 	return m.polID, m.polVer, nil
 }
 
-func setup(t *testing.T) (*httptest.Server, *memStore) {
+func newServer(t *testing.T) (*Server, *memStore) {
 	t.Helper()
 	store := newMemStore()
 
@@ -276,9 +277,21 @@ func setup(t *testing.T) (*httptest.Server, *memStore) {
 	store.cipher = cipher
 	adminSvc := admin.NewService(store, bidx, time.Hour)
 	reader := adminread.NewService(store, cipher)
+	return New(adminSvc, reader, store, sessions, time.Hour), store
+}
 
-	srv := New(adminSvc, reader, store, sessions, time.Hour)
+func setup(t *testing.T) (*httptest.Server, *memStore) {
+	t.Helper()
+	srv, store := newServer(t)
 	return httptest.NewServer(srv.Handler()), store
+}
+
+func setupStream(t *testing.T) (*httptest.Server, *memStore, *eventbus.Bus) {
+	t.Helper()
+	srv, store := newServer(t)
+	bus := eventbus.New()
+	srv.SetStream(bus)
+	return httptest.NewServer(srv.Handler()), store, bus
 }
 
 func addAdmin(t *testing.T, store *memStore, id, email, password string, role admin.Role) {

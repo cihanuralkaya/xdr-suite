@@ -184,6 +184,33 @@ func TestRBACQuarantineRequiresOperator(t *testing.T) {
 	}
 }
 
+func TestCollectDiagnosticsQueuesCommandWithoutStatusChange(t *testing.T) {
+	store := newMemStore()
+	store.roles["op1"] = RoleOperator
+	store.roles["viewer1"] = RoleViewer
+	svc, _ := newService(t, store)
+
+	// VIEWER komut kuyruğa alamamalı (403).
+	if err := svc.CollectDiagnostics(context.Background(), "viewer1", "dev-1"); err != ErrForbidden {
+		t.Fatalf("VIEWER için ErrForbidden beklenirdi, dönen: %v", err)
+	}
+
+	// OPERATOR tanılama komutu kuyruğa alabilmeli.
+	if err := svc.CollectDiagnostics(context.Background(), "op1", "dev-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.commands) != 1 || store.commands[0].cmdType != "COLLECT_DIAGNOSTICS" || store.commands[0].deviceID != "dev-1" {
+		t.Fatalf("COLLECT_DIAGNOSTICS komutu kuyruğa eklenmeliydi: %+v", store.commands)
+	}
+	if len(store.audits) != 1 || store.audits[0].action != "COLLECT_DIAGNOSTICS" {
+		t.Fatalf("denetim izi yazılmalıydı: %+v", store.audits)
+	}
+	// Tanılama durum DEĞİŞTİRMEZ (zararsız salt-toplama).
+	if _, ok := store.statuses["dev-1"]; ok {
+		t.Fatalf("tanılama cihaz durumunu değiştirmemeliydi, dönen: %q", store.statuses["dev-1"])
+	}
+}
+
 func TestQuarantineReleaseReflectsStatus(t *testing.T) {
 	store := newMemStore()
 	store.roles["op1"] = RoleOperator

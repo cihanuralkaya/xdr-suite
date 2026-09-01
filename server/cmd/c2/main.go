@@ -25,6 +25,7 @@ import (
 	"xdr.corp/suite/server/internal/config"
 	"xdr.corp/suite/server/internal/db"
 	"xdr.corp/suite/server/internal/enroll"
+	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/memstore"
 	"xdr.corp/suite/server/internal/policypush"
 	"xdr.corp/suite/server/internal/retention"
@@ -154,6 +155,9 @@ func run() error {
 	// Anlık politika push: admin atama → notifier → açık akış.
 	notifier := policypush.New()
 	agentHandler := xgrpc.NewAgentHandler(backend, backend, backend, backend, notifier)
+	// Canlı konsol akışı (SSE): ajan olay/heartbeat → bus → admin /api/stream.
+	liveBus := eventbus.New()
+	agentHandler.SetAdminNotifier(liveBus)
 
 	// Sertifika iptali: bellek-içi küme + depodan periyodik tazeleme.
 	revCache := revocation.NewCache()
@@ -181,6 +185,7 @@ func run() error {
 	readSvc := adminread.NewService(backend, cipher)
 	sessions := security.NewSessionSigner(security.DeriveKey(cfg.MasterKey, security.LabelSessionToken))
 	adminAPI := adminapi.New(adminSvc, readSvc, backend, sessions, cfg.AdminSessionTTL)
+	adminAPI.SetStream(liveBus) // canlı SSE akışı
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek
