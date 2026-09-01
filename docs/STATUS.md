@@ -23,6 +23,12 @@ olarak kapsam dışıdır (bkz. aşağıda).
 OTA imza + rollout kapısı → komut teslimi (karantina) → tek-kullanımlık token`
 — hepsi tek entegrasyon testinde, gerçek TCP + mTLS gRPC + gerçek imza/hash ile.
 
+**Smoke/kabul testi** (`scripts/smoke-test.sh`, `make smoke`): gerçek c2 + gerçek
+agent süreçlerini izole portlarda ayağa kaldırır ve kayıt → CSR imza → heartbeat →
+olay → admin eylem (tanılama) → denetim izi → özet/politika okuma → **SSE canlı
+akış** zincirini 11 iddiayla doğrular. **CI** (`.github/workflows/ci.yml`):
+proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifact).
+
 ## Yetenek matrisi
 
 | Yetenek | Durum | Paket | Doğrulama |
