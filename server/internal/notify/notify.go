@@ -1,0 +1,124 @@
+// Package notify, yüksek önem düzeyli güvenlik olaylarında SOC'a gerçek-zamanlı
+// dış uyarı (webhook) gönderir. Slack/Teams/genel webhook uçlarıyla uyumlu basit
+// JSON POST. Bağımlılıksız (yalnız net/http). Gönderim asenkron ve best-effort'tur:
+// kuyruk dolarsa uyarı düşürülür (olay-alım yolu ASLA bloke olmaz).
+package notify
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	neturl "net/url"
+	"time"
+)
+
+// sevRank, önem düzeyini karşılaştırılabilir bir sayıya çevirir.
+func sevRank(s string) int {
+	switch s {
+	case "CRITICAL":
+		return 5
+	case "HIGH":
+		return 4
+	case "MEDIUM":
+		return 3
+	case "LOW":
+		return 2
+	case "INFO":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// Alert, dışa gönderilen uyarının içeriğidir.
+type Alert struct {
+	DeviceID   string    `json:"device_id"`
+	Category   string    `json:"category"`
+	Severity   string    `json:"severity"`
+	Message    string    `json:"message"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// Notifier, bir uyarıyı (best-effort) iletir.
+type Notifier interface {
+	Notify(a Alert)
+}
+
+// WebhookNotifier, uyarıları yapılandırılmış bir HTTPS webhook'una POST eder.
+type WebhookNotifier struct {
+	url    string
+	minSev int
+	client *http.Client
+	ch     chan Alert
+}
+
+// Option sabitleri.
+const (
+	queueSize   = 256
+	httpTimeout = 10 * time.Second
+)
+
+// NewWebhookNotifier, verilen HTTPS URL'e uyarı gönderen bir notifier kurar ve
+// arka plan gönderim işçisini başlatır. minSeverity altındaki uyarılar yok sayılır
+// (ör. "HIGH" → yalnız HIGH ve CRITICAL). URL https değilse hata döner (SEC-012
+// ile aynı gerekçe: uyarı içeriği güven sınırını düz-metin geçmemeli).
+func NewWebhookNotifier(url, minSeverity string) (*WebhookNotifier, error) {
+	u, err := neturl.Parse(url)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return nil, fmt.Errorf("notify: webhook URL https olmalı: %q", url)
+	}
+	n := &WebhookNotifier{
+		url:    url,
+		minSev: sevRank(minSeverity),
+		client: &http.Client{Timeout: httpTimeout},
+		ch:     make(chan Alert, queueSize),
+	}
+	if n.minSev == 0 {
+		n.minSev = sevRank("HIGH") // varsayılan eşik
+	}
+	go n.worker()
+	return n, nil
+}
+
+// Notify, uyarıyı eşik üstündeyse kuyruğa alır. Kuyruk doluysa DÜŞÜRÜR (bloke
+// olmaz) — olay-alım yolunun gecikmemesi kritik.
+func (n *WebhookNotifier) Notify(a Alert) {
+	if sevRank(a.Severity) < n.minSev {
+		return
+	}
+	select {
+	case n.ch <- a:
+	default:
+		log.Printf("notify: uyarı kuyruğu dolu, düşürüldü (device=%s sev=%s)", a.DeviceID, a.Severity)
+	}
+}
+
+// worker, kuyruğu tüketip her uyarıyı POST eder.
+func (n *WebhookNotifier) worker() {
+	for a := range n.ch {
+		n.post(a)
+	}
+}
+
+func (n *WebhookNotifier) post(a Alert) {
+	body, err := json.Marshal(a)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.url, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := n.client.Do(req)
+	if err != nil {
+		log.Printf("notify: webhook POST başarısız: %v", err)
+		return
+	}
+	_ = resp.Body.Close()
+}

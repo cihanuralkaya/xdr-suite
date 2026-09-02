@@ -29,6 +29,7 @@ import (
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/memstore"
 	"xdr.corp/suite/server/internal/metrics"
+	"xdr.corp/suite/server/internal/notify"
 	"xdr.corp/suite/server/internal/policypush"
 	"xdr.corp/suite/server/internal/retention"
 	"xdr.corp/suite/server/internal/revocation"
@@ -186,6 +187,18 @@ func run() error {
 	// Canlı konsol akışı (SSE): ajan olay/heartbeat → bus → admin /api/stream.
 	liveBus := eventbus.New()
 	agentHandler.SetAdminNotifier(liveBus)
+
+	// Dış uyarı (SOC webhook): XDR_ALERT_WEBHOOK_URL ayarlıysa yüksek önem düzeyli
+	// olaylar bir HTTPS webhook'una gönderilir (Slack/Teams/genel). Eşik
+	// XDR_ALERT_MIN_SEVERITY (varsayılan HIGH).
+	if hook := os.Getenv("XDR_ALERT_WEBHOOK_URL"); hook != "" {
+		alerter, err := notify.NewWebhookNotifier(hook, getenv("XDR_ALERT_MIN_SEVERITY", "HIGH"))
+		if err != nil {
+			return err
+		}
+		agentHandler.SetAlerter(alerter)
+		log.Println("dış uyarı: webhook etkin (yüksek önem düzeyli olaylar)")
+	}
 
 	// Sertifika iptali: bellek-içi küme + depodan periyodik tazeleme.
 	revCache := revocation.NewCache()

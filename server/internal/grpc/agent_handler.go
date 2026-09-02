@@ -15,6 +15,7 @@ import (
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/model"
+	"xdr.corp/suite/server/internal/notify"
 	"xdr.corp/suite/server/internal/rollout"
 )
 
@@ -72,6 +73,11 @@ type noopAdminNotifier struct{}
 func (noopAdminNotifier) PublishEvent(string, string, string) {}
 func (noopAdminNotifier) PublishDevice(string)                {}
 
+// noopAlerter, dış uyarı yapılandırılmadığında kullanılır (hiçbir şey yapmaz).
+type noopAlerter struct{}
+
+func (noopAlerter) Notify(notify.Alert) {}
+
 // AgentHandler, AgentService gRPC sunucusunu uygular.
 type AgentHandler struct {
 	xdrv1.UnimplementedAgentServiceServer
@@ -81,7 +87,17 @@ type AgentHandler struct {
 	updates  UpdateProvider
 	notifier PolicyNotifier
 	admin    AdminNotifier
+	alerter  notify.Notifier
 	now      func() time.Time
+}
+
+// SetAlerter, yüksek önem düzeyli olaylarda dış uyarı (webhook) gönderimini
+// etkinleştirir. nil ise noop kalır (uyarı gönderilmez).
+func (h *AgentHandler) SetAlerter(a notify.Notifier) {
+	if a == nil {
+		a = noopAlerter{}
+	}
+	h.alerter = a
 }
 
 // SetAdminNotifier, admin-tarafı SSE yayınını etkinleştirir. nil ise noop kalır.
@@ -98,7 +114,7 @@ func NewAgentHandler(devices DeviceRegistry, events EventSink, policies PolicyPr
 	if notifier == nil {
 		notifier = noopNotifier{}
 	}
-	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, now: time.Now}
+	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, alerter: noopAlerter{}, now: time.Now}
 }
 
 // Heartbeat, yaşam sinyalini işler. Yanıt SUNUCU SAATİNİ taşır — ajan, politika
@@ -167,6 +183,15 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 		metrics.AddEventsIngested(len(domainEvents))
 		for _, e := range domainEvents {
 			h.admin.PublishEvent(deviceID, e.Severity, e.Message) // konsola canlı push
+			// Yüksek önem düzeyli olaylarda SOC'a gerçek-zamanlı dış uyarı (best-effort;
+			// eşik/filtre notifier içinde). noop notifier'da maliyetsizdir.
+			h.alerter.Notify(notify.Alert{
+				DeviceID:   deviceID,
+				Category:   e.Category,
+				Severity:   e.Severity,
+				Message:    e.Message,
+				OccurredAt: e.OccurredAt,
+			})
 		}
 		if acc > lastAccepted {
 			lastAccepted = acc
