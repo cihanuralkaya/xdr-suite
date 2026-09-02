@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **125 test fonksiyonu / 26 test paketi**, tümü geçiyor (`go test ./...`).
+- **128 test fonksiyonu / 26 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -58,6 +58,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Cihaz-detay olay akışı (device-scoped) | ✅ | `adminapi/console.html` + `adminread` | canlı demo |
 | Tanılama topla komutu (COLLECT_DIAGNOSTICS) | ✅ | `admin.CollectDiagnostics` | birim + canlı demo |
 | Canlı SSE push (olay/heartbeat → konsol) | ✅ | `eventbus`, `grpc.AdminNotifier`, `/api/stream` | birim + entegrasyon + canlı demo |
+| KVKK veri sahibi hakları (erişim/dışa aktarma + silme) | ✅ | `admin.EraseDevice/AuthorizeExport`, `adminread.ExportDevice` | birim + canlı demo |
 | Olay ayrıntısı (yapısal JSON) + sunucu-taraflı süzme | ✅ | `adminread`, `grpc` | birim + canlı demo |
 | Cihaz OFFLINE otomasyonu (bayat heartbeat) | ✅ | `db/status.go`, `memstore` | birim |
 | Web yönetim konsolu (SOC paneli, canlı yenileme) | ✅ | `adminapi/console.html` (embed) | httptest + canlı demo |
@@ -91,10 +92,10 @@ memstore ona eşitlendi + regresyon testi (`TestLookupAdminExcludesDeactivated`)
   - Gerçek süreç **sonlandırma** — testte sahte controller (gerçek süreç öldürülmedi).
   - Linux `/proc`+SIGKILL ve OS izolatörleri — yalnız cross-compile.
   - `go test -race` — C derleyicisi (gcc) yok; eşzamanlılık mutex/atomic ile doğru-inşa.
-- **Operasyonel uçlar (yapılmadı):** veri sahibi başvuru akışı (KVKK erişim/silme),
-  çalışan aydınlatma metni;
-  lokal ONNX ML anomali hattı. İmzalı script yürütme YAPILDI (imza + sınırlı
-  yürütme) ama gerçek sandbox/süreç-ağacı sonlandırma yok — ileri faz.
+- **Operasyonel uçlar:** veri sahibi başvuru akışı (KVKK erişim/silme) **YAPILDI**
+  (aşağı bkz.). Kalan: çalışan aydınlatma metni; lokal ONNX ML anomali hattı.
+  İmzalı script yürütme YAPILDI (imza + sınırlı yürütme) ama gerçek sandbox/
+  süreç-ağacı sonlandırma yok — ileri faz.
 
 ## Çalıştırma
 
