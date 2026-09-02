@@ -39,9 +39,15 @@ type memStore struct {
 	statuses   map[string]string            // deviceID -> son ayarlanan durum
 	adminInfos map[string]*admin.AdminInfo  // id -> yönetici görünümü
 	nextAdmID  int
+	mfa        map[string]*mfaRec // adminID -> MFA durumu
 }
 
 type adminRec struct{ id, hash string }
+
+type mfaRec struct {
+	secret   string
+	enrolled bool
+}
 
 func newMemStore() *memStore {
 	return &memStore{
@@ -205,6 +211,37 @@ func (m *memStore) LookupAdmin(_ context.Context, email string) (string, string,
 	return r.id, r.hash, nil
 }
 
+// admin.Store + adminapi.MFAStore (MFA)
+func (m *memStore) ensureMFA() {
+	if m.mfa == nil {
+		m.mfa = map[string]*mfaRec{}
+	}
+}
+func (m *memStore) SetPendingMFASecret(_ context.Context, id, secret string) error {
+	m.ensureMFA()
+	m.mfa[id] = &mfaRec{secret: secret, enrolled: false}
+	return nil
+}
+func (m *memStore) LookupMFA(_ context.Context, id string) (string, bool, error) {
+	m.ensureMFA()
+	if r, ok := m.mfa[id]; ok {
+		return r.secret, r.enrolled, nil
+	}
+	return "", false, nil
+}
+func (m *memStore) ActivateMFA(_ context.Context, id string) error {
+	m.ensureMFA()
+	if r, ok := m.mfa[id]; ok && r.secret != "" {
+		r.enrolled = true
+	}
+	return nil
+}
+func (m *memStore) DisableMFA(_ context.Context, id string) error {
+	m.ensureMFA()
+	delete(m.mfa, id)
+	return nil
+}
+
 // adminread.Store
 func (m *memStore) ListDevices(_ context.Context, _ int) ([]adminread.DeviceRow, error) {
 	return m.devRows, nil
@@ -331,6 +368,46 @@ func post(t *testing.T, url, token string, body any) (int, map[string]string) {
 	var out map[string]string
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
+}
+
+// MFA (2FA) uçtan uca: kayıt → etkinleştir → sonraki girişlerde TOTP kodu zorunlu.
+func TestLoginEnforcesMFAWhenEnrolled(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	// İlk giriş (MFA yok) → token.
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	token := body["token"]
+	if token == "" {
+		t.Fatal("ilk giriş token vermeliydi")
+	}
+	// MFA kaydını başlat → sır döner.
+	code, eb := post(t, ts.URL+"/api/mfa/enroll", token, map[string]string{})
+	if code != http.StatusOK || eb["secret"] == "" {
+		t.Fatalf("mfa enroll başarısız: %d %v", code, eb)
+	}
+	secret := eb["secret"]
+	// Doğru kod ile etkinleştir.
+	otp, _ := security.TOTPAt(secret, time.Now())
+	if c, _ := post(t, ts.URL+"/api/mfa/activate", token, map[string]string{"code": otp}); c != http.StatusOK {
+		t.Fatalf("mfa activate başarısız: %d", c)
+	}
+	// Artık kodsuz giriş token VERMEMELİ (mfa_required).
+	_, nb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	if nb["token"] != "" {
+		t.Fatal("MFA etkinken kodsuz giriş token vermemeliydi")
+	}
+	// Yanlış kod → 401.
+	if c, _ := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret", "code": "000000"}); c != http.StatusUnauthorized {
+		t.Fatalf("yanlış MFA kodu 401 dönmeliydi, %d", c)
+	}
+	// Doğru kod → token.
+	otp2, _ := security.TOTPAt(secret, time.Now())
+	_, okBody := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret", "code": otp2})
+	if okBody["token"] == "" {
+		t.Fatal("doğru MFA kodu ile giriş token vermeliydi")
+	}
 }
 
 func TestLoginAndQuarantine(t *testing.T) {

@@ -38,6 +38,8 @@ type adminEntry struct {
 	email, hash string
 	role        Role
 	active      bool
+	mfaSecret   string
+	mfaEnrolled bool
 }
 
 func newMemStore() *memStore {
@@ -138,6 +140,32 @@ func (m *memStore) SetAdminRole(_ context.Context, id string, role Role) error {
 		a.role = role
 	}
 	m.roles[id] = role
+	return nil
+}
+func (m *memStore) SetPendingMFASecret(_ context.Context, id, secret string) error {
+	if a, ok := m.admins[id]; ok {
+		a.mfaSecret = secret
+		a.mfaEnrolled = false
+	}
+	return nil
+}
+func (m *memStore) LookupMFA(_ context.Context, id string) (string, bool, error) {
+	if a, ok := m.admins[id]; ok {
+		return a.mfaSecret, a.mfaEnrolled, nil
+	}
+	return "", false, nil
+}
+func (m *memStore) ActivateMFA(_ context.Context, id string) error {
+	if a, ok := m.admins[id]; ok && a.mfaSecret != "" {
+		a.mfaEnrolled = true
+	}
+	return nil
+}
+func (m *memStore) DisableMFA(_ context.Context, id string) error {
+	if a, ok := m.admins[id]; ok {
+		a.mfaSecret = ""
+		a.mfaEnrolled = false
+	}
 	return nil
 }
 func (m *memStore) DeactivateAdmin(_ context.Context, id string) error {

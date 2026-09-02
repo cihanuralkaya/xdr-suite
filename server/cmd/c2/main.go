@@ -170,6 +170,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// MFA (TOTP) sırlarının at-rest şifrelenmesi için DB deposuna alan şifreleyiciyi
+	// bağla (memstore bellek-içi tutar, şifreleyiciye ihtiyaç duymaz).
+	if store, ok := backend.(*db.Store); ok {
+		store.SetFieldCipher(cipher)
+	}
 
 	// Servisler + handler'lar.
 	enrollSvc := enroll.NewService(backend, ca, bidx, cipher, caCertPEM, cfg.ClientCertTTL)

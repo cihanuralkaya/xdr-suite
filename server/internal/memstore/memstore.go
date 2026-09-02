@@ -91,6 +91,8 @@ type adminRec struct {
 	id, email, passwordHash string
 	role                    admin.Role
 	active                  bool
+	mfaSecret               string // TOTP sırrı (bellek-içi demo; db katmanı şifreler)
+	mfaEnrolled             bool
 }
 
 type auditRec struct {
@@ -651,6 +653,48 @@ func (s *Store) ListAdmins(_ context.Context) ([]admin.AdminInfo, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Email < out[j].Email })
 	return out, nil
+}
+
+// SetPendingMFASecret, yöneticinin TOTP sırrını saklar (henüz etkin değil).
+func (s *Store) SetPendingMFASecret(_ context.Context, adminID, secret string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a, ok := s.adminsByID[adminID]; ok {
+		a.mfaSecret = secret
+		a.mfaEnrolled = false
+	}
+	return nil
+}
+
+// LookupMFA, TOTP sırrını ve etkin durumunu döner.
+func (s *Store) LookupMFA(_ context.Context, adminID string) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a, ok := s.adminsByID[adminID]; ok {
+		return a.mfaSecret, a.mfaEnrolled, nil
+	}
+	return "", false, nil
+}
+
+// ActivateMFA, bekleyen sırrı etkinleştirir.
+func (s *Store) ActivateMFA(_ context.Context, adminID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a, ok := s.adminsByID[adminID]; ok && a.mfaSecret != "" {
+		a.mfaEnrolled = true
+	}
+	return nil
+}
+
+// DisableMFA, sırrı temizler ve MFA'yı kapatır.
+func (s *Store) DisableMFA(_ context.Context, adminID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a, ok := s.adminsByID[adminID]; ok {
+		a.mfaSecret = ""
+		a.mfaEnrolled = false
+	}
+	return nil
 }
 
 // --- adminread.Store ---

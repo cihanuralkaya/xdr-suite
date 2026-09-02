@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
+	"fmt"
 	"time"
 
 	"xdr.corp/suite/server/internal/security"
@@ -100,6 +101,16 @@ type Store interface {
 	DeactivateAdmin(ctx context.Context, id string) error
 	// ListAdmins, tüm yöneticileri döner (parola hash'i olmadan).
 	ListAdmins(ctx context.Context) ([]AdminInfo, error)
+	// SetPendingMFASecret, yöneticinin TOTP sırrını (henüz etkin değil) saklar.
+	// Depo sırrı at-rest şifreler (db katmanı); mfa_enrolled false kalır.
+	SetPendingMFASecret(ctx context.Context, adminID, secret string) error
+	// LookupMFA, yöneticinin TOTP sırrını ve etkin (enrolled) durumunu döner.
+	// Sır yoksa ("", false, nil) döner.
+	LookupMFA(ctx context.Context, adminID string) (secret string, enrolled bool, err error)
+	// ActivateMFA, bekleyen TOTP sırrını etkinleştirir (mfa_enrolled=true).
+	ActivateMFA(ctx context.Context, adminID string) error
+	// DisableMFA, TOTP sırrını siler ve MFA'yı kapatır.
+	DisableMFA(ctx context.Context, adminID string) error
 }
 
 // validRuleType, kabul edilen kural tiplerini doğrular.
@@ -184,6 +195,70 @@ func (s *Service) RevokeEnrollmentToken(ctx context.Context, adminID, tokenID st
 		return err
 	}
 	_ = s.store.WriteAudit(ctx, adminID, "REVOKE_ENROLLMENT_TOKEN", "token", tokenID)
+	return nil
+}
+
+// BeginMFAEnrollment, yönetici için yeni bir TOTP sırrı üretir, bekleyen olarak
+// saklar ve authenticator uygulamasına eklenecek otpauth:// URI'sini döner. Yalnız
+// oturum sahibinin kendi hesabı için çağrılır (adminID oturumdan gelir). Etkin
+// olması için ActivateMFA ile doğrulama gerekir.
+func (s *Service) BeginMFAEnrollment(ctx context.Context, adminID string) (secret, uri string, err error) {
+	if err := s.require(ctx, adminID, RoleViewer); err != nil {
+		return "", "", err
+	}
+	secret, err = security.GenerateTOTPSecret()
+	if err != nil {
+		return "", "", err
+	}
+	if err := s.store.SetPendingMFASecret(ctx, adminID, secret); err != nil {
+		return "", "", err
+	}
+	uri = security.OTPAuthURI("XDR Konsol", adminID, secret)
+	return secret, uri, nil
+}
+
+// ActivateMFA, bekleyen TOTP sırrını yalnız geçerli bir kod ile etkinleştirir
+// (kullanıcının authenticator'ı doğru kurduğunu kanıtlar). Doğrulama izi yazılır.
+func (s *Service) ActivateMFA(ctx context.Context, adminID, code string) error {
+	if err := s.require(ctx, adminID, RoleViewer); err != nil {
+		return err
+	}
+	secret, _, err := s.store.LookupMFA(ctx, adminID)
+	if err != nil {
+		return err
+	}
+	if secret == "" {
+		return fmt.Errorf("%w: MFA kaydı başlatılmadı", ErrForbidden)
+	}
+	if !security.VerifyTOTP(secret, code, s.now()) {
+		return fmt.Errorf("%w: doğrulama kodu geçersiz", ErrForbidden)
+	}
+	if err := s.store.ActivateMFA(ctx, adminID); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "MFA_ENABLED", "admin", adminID)
+	return nil
+}
+
+// DisableMFA, MFA'yı yalnız geçerli bir kod doğrulamasından sonra kapatır (kaza/
+// yetkisiz kapatmayı önler). Kayıt başlatılmış ama etkinleşmemiş sır da temizlenir.
+func (s *Service) DisableMFA(ctx context.Context, adminID, code string) error {
+	if err := s.require(ctx, adminID, RoleViewer); err != nil {
+		return err
+	}
+	secret, enrolled, err := s.store.LookupMFA(ctx, adminID)
+	if err != nil {
+		return err
+	}
+	if enrolled && !security.VerifyTOTP(secret, code, s.now()) {
+		return fmt.Errorf("%w: doğrulama kodu geçersiz", ErrForbidden)
+	}
+	if err := s.store.DisableMFA(ctx, adminID); err != nil {
+		return err
+	}
+	if enrolled {
+		_ = s.store.WriteAudit(ctx, adminID, "MFA_DISABLED", "admin", adminID)
+	}
 	return nil
 }
 

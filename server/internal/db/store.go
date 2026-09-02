@@ -18,12 +18,18 @@ import (
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/server/internal/enroll"
 	"xdr.corp/suite/server/internal/model"
+	"xdr.corp/suite/server/internal/security"
 )
 
 // Store, pgx havuzu üzerinden domain depolama arayüzlerini uygular.
 type Store struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher *security.FieldCipher // MFA sırrı gibi hassas sütunları at-rest şifreler
 }
+
+// SetFieldCipher, hassas sütunların (ör. TOTP sırrı) at-rest şifrelenmesi için
+// alan şifreleyiciyi bağlar. MFA kayıt akışı bu ayarlanmadan çalışmaz (fail-closed).
+func (s *Store) SetFieldCipher(c *security.FieldCipher) { s.cipher = c }
 
 // New, DSN'den bir bağlantı havuzu açar.
 func New(ctx context.Context, dsn string) (*Store, error) {

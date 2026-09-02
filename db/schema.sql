@@ -222,6 +222,8 @@ CREATE TABLE admins (
     display_name  VARCHAR(150),
     role          admin_role NOT NULL DEFAULT 'VIEWER',
     password_hash TEXT,                       -- Argon2id (uygulama katmanı)
+    mfa_secret    BYTEA,                       -- AES-256-GCM ile şifreli TOTP sırrı (2FA)
+    mfa_enrolled  BOOLEAN NOT NULL DEFAULT FALSE,
     is_active     BOOLEAN NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -144,6 +144,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admins", s.authed(s.handleCreateAdmin))
 	mux.HandleFunc("POST /api/admins/{id}/role", s.authed(s.handleSetAdminRole))
 	mux.HandleFunc("POST /api/admins/{id}/deactivate", s.authed(s.handleDeactivateAdmin))
+	// MFA (2FA/TOTP) öz-yönetimi — her admin kendi hesabı için (VIEWER+).
+	mux.HandleFunc("POST /api/mfa/enroll", s.authed(s.handleMFAEnroll))
+	mux.HandleFunc("POST /api/mfa/activate", s.authed(s.handleMFAActivate))
+	mux.HandleFunc("POST /api/mfa/disable", s.authed(s.handleMFADisable))
 	// Okuma (görünürlük) uçları — herhangi bir kimlik doğrulanmış admin (VIEWER+).
 	mux.HandleFunc("GET /api/devices", s.authed(s.handleListDevices))
 	mux.HandleFunc("GET /api/devices/{id}", s.authed(s.handleDeviceDetail))
@@ -230,6 +234,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Code     string `json:"code"` // MFA (TOTP) kodu — MFA etkin hesaplarda zorunlu
 	}
 	if !decode(w, r, &req) {
 		return
@@ -259,9 +264,76 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "geçersiz kimlik bilgileri")
 		return
 	}
+	// MFA (2FA): parola doğruysa ve hesapta MFA etkinse, ikinci faktör (TOTP) de
+	// doğrulanmalı. Kod yoksa {mfa_required:true} ile 200 döneriz (token YOK) —
+	// konsol bunu görüp kod ister; yanlış kod başarısız deneme sayar.
+	if mfa, ok := s.auth.(MFAStore); ok {
+		secret, enrolled, err := mfa.LookupMFA(r.Context(), adminID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "MFA durumu okunamadı")
+			return
+		}
+		if enrolled {
+			if strings.TrimSpace(req.Code) == "" {
+				writeJSON(w, http.StatusOK, map[string]bool{"mfa_required": true})
+				return
+			}
+			if !security.VerifyTOTP(secret, req.Code, s.now()) {
+				s.loginLim.recordFailure(key)
+				writeErr(w, http.StatusUnauthorized, "geçersiz doğrulama kodu")
+				return
+			}
+		}
+	}
 	s.loginLim.recordSuccess(key)
 	token := s.sessions.Sign(adminID, s.now().Add(s.ttl))
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+// MFAStore, MFA (TOTP) durumunu çözen isteğe bağlı arayüzdür. AuthStore bunu da
+// karşılıyorsa login akışı ikinci faktörü zorlar; karşılamıyorsa MFA devre dışıdır
+// (geriye dönük uyumluluk).
+type MFAStore interface {
+	LookupMFA(ctx context.Context, adminID string) (secret string, enrolled bool, err error)
+}
+
+// handleMFAEnroll, oturum sahibi için yeni bir TOTP sırrı üretir ve otpauth URI'si
+// ile birlikte döner (authenticator uygulamasına eklenir). Etkin olması için
+// activate gerekir.
+func (s *Server) handleMFAEnroll(w http.ResponseWriter, r *http.Request, adminID string) {
+	secret, uri, err := s.adminSvc.BeginMFAEnrollment(r.Context(), adminID)
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"secret": secret, "otpauth_uri": uri})
+}
+
+// handleMFAActivate, girilen kodu doğrulayıp MFA'yı etkinleştirir.
+func (s *Server) handleMFAActivate(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if respondErr(w, s.adminSvc.ActivateMFA(r.Context(), adminID, req.Code)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"enrolled": true})
+}
+
+// handleMFADisable, geçerli kod doğrulamasıyla MFA'yı kapatır.
+func (s *Server) handleMFADisable(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if respondErr(w, s.adminSvc.DisableMFA(r.Context(), adminID, req.Code)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"enrolled": false})
 }
 
 // clientIP, istemci IP'sini RemoteAddr'dan çıkarır (port'suz). Not: X-Forwarded-For

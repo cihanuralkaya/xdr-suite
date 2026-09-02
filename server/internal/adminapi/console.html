@@ -185,6 +185,10 @@
     <input id="l-email" type="email" autocomplete="username" placeholder="admin@sirket.local">
     <label for="l-pass">Parola</label>
     <input id="l-pass" type="password" autocomplete="current-password" placeholder="••••••••">
+    <div id="l-mfa-row" style="display:none">
+      <label for="l-code">Doğrulama kodu (2FA)</label>
+      <input id="l-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+    </div>
     <button id="l-btn" class="btn block">Giriş Yap</button>
     <div id="l-err" class="err"></div>
     <details style="margin-top:16px">
@@ -373,6 +377,29 @@
             </select></div>
             <button class="btn sm" data-act="createAdmin" style="margin-top:10px">Yönetici Oluştur</button>
             <div id="o-adm" class="out"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="head"><h2>🔐 İki Adımlı Doğrulama (2FA)</h2>
+            <span class="sp"></span><span id="mfa-status" class="count">—</span></div>
+          <div class="body">
+            <p class="hint" style="margin:0 0 10px">Hesabınızı TOTP (authenticator uygulaması) ile koruyun. Etkinleştirildiğinde girişte parola + kod gerekir.</p>
+            <button class="btn sm" data-act="mfaEnroll">Kurulumu Başlat</button>
+            <div id="mfa-setup" style="display:none;margin-top:12px">
+              <div class="lbl">1) Bu sırrı authenticator'a ekleyin</div>
+              <div id="mfa-secret" class="out" style="user-select:all;word-break:break-all"></div>
+              <div class="lbl" style="margin-top:8px">otpauth URI (QR üretmek için)</div>
+              <div id="mfa-uri" class="out" style="user-select:all;word-break:break-all;font-size:10px"></div>
+              <div class="lbl" style="margin-top:8px">2) Uygulamadaki kodu girin</div>
+              <div class="field"><input id="mfa-code" type="text" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+              <button class="btn sm" data-act="mfaActivate">Etkinleştir</button>
+            </div>
+            <div id="mfa-disable" style="display:none;margin-top:12px">
+              <div class="lbl">MFA'yı kapatmak için mevcut kodu girin</div>
+              <div class="field"><input id="mfa-dcode" type="text" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+              <button class="btn sm ghost" data-act="mfaDisable">2FA'yı Kapat</button>
+            </div>
+            <div id="o-mfa" class="out"></div>
           </div>
         </div>
       </div>
@@ -899,6 +926,27 @@
       showOut("o-token","Token (bir kez): "+d.enrollment_token,"ok"); toast("Enrollment token üretildi","Kopyalayıp ajan kurulumunda kullanın","ok"); loadTokens(); }); },
     loadTokens: function(){ return loadTokens(); },
     loadAdmins: function(){ return loadAdmins(); },
+    mfaEnroll: function(){
+      return api("/api/mfa/enroll","POST",{}).then(function(d){
+        $("mfa-secret").textContent=d.secret;
+        $("mfa-uri").textContent=d.otpauth_uri;
+        $("mfa-setup").style.display="block";
+        $("mfa-status").textContent="kurulum bekliyor";
+        showOut("o-mfa","Sırrı authenticator'a ekleyip üretilen kodla etkinleştirin.","ok"); }); },
+    mfaActivate: function(){
+      var code=$("mfa-code").value.trim();
+      if(code.length!==6){ showOut("o-mfa","6 haneli kodu girin.","err"); return Promise.resolve(); }
+      return api("/api/mfa/activate","POST",{code:code}).then(function(){
+        $("mfa-setup").style.display="none"; $("mfa-disable").style.display="block";
+        $("mfa-status").textContent="etkin ✓"; $("mfa-code").value="";
+        showOut("o-mfa","2FA etkinleştirildi. Bir sonraki girişte kod istenecek.","ok");
+        toast("2FA etkin","Hesabınız iki adımlı doğrulama ile korunuyor","ok"); }); },
+    mfaDisable: function(){
+      var code=$("mfa-dcode").value.trim();
+      if(!confirm("İki adımlı doğrulama kapatılacak. Onaylıyor musunuz?")) return Promise.resolve();
+      return api("/api/mfa/disable","POST",{code:code}).then(function(){
+        $("mfa-disable").style.display="none"; $("mfa-status").textContent="kapalı"; $("mfa-dcode").value="";
+        showOut("o-mfa","2FA kapatıldı.","ok"); toast("2FA kapatıldı",null,"warn"); }); },
     createAdmin: function(){
       var email=$("ad-email").value.trim(), pass=$("ad-pass").value, role=$("ad-role").value;
       if(!email || pass.length<8){ showOut("o-adm","Geçerli e-posta ve en az 8 karakter parola girin.","err"); return Promise.resolve(); }
@@ -969,7 +1017,17 @@
   // ---------- login ----------
   function doLogin(){
     $("l-err").textContent="";
-    api("/api/login","POST",{email:$("l-email").value,password:$("l-pass").value}).then(function(d){
+    var body={email:$("l-email").value,password:$("l-pass").value};
+    var code=$("l-code").value.trim();
+    if(code) body.code=code;
+    api("/api/login","POST",body).then(function(d){
+      if(d && d.mfa_required){
+        // 2FA etkin: kod alanını göster ve odakla.
+        $("l-mfa-row").style.display="block";
+        $("l-err").textContent="İki adımlı doğrulama etkin — authenticator kodunu girin.";
+        $("l-code").focus();
+        return;
+      }
       enterApp(d.token, $("l-email").value);
     }).catch(function(e){ $("l-err").textContent=e.message; });
   }
@@ -984,9 +1042,11 @@
   // ---------- wire ----------
   $("l-btn").onclick=doLogin;
   $("l-pass").addEventListener("keydown",function(e){ if(e.key==="Enter") doLogin(); });
+  $("l-code").addEventListener("keydown",function(e){ if(e.key==="Enter") doLogin(); });
   $("logout").onclick=function(){ stopAuto(); stopStream(); state.token=""; state.sel=null;
     try { sessionStorage.removeItem("xdr_tok"); sessionStorage.removeItem("xdr_email"); } catch(e){}
-    $("app").style.display="none"; $("login").style.display="grid"; $("l-pass").value=""; };
+    $("app").style.display="none"; $("login").style.display="grid"; $("l-pass").value="";
+    $("l-code").value=""; $("l-mfa-row").style.display="none"; };
   $("dev-refresh").onclick=refresh; $("evt-refresh").onclick=refresh;
   $("dev-search").addEventListener("input",function(){ state.devSearch=this.value; renderDevices(); });
   $("evt-csv").onclick=exportEvents; $("aud-csv").onclick=exportAudit;

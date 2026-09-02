@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **156 test fonksiyonu / 28 test paketi**, tümü geçiyor (`go test ./...`).
+- **158 test fonksiyonu / 28 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -68,6 +68,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | KVKK saklama otomasyonu | ✅ mantık / DB derlendi | `server/internal/retention` | birim |
 | Davranışsal anomali tespiti + eğitilmiş model çıkarımı | ✅ Faz 1-3 | `agent/internal/anomaly` + `enforce` | birim |
 | Kurcalama-kanıtı denetim izi (hash-zincir, SEC C-1) | ✅ | `security.AuditChainHash`, memstore+db | birim |
+| Admin 2FA/MFA (TOTP, RFC 6238) + at-rest şifreli sır | ✅ | `security.totp`, `admin`, `db/mfa.go` | birim (RFC vektörleri) + httptest (uçtan uca) |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
@@ -77,7 +78,7 @@ at-rest + partitioning; düz-hash yerine **HMAC blind index**; yerel-saat yerine
 **sunucu-saati çıpası**; hash-yerine **imza** OTA'da; enrollment/PKI eklendi;
 RBAC + değişmez denetim izi.
 
-**Agent güvenlik denetiminde yakalanan bulgular (düzeltildi):** Adversarial güvenlik incelemesi (siber güvenlik uzmanı agent) iki YÜKSEK bulgu buldu: **SEC-001** konsol XSS (`esc()` HTML kaçışı yapmıyordu → innerHTML'de saldırgan-kontrollü veri) ve **SEC-002** sertifika iptali bypass (`Renew` iptal kontrolü yapmıyordu → 60 sn cache penceresinde yeni cert). İkisi de düzeltildi + regresyon testi. Kalan orta/düşük öneriler (oturum iptali, MFA, SPKI pinning, denetim izi imzalama, anomali modeli imzalama) yol haritasında.
+**Agent güvenlik denetiminde yakalanan bulgular (düzeltildi):** Adversarial güvenlik incelemesi (siber güvenlik uzmanı agent) iki YÜKSEK bulgu buldu: **SEC-001** konsol XSS (`esc()` HTML kaçışı yapmıyordu → innerHTML'de saldırgan-kontrollü veri) ve **SEC-002** sertifika iptali bypass (`Renew` iptal kontrolü yapmıyordu → 60 sn cache penceresinde yeni cert). İkisi de düzeltildi + regresyon testi. Kalan orta/düşük öneriler (SPKI pinning; oturum iptali/MFA/denetim izi & anomali modeli imzalama uygulandı) yol haritasında.
 
 **CI'da (Linux) yakalanan bulgu (düzeltildi):** `policy.matchesTarget`
 `filepath.Base` kullanıyordu — Linux'ta `\` ayırıcıyı bölmez, bu yüzden
