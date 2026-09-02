@@ -24,11 +24,11 @@ taraf Go modüllerini ve lisanslarını listeler. Lisans türleri, Go modül
 | github.com/jackc/pgpassfile | v1.0.0 | MIT |
 | github.com/jackc/pgservicefile | v0.0.0-20221227161230-091c0ba34f0a | MIT |
 | github.com/jackc/puddle/v2 | v2.2.1 | MIT |
-| golang.org/x/crypto | v0.24.0 | BSD-3-Clause |
-| golang.org/x/net | v0.26.0 | BSD-3-Clause |
-| golang.org/x/sync | v0.7.0 | BSD-3-Clause |
-| golang.org/x/sys | v0.21.0 | BSD-3-Clause |
-| golang.org/x/text | v0.16.0 | BSD-3-Clause |
+| golang.org/x/crypto | v0.36.0 | BSD-3-Clause |
+| golang.org/x/net | v0.38.0 | BSD-3-Clause |
+| golang.org/x/sync | v0.12.0 | BSD-3-Clause |
+| golang.org/x/sys | v0.31.0 | BSD-3-Clause |
+| golang.org/x/text | v0.23.0 | BSD-3-Clause |
 | google.golang.org/grpc | v1.66.0 | Apache-2.0 |
 | google.golang.org/protobuf | v1.34.2 | BSD-3-Clause |
 | google.golang.org/genproto/googleapis/rpc | v0.0.0-20240604185151-ef581f913117 | Apache-2.0 |
