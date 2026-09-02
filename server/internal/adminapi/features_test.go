@@ -22,6 +22,42 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
+func TestSecurityHeadersPresent(t *testing.T) {
+	ts, _ := setup(t)
+	defer ts.Close()
+
+	// Global güvenlik başlıkları her yanıtta olmalı (ör. /healthz).
+	r, err := http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":           "DENY",
+		"Referrer-Policy":           "no-referrer",
+		"Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+		"Cache-Control":             "no-store",
+	}
+	for k, v := range want {
+		if got := r.Header.Get(k); got != v {
+			t.Fatalf("%s başlığı %q olmalıydı, %q", k, v, got)
+		}
+	}
+	if r.Header.Get("Permissions-Policy") == "" {
+		t.Fatal("Permissions-Policy başlığı olmalıydı")
+	}
+
+	// Konsol sayfası ayrıca CSP (frame-ancestors 'none' dahil) taşımalı.
+	rc, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	csp := rc.Header.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Fatalf("konsol CSP eksik: %q", csp)
+	}
+}
+
 func TestLoginBruteForceReturns429(t *testing.T) {
 	srv, store := newServer(t)
 	srv.SetLoginLimit(3, time.Minute) // 3 başarısızlıkta kilit

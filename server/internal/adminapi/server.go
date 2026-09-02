@@ -75,7 +75,7 @@ func (s *Server) Handler() http.Handler {
 		// Konsol self-contained (inline stil+script, dış kaynak yok); CSP bunu
 		// yansıtır ve aynı kökene kısıtlar.
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'")
+			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(consoleHTML)
 	})
@@ -122,6 +122,14 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
+		// TLS-only sunucu: tarayıcıyı HTTPS'e kilitle (2 yıl). HTTP üzerinde
+		// tarayıcı yok sayar.
+		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		// Güçlü tarayıcı özelliklerini kapat (konsol hiçbirini kullanmaz).
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+		// Hassas admin verisi önbelleğe alınmasın (SSE handler kendi no-cache'ini
+		// sonradan yazar). CDN/proxy önbelleklemesini de engeller.
+		h.Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
 }
