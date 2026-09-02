@@ -183,6 +183,14 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, string)) http
 			writeErr(w, http.StatusUnauthorized, "yetkisiz")
 			return
 		}
+		// SEC-003: durumsuz token iptal edilemediğinden, her istekte yöneticinin
+		// HÂLÂ aktif olduğu depodan teyit edilir. Pasifleştirilen/silinen yönetici
+		// (rolü boş döner) token TTL'i dolmadan da anında engellenir — böylece
+		// salt-okuma uçları da eski oturumla erişime kapanır.
+		if err := s.adminSvc.EnsureRole(r.Context(), id, admin.RoleViewer); err != nil {
+			writeErr(w, http.StatusUnauthorized, "oturum artık geçerli değil")
+			return
+		}
 		h(w, r, id)
 	}
 }

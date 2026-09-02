@@ -89,6 +89,29 @@ func TestLoginBruteForceReturns429(t *testing.T) {
 }
 
 // Denetim izi doğrulama ucu: ADMIN gerektirir; doğrulayıcı sonucunu yansıtır.
+// SEC-003: pasifleştirilen bir yöneticinin durumsuz token'ı, TTL dolmadan da
+// authed tarafından anında reddedilmeli (salt-okuma uçları dahil).
+func TestDeactivatedAdminTokenRejected(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	id := "ad1"
+	addAdmin(t, store, id, "ad@x", "secret", admin.RoleAdmin)
+	_, ab := post(t, ts.URL+"/api/login", "", map[string]string{"email": "ad@x", "password": "secret"})
+	tok := ab["token"]
+
+	// Token önce çalışır.
+	if r, _ := authedGET(t, ts.URL+"/api/devices", tok); r.StatusCode != http.StatusOK {
+		t.Fatalf("aktif admin token'ı çalışmalıydı, %d", r.StatusCode)
+	}
+	// Pasifleştir → aynı token artık reddedilmeli (401).
+	if err := store.DeactivateAdmin(nil, id); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := authedGET(t, ts.URL+"/api/devices", tok); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("pasifleştirilen admin token'ı 401 dönmeliydi, %d", r.StatusCode)
+	}
+}
+
 func TestAuditVerifyEndpoint(t *testing.T) {
 	srv, store := newServer(t)
 	ts := httptest.NewServer(srv.Handler())

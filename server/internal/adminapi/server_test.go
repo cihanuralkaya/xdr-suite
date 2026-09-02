@@ -186,6 +186,9 @@ func (m *memStore) DeactivateAdmin(_ context.Context, id string) error {
 	if a, ok := m.adminInfos[id]; ok {
 		a.Active = false
 	}
+	// Gerçek db/memstore davranışı: pasif admin için AdminRole boş döner (WHERE
+	// is_active). authed'in aktiflik teyidini (SEC-003) test edebilmek için taklit.
+	delete(m.roles, id)
 	return nil
 }
 func (m *memStore) ListAdmins(_ context.Context) ([]admin.AdminInfo, error) {
