@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **144 test fonksiyonu / 27 test paketi**, tümü geçiyor (`go test ./...`).
+- **147 test fonksiyonu / 28 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -124,6 +124,8 @@ go run ./tools/adminseed -email a@x -password '...' -role ADMIN
 - `tools/gencerts` — dev/prod CA + sunucu sertifikası.
 - `tools/otasign` — OTA imza anahtarı üretimi + sürüm imzalama (+ SQL).
 - `tools/adminseed` — yönetici parolası (Argon2id) + INSERT SQL.
+- `tools/anomalytrain` — etiketli CSV'den lojistik anomali modeli eğitir ve
+  `ModelScorer` JSON formatına yazar (eğit→JSON→ajan hattını tamamlar).
 - `tools/mkclient` — TEK DOSYA istemci kurulum betiği üreteci (benzersiz/token
   gömülü veya paylaşımlı/kod girişli; ajan ikilisi base64 gömülü; Win/Linux).
 
