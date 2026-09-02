@@ -5,6 +5,28 @@ import (
 	"time"
 )
 
+// matchesTarget, çalışılan platformdan BAĞIMSIZ olarak hem Windows ('\') hem
+// Unix ('/') yollarında dosya adıyla eşleşmeli. (filepath.Base OS'a bağlıydı;
+// bu, Linux CI'da politika eşleşmesini kaçıran bir regresyondu.)
+func TestMatchesTargetSeparatorAgnostic(t *testing.T) {
+	cases := []struct {
+		proc, target string
+		want         bool
+	}{
+		{`D:\apps\torrent.exe`, "torrent.exe", true},
+		{`C:\Games\game.exe`, "game.exe", true},
+		{"/opt/games/torrent", "torrent", true},
+		{"torrent.exe", "torrent.exe", true},
+		{"notepad.exe", "torrent.exe", false},
+		{"/usr/bin/steam", "game.exe", false},
+	}
+	for _, c := range cases {
+		if got := matchesTarget(c.proc, c.target); got != c.want {
+			t.Errorf("matchesTarget(%q,%q)=%v, beklenen %v", c.proc, c.target, got, c.want)
+		}
+	}
+}
+
 func weekdays(ds ...time.Weekday) [7]bool {
 	var a [7]bool
 	for _, d := range ds {

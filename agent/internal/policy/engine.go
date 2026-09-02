@@ -8,7 +8,6 @@
 package policy
 
 import (
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -115,7 +114,19 @@ func matchesTarget(proc, target string) bool {
 	if p == t {
 		return true
 	}
-	return strings.EqualFold(filepath.Base(p), filepath.Base(t))
+	return baseName(p) == baseName(t)
+}
+
+// baseName, bir yolun son bileşenini (dosya adı) döner. filepath.Base'in AKSİNE
+// hem '/' hem '\' ayırıcısını ele alır (OS-bağımsız): politika motoru, ajanın
+// çalıştığı platformdan bağımsız olarak Windows ('\') ve Unix ('/') yollarını
+// tutarlı eşleştirmelidir — aksi halde Linux'ta 'D:\x\a.exe' bölünmez ve
+// dosya-adı eşleşmesi kaçırılır.
+func baseName(p string) string {
+	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
+		return p[i+1:]
+	}
+	return p
 }
 
 // inWindow, verilen anın [start,end) penceresi ve aktif günler içinde olup
