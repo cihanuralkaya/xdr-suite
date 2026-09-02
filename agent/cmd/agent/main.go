@@ -28,6 +28,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"xdr.corp/suite/agent/internal/agentclock"
+	"xdr.corp/suite/agent/internal/anomaly"
 	"xdr.corp/suite/agent/internal/certrenew"
 	"xdr.corp/suite/agent/internal/collector"
 	"xdr.corp/suite/agent/internal/discovery"
@@ -129,6 +130,11 @@ func run() error {
 	var engine atomic.Pointer[policy.Engine]
 	engine.Store(policy.New(policy.Bundle{}))
 	monitor := enforce.NewMonitor(enforce.NewProcessController(), clock, buf, uint32(os.Getpid()))
+	// Davranışsal anomali tespiti (varsayılan AÇIK; XDR_ANOMALY_DISABLE ile kapatılır).
+	// Muhafazakâr eşik (0.85): yalnız güçlü aykırı değerler SECURITY olayı üretir.
+	if os.Getenv("XDR_ANOMALY_DISABLE") == "" {
+		monitor.SetAnomalyDetector(anomaly.NewDetector(0.85, nil))
+	}
 	neighbors := discovery.NewNeighborSource()
 	netTracker := discovery.NewTracker(cfg.authMACs)
 
@@ -483,7 +489,8 @@ func scanNetwork(src discovery.NeighborSource, tr *discovery.Tracker, buf *colle
 }
 
 // agentVersion, sürüm etiketidir. Release derlemesinde ldflags ile damgalanır:
-//   -ldflags "-X main.agentVersion=1.0.0"
+//
+//	-ldflags "-X main.agentVersion=1.0.0"
 var agentVersion = "0.1.0-dev"
 
 func protoCategory(s string) xdrv1.EventCategory {

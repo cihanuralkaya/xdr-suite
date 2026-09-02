@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"xdr.corp/suite/agent/internal/agentclock"
+	"xdr.corp/suite/agent/internal/anomaly"
 	"xdr.corp/suite/agent/internal/collector"
 	"xdr.corp/suite/agent/internal/policy"
 )
@@ -32,16 +33,22 @@ type ProcessController interface {
 // Monitor, tek bir değerlendirme turunu yürütür. Motor ajan tarafında sıcak
 // değiştirildiğinden, geçerli motor her turda Tick'e verilir.
 type Monitor struct {
-	ctrl  ProcessController
-	clock *agentclock.Clock
-	buf   *collector.Buffer
-	self  uint32 // ajanın kendi PID'i — asla sonlandırılmaz
+	ctrl     ProcessController
+	clock    *agentclock.Clock
+	buf      *collector.Buffer
+	self     uint32 // ajanın kendi PID'i — asla sonlandırılmaz
+	detector *anomaly.Detector
+	flagged  map[uint32]bool // anomali bildirilen PID'ler (tur-arası tekrar bastırma)
 }
 
 // NewMonitor oluşturur.
 func NewMonitor(ctrl ProcessController, clock *agentclock.Clock, buf *collector.Buffer, selfPID uint32) *Monitor {
-	return &Monitor{ctrl: ctrl, clock: clock, buf: buf, self: selfPID}
+	return &Monitor{ctrl: ctrl, clock: clock, buf: buf, self: selfPID, flagged: map[uint32]bool{}}
 }
+
+// SetAnomalyDetector, davranışsal anomali tespitini etkinleştirir. nil (varsayılan)
+// ise anomali skorlama yapılmaz — enforce davranışı değişmez.
+func (m *Monitor) SetAnomalyDetector(d *anomaly.Detector) { m.detector = d }
 
 // Tick, bir değerlendirme turu yürütür: süreçleri listeler, verilen motora göre
 // yasaklıları tespit edip sonlandırır ve olay üretir. Sonlandırılan süreç
@@ -58,6 +65,24 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 		if p.PID == m.self || p.PID == 0 {
 			continue // ajanın kendisini ve sistem boşta sürecini atla
 		}
+
+		// Davranışsal anomali skorlama (etkinse): tüm süreçler modele beslenir;
+		// eşiği aşan ve daha önce bildirilmemiş bir süreç için SECURITY olayı üret.
+		if m.detector != nil {
+			res := m.detector.Observe(anomaly.ProcessObservation{
+				Name: p.Name, Path: p.Path, Hour: now.Hour(),
+			})
+			if res.Anomalous && !m.flagged[p.PID] {
+				m.flagged[p.PID] = true
+				sev := "MEDIUM"
+				if res.Score >= 0.9 {
+					sev = "HIGH"
+				}
+				m.emitCat("SECURITY", sev, now, fmt.Sprintf(
+					"anomali: olağandışı süreç davranışı: %s (pid=%d, skor=%.2f)", p.Name, p.PID, res.Score))
+			}
+		}
+
 		target := p.Path
 		if target == "" {
 			target = p.Name
@@ -87,10 +112,14 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 }
 
 func (m *Monitor) emit(severity, message string) {
+	m.emitCat("POLICY_VIOLATION", severity, time.Now(), message)
+}
+
+func (m *Monitor) emitCat(category, severity string, at time.Time, message string) {
 	m.buf.Add(collector.Event{
-		Category:   "POLICY_VIOLATION",
+		Category:   category,
 		Severity:   severity,
 		Message:    message,
-		OccurredAt: time.Now(),
+		OccurredAt: at,
 	})
 }

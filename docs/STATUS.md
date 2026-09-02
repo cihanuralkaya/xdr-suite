@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **138 test fonksiyonu / 27 test paketi**, tümü geçiyor (`go test ./...`).
+- **139 test fonksiyonu / 27 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -66,7 +66,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Web yönetim konsolu (SOC paneli, canlı yenileme) | ✅ | `adminapi/console.html` (embed) | httptest + canlı demo |
 | Okuma API'si + görünürlük | ✅ | `server/internal/adminread` | birim |
 | KVKK saklama otomasyonu | ✅ mantık / DB derlendi | `server/internal/retention` | birim |
-| Davranışsal anomali tespiti (saf-Go, ONNX-hazır) | ✅ Faz 1 | `agent/internal/anomaly` | birim |
+| Davranışsal anomali tespiti (saf-Go, ONNX-hazır) | ✅ Faz 1-2 | `agent/internal/anomaly` + `enforce` | birim |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar

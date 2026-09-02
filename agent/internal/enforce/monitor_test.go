@@ -2,13 +2,53 @@ package enforce
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"xdr.corp/suite/agent/internal/agentclock"
+	"xdr.corp/suite/agent/internal/anomaly"
 	"xdr.corp/suite/agent/internal/collector"
 	"xdr.corp/suite/agent/internal/policy"
 )
+
+func TestMonitorEmitsAnomalyEvent(t *testing.T) {
+	// Önceden eğitilmiş detektör: normal mesai-saati taban çizgisi.
+	det := anomaly.NewDetector(0.7, nil)
+	for i := 0; i < 18; i++ {
+		det.Observe(anomaly.ProcessObservation{Name: "chrome.exe", Path: `C:\pf\chrome.exe`, Hour: 13 + i%3})
+	}
+
+	ctrl := &fakeCtrl{procs: []Process{{PID: 500, Name: "mimikatz.exe", Path: `C:\Temp\mimikatz.exe`}}}
+	buf := collector.NewBuffer(100)
+	threeAM := time.Date(2026, 8, 28, 3, 0, 0, 0, time.UTC) // gece yarısı, taban çizgisi dışı
+	mon := NewMonitor(ctrl, fixedClock(threeAM), buf, 42)
+	mon.SetAnomalyDetector(det)
+
+	// Kural yok → sonlandırma yok; yalnız anomali skorlama çalışmalı.
+	if _, err := mon.Tick(policy.New(policy.Bundle{})); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range buf.Pending(10) {
+		if e.Category == "SECURITY" && strings.Contains(e.Message, "anomali") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("aykırı süreç için SECURITY 'anomali' olayı beklenirdi")
+	}
+
+	// Detektör ayarlanmamışsa (geriye uyumlu) anomali olayı üretilmemeli.
+	buf2 := collector.NewBuffer(100)
+	mon2 := NewMonitor(ctrl, fixedClock(threeAM), buf2, 42)
+	if _, err := mon2.Tick(policy.New(policy.Bundle{})); err != nil {
+		t.Fatal(err)
+	}
+	if buf2.Len() != 0 {
+		t.Fatalf("detektörsüz anomali olayı olmamalıydı, %d olay", buf2.Len())
+	}
+}
 
 // fakeCtrl, gerçek OS'a dokunmadan controller'ı taklit eder.
 type fakeCtrl struct {
