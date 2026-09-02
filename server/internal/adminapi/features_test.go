@@ -53,6 +53,41 @@ func TestConsoleCSPNonce(t *testing.T) {
 	}
 }
 
+// /metrics: token ayarlı değilse 404 (kapalı); ayarlıysa yanlış token 401, doğru
+// token Prometheus exposition döner.
+func TestMetricsEndpointTokenGated(t *testing.T) {
+	srv, store := newServer(t)
+	_ = store
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Token ayarlı değil → 404 (uç kapalı; varlığını sızdırma).
+	if r, _ := http.Get(ts.URL + "/metrics"); r.StatusCode != http.StatusNotFound {
+		t.Fatalf("token yokken /metrics 404 dönmeliydi, %d", r.StatusCode)
+	}
+
+	srv.SetMetricsToken("gizli-scrape-token")
+
+	// Yanlış token → 401.
+	req, _ := http.NewRequest("GET", ts.URL+"/metrics", nil)
+	req.Header.Set("Authorization", "Bearer yanlis")
+	if r, _ := http.DefaultClient.Do(req); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("yanlış token 401 dönmeliydi, %d", r.StatusCode)
+	}
+
+	// Doğru token → 200 + exposition.
+	req2, _ := http.NewRequest("GET", ts.URL+"/metrics", nil)
+	req2.Header.Set("Authorization", "Bearer gizli-scrape-token")
+	r, err := http.DefaultClient.Do(req2)
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("doğru token 200 dönmeliydi, %d %v", r.StatusCode, err)
+	}
+	body, _ := io.ReadAll(r.Body)
+	if !strings.Contains(string(body), "xdr_build_info") || !strings.Contains(string(body), "xdr_devices{") {
+		t.Fatalf("exposition beklenen metrikleri içermiyor:\n%s", body)
+	}
+}
+
 func TestSecurityHeadersPresent(t *testing.T) {
 	ts, _ := setup(t)
 	defer ts.Close()

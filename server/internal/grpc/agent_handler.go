@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
+	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/model"
 	"xdr.corp/suite/server/internal/rollout"
 )
@@ -163,6 +164,7 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 		if err != nil {
 			return status.Error(codes.Internal, "olaylar kaydedilemedi")
 		}
+		metrics.AddEventsIngested(len(domainEvents))
 		for _, e := range domainEvents {
 			h.admin.PublishEvent(deviceID, e.Severity, e.Message) // konsola canlı push
 		}

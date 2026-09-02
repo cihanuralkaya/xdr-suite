@@ -1,0 +1,94 @@
+// Package metrics, sunucu için bağımlılıksız Prometheus metin-exposition üretir.
+// Harici bir kütüphane (client_golang) KULLANMAZ — süreç-içi atomik sayaçlar ve
+// depodan alınan anlık gauge'lar elle Prometheus 0.0.4 metin formatında yazılır.
+// Böylece dağıtılan ikiliye ek bağımlılık girmez (temiz izin-verici lisans
+// envanteri korunur).
+package metrics
+
+import (
+	"fmt"
+	"io"
+	"sort"
+	"sync/atomic"
+)
+
+// Süreç ömrü boyunca artan sayaçlar (atomik).
+var (
+	loginSuccess   atomic.Int64
+	loginFailure   atomic.Int64
+	eventsIngested atomic.Int64
+)
+
+// buildVersion, xdr_build_info etiketinde raporlanan sürümdür.
+var buildVersion = "dev"
+
+// SetBuildVersion, build bilgisini ayarlar (main tarafından bir kez).
+func SetBuildVersion(v string) {
+	if v != "" {
+		buildVersion = v
+	}
+}
+
+// IncLoginSuccess / IncLoginFailure, giriş sonucu sayaçlarını artırır.
+func IncLoginSuccess() { loginSuccess.Add(1) }
+func IncLoginFailure() { loginFailure.Add(1) }
+
+// AddEventsIngested, kabul edilen telemetri olayı sayacını artırır.
+func AddEventsIngested(n int) {
+	if n > 0 {
+		eventsIngested.Add(int64(n))
+	}
+}
+
+// Snapshot, /metrics çıktısını üretmek için depodan alınan anlık gauge'lardır.
+// Sayaçlar (login/olay) paket içinden okunur; gauge'lar çağıran tarafından
+// (özet + aktif SSE) doldurulur.
+type Snapshot struct {
+	DevicesTotal       int
+	DevicesOnline      int
+	DevicesOffline     int
+	DevicesQuarantined int
+	EventsBySeverity   map[string]int
+	SSEConnections     int
+}
+
+// Write, verilen anlık görüntüyü Prometheus metin formatında w'ye yazar.
+func Write(w io.Writer, s Snapshot) {
+	fmt.Fprintf(w, "# HELP xdr_build_info Sürüm bilgisi (etiket).\n")
+	fmt.Fprintf(w, "# TYPE xdr_build_info gauge\n")
+	fmt.Fprintf(w, "xdr_build_info{version=%q} 1\n", buildVersion)
+
+	fmt.Fprintf(w, "# HELP xdr_login_success_total Başarılı admin girişleri.\n")
+	fmt.Fprintf(w, "# TYPE xdr_login_success_total counter\n")
+	fmt.Fprintf(w, "xdr_login_success_total %d\n", loginSuccess.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_login_failure_total Başarısız admin giriş denemeleri.\n")
+	fmt.Fprintf(w, "# TYPE xdr_login_failure_total counter\n")
+	fmt.Fprintf(w, "xdr_login_failure_total %d\n", loginFailure.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_events_ingested_total Kabul edilen telemetri olayları.\n")
+	fmt.Fprintf(w, "# TYPE xdr_events_ingested_total counter\n")
+	fmt.Fprintf(w, "xdr_events_ingested_total %d\n", eventsIngested.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_devices Cihaz sayıları (duruma göre).\n")
+	fmt.Fprintf(w, "# TYPE xdr_devices gauge\n")
+	fmt.Fprintf(w, "xdr_devices{state=\"total\"} %d\n", s.DevicesTotal)
+	fmt.Fprintf(w, "xdr_devices{state=\"online\"} %d\n", s.DevicesOnline)
+	fmt.Fprintf(w, "xdr_devices{state=\"offline\"} %d\n", s.DevicesOffline)
+	fmt.Fprintf(w, "xdr_devices{state=\"quarantined\"} %d\n", s.DevicesQuarantined)
+
+	fmt.Fprintf(w, "# HELP xdr_events_by_severity Son penceredeki olaylar (önem düzeyine göre).\n")
+	fmt.Fprintf(w, "# TYPE xdr_events_by_severity gauge\n")
+	sevs := make([]string, 0, len(s.EventsBySeverity))
+	for k := range s.EventsBySeverity {
+		sevs = append(sevs, k)
+	}
+	sort.Strings(sevs) // deterministik çıktı (test edilebilirlik)
+	for _, sev := range sevs {
+		fmt.Fprintf(w, "xdr_events_by_severity{severity=%q} %d\n", sev, s.EventsBySeverity[sev])
+	}
+
+	fmt.Fprintf(w, "# HELP xdr_sse_connections Aktif konsol SSE akış bağlantıları.\n")
+	fmt.Fprintf(w, "# TYPE xdr_sse_connections gauge\n")
+	fmt.Fprintf(w, "xdr_sse_connections %d\n", s.SSEConnections)
+}

@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **158 test fonksiyonu / 28 test paketi**, tümü geçiyor (`go test ./...`).
+- **160 test fonksiyonu / 29 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -69,6 +69,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Davranışsal anomali tespiti + eğitilmiş model çıkarımı | ✅ Faz 1-3 | `agent/internal/anomaly` + `enforce` | birim |
 | Kurcalama-kanıtı denetim izi (hash-zincir, SEC C-1) | ✅ | `security.AuditChainHash`, memstore+db | birim |
 | Admin 2FA/MFA (TOTP, RFC 6238) + at-rest şifreli sır | ✅ | `security.totp`, `admin`, `db/mfa.go` | birim (RFC vektörleri) + httptest (uçtan uca) |
+| Prometheus `/metrics` (token korumalı, bağımlılıksız) | ✅ | `server/internal/metrics`, `adminapi` | birim + httptest |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar

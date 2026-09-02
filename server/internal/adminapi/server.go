@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
@@ -24,6 +25,7 @@ import (
 	"xdr.corp/suite/server/internal/admin"
 	"xdr.corp/suite/server/internal/adminread"
 	"xdr.corp/suite/server/internal/eventbus"
+	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/security"
 )
 
@@ -37,20 +39,26 @@ type AuthStore interface {
 
 // Server, admin HTTP API'sidir.
 type Server struct {
-	adminSvc    *admin.Service
-	reader      *adminread.Service
-	auth        AuthStore
-	sessions    *security.SessionSigner
-	ttl         time.Duration
-	now         func() time.Time
-	stream      *eventbus.Bus
-	health      func(context.Context) error
-	loginLim    *loginLimiter
-	notice      string
-	dummyHash   string // SEC-004: bilinmeyen e-postada sabit-zaman için sahte Argon2 hash
-	sseConns    int64  // SEC-007: aktif SSE bağlantı sayısı (atomik)
-	auditVerify func(context.Context) error
+	adminSvc     *admin.Service
+	reader       *adminread.Service
+	auth         AuthStore
+	sessions     *security.SessionSigner
+	ttl          time.Duration
+	now          func() time.Time
+	stream       *eventbus.Bus
+	health       func(context.Context) error
+	loginLim     *loginLimiter
+	notice       string
+	dummyHash    string // SEC-004: bilinmeyen e-postada sabit-zaman için sahte Argon2 hash
+	sseConns     int64  // SEC-007: aktif SSE bağlantı sayısı (atomik)
+	auditVerify  func(context.Context) error
+	metricsToken string // ayarlıysa /metrics bu Bearer token ile açılır; boşsa uç kapalı
 }
+
+// SetMetricsToken, Prometheus /metrics ucunu verilen statik Bearer token ile
+// etkinleştirir. Boş bırakılırsa uç tamamen kapalıdır (cihaz sayıları gibi
+// toplu veriyi kimliksiz sızdırmamak için güvenli varsayılan).
+func (s *Server) SetMetricsToken(tok string) { s.metricsToken = tok }
 
 // maxSSEConns, eşzamanlı SSE akış bağlantısı üst sınırıdır (SEC-007).
 const maxSSEConns = 64
@@ -162,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /api/notice", s.handleNotice) // KVKK aydınlatma (public)
+	mux.HandleFunc("GET /metrics", s.handleMetrics)   // Prometheus (statik token ile)
 	return securityHeaders(mux)
 }
 
@@ -255,12 +264,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// kullanıcı numaralandırma yan-kanalını kapatır). Sonuç yok sayılır.
 		_, _ = security.VerifyPassword(s.dummyHash, req.Password)
 		s.loginLim.recordFailure(key)
+		metrics.IncLoginFailure()
 		writeErr(w, http.StatusUnauthorized, "geçersiz kimlik bilgileri")
 		return
 	}
 	ok, err := security.VerifyPassword(hash, req.Password)
 	if err != nil || !ok {
 		s.loginLim.recordFailure(key)
+		metrics.IncLoginFailure()
 		writeErr(w, http.StatusUnauthorized, "geçersiz kimlik bilgileri")
 		return
 	}
@@ -280,14 +291,44 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			}
 			if !security.VerifyTOTP(secret, req.Code, s.now()) {
 				s.loginLim.recordFailure(key)
+				metrics.IncLoginFailure()
 				writeErr(w, http.StatusUnauthorized, "geçersiz doğrulama kodu")
 				return
 			}
 		}
 	}
 	s.loginLim.recordSuccess(key)
+	metrics.IncLoginSuccess()
 	token := s.sessions.Sign(adminID, s.now().Add(s.ttl))
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+// handleMetrics, Prometheus metin-exposition'ını döner. metricsToken ayarlı
+// değilse uç kapalıdır (404). Ayarlıysa doğru Bearer token gerekir (sabit-zaman
+// karşılaştırma); cihaz sayıları özet okuyucudan, sayaçlar süreç-içinden gelir.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.metricsToken == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(bearer(r)), []byte(s.metricsToken)) != 1 {
+		writeErr(w, http.StatusUnauthorized, "geçersiz metrics token")
+		return
+	}
+	sum, err := s.reader.Summary(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "özet okunamadı")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	metrics.Write(w, metrics.Snapshot{
+		DevicesTotal:       sum.DevicesTotal,
+		DevicesOnline:      sum.DevicesOnline,
+		DevicesOffline:     sum.DevicesOffline,
+		DevicesQuarantined: sum.DevicesQuarantined,
+		EventsBySeverity:   sum.EventsBySeverity,
+		SSEConnections:     int(atomic.LoadInt64(&s.sseConns)),
+	})
 }
 
 // MFAStore, MFA (TOTP) durumunu çözen isteğe bağlı arayüzdür. AuthStore bunu da

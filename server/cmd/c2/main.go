@@ -28,6 +28,7 @@ import (
 	"xdr.corp/suite/server/internal/enroll"
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/memstore"
+	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/policypush"
 	"xdr.corp/suite/server/internal/retention"
 	"xdr.corp/suite/server/internal/revocation"
@@ -217,6 +218,10 @@ func run() error {
 	adminAPI.SetLoginLimit(cfg.LoginMaxAttempts, cfg.LoginLockout) // kaba-kuvvet koruması
 	adminAPI.SetPrivacyNotice(os.Getenv("XDR_PRIVACY_NOTICE"))     // KVKK aydınlatma (boşsa varsayılan)
 	adminAPI.SetAuditVerifier(backend.VerifyAuditChain)            // denetim izi hash-zincir doğrulama
+	// Prometheus /metrics — yalnız XDR_METRICS_TOKEN ayarlıysa açılır (statik Bearer
+	// token). Ayarlı değilse uç kapalıdır (toplu veriyi kimliksiz sızdırmama).
+	metrics.SetBuildVersion(os.Getenv("XDR_BUILD_VERSION"))
+	adminAPI.SetMetricsToken(os.Getenv("XDR_METRICS_TOKEN"))
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek
