@@ -22,6 +22,37 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
+// SEC-008: konsol CSP'si per-request nonce kullanır; script-src'de 'unsafe-inline'
+// YOKTUR ve gövdedeki script tag'i aynı nonce'u taşır (placeholder değiştirilmiş).
+func TestConsoleCSPNonce(t *testing.T) {
+	ts, _ := setup(t)
+	defer ts.Close()
+	r, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	csp := r.Header.Get("Content-Security-Policy")
+	if strings.Contains(csp, "script-src 'unsafe-inline'") {
+		t.Fatalf("script-src'de 'unsafe-inline' olmamalıydı: %q", csp)
+	}
+	i := strings.Index(csp, "script-src 'nonce-")
+	if i < 0 {
+		t.Fatalf("script-src nonce içermeliydi: %q", csp)
+	}
+	rest := csp[i+len("script-src 'nonce-"):]
+	nonce := rest[:strings.IndexByte(rest, '\'')]
+	if nonce == "" {
+		t.Fatal("nonce boş")
+	}
+	body, _ := io.ReadAll(r.Body)
+	if !strings.Contains(string(body), `nonce="`+nonce+`"`) {
+		t.Fatal("gövdedeki script tag'i CSP nonce'unu taşımıyor")
+	}
+	if strings.Contains(string(body), "__CSP_NONCE__") {
+		t.Fatal("placeholder değiştirilmemiş")
+	}
+}
+
 func TestSecurityHeadersPresent(t *testing.T) {
 	ts, _ := setup(t)
 	defer ts.Close()

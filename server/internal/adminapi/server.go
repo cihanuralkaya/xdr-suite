@@ -6,9 +6,11 @@
 package adminapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,12 +112,17 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	// Web yönetim konsolu (aynı köken — API çağrıları CORS'suz çalışır).
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
-		// Konsol self-contained (inline stil+script, dış kaynak yok); CSP bunu
-		// yansıtır ve aynı kökene kısıtlar.
+		// SEC-008: script-src 'unsafe-inline' yerine per-request NONCE. Böylece
+		// olası bir XSS'te enjekte edilen inline script çalışmaz (yalnız nonce'lu
+		// tek script yüklenir). style-src 'unsafe-inline' kalır (inline style=
+		// öznitelikleri; stil enjeksiyonu düşük risk). Konsol dış kaynak kullanmaz.
+		nb := make([]byte, 16)
+		_, _ = rand.Read(nb)
+		nonce := base64.StdEncoding.EncodeToString(nb)
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+			"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-"+nonce+"'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(consoleHTML)
+		_, _ = w.Write(bytes.Replace(consoleHTML, []byte("__CSP_NONCE__"), []byte(nonce), 1))
 	})
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/enrollment-tokens", s.authed(s.handleIssueToken))
