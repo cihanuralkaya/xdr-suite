@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"xdr.corp/suite/server/internal/admin"
@@ -45,7 +46,11 @@ type Server struct {
 	loginLim  *loginLimiter
 	notice    string
 	dummyHash string // SEC-004: bilinmeyen e-postada sabit-zaman için sahte Argon2 hash
+	sseConns  int64  // SEC-007: aktif SSE bağlantı sayısı (atomik)
 }
+
+// maxSSEConns, eşzamanlı SSE akış bağlantısı üst sınırıdır (SEC-007).
+const maxSSEConns = 64
 
 // defaultPrivacyNotice, KVKK aydınlatma metninin makul bir varsayılanıdır;
 // kuruluma göre SetPrivacyNotice ile değiştirilebilir.
@@ -257,7 +262,11 @@ func (s *Server) handleIssueToken(w http.ResponseWriter, r *http.Request, adminI
 	writeJSON(w, http.StatusOK, map[string]string{"enrollment_token": token})
 }
 
-func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request, _ string) {
+func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request, adminID string) {
+	// SEC-009: enrollment token meta verisi hassastır — OPERATOR+ gerekir.
+	if respondErr(w, s.adminSvc.EnsureRole(r.Context(), adminID, admin.RoleOperator)) {
+		return
+	}
 	tokens, err := s.reader.EnrollmentTokens(r.Context(), intParam(r, "limit"))
 	if respondErr(w, err) {
 		return
@@ -508,6 +517,15 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, _ string) 
 		writeErr(w, http.StatusNotImplemented, "canlı akış devre dışı")
 		return
 	}
+	// SEC-007: eşzamanlı SSE bağlantısı üst sınırı (kaynak tükenmesini önle).
+	if n := atomic.AddInt64(&s.sseConns, 1); n > maxSSEConns {
+		atomic.AddInt64(&s.sseConns, -1)
+		w.Header().Set("Retry-After", "10")
+		writeErr(w, http.StatusServiceUnavailable, "eşzamanlı akış sınırı aşıldı")
+		return
+	}
+	defer atomic.AddInt64(&s.sseConns, -1)
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeErr(w, http.StatusInternalServerError, "akış desteklenmiyor")
@@ -548,7 +566,11 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, _ string) 
 	}
 }
 
-func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, _ string) {
+func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, adminID string) {
+	// SEC-009: denetim izi hassastır — OPERATOR+ gerekir.
+	if respondErr(w, s.adminSvc.EnsureRole(r.Context(), adminID, admin.RoleOperator)) {
+		return
+	}
 	audit, err := s.reader.Audit(r.Context(), intParam(r, "limit"))
 	if respondErr(w, err) {
 		return

@@ -88,6 +88,28 @@ func TestLoginBruteForceReturns429(t *testing.T) {
 	}
 }
 
+// SEC-009: denetim izi ve enrollment token meta verisi VIEWER'a kapalı (OPERATOR+).
+func TestAuditAndTokensRequireOperator(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "v1", "viewer@x", "secret", admin.RoleViewer)
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+
+	_, vb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "viewer@x", "password": "secret"})
+	vTok := vb["token"]
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	oTok := ob["token"]
+
+	for _, path := range []string{"/api/audit", "/api/enrollment-tokens"} {
+		if r, _ := authedGET(t, ts.URL+path, vTok); r.StatusCode != http.StatusForbidden {
+			t.Fatalf("VIEWER için %s 403 dönmeliydi, %d", path, r.StatusCode)
+		}
+		if r, _ := authedGET(t, ts.URL+path, oTok); r.StatusCode != http.StatusOK {
+			t.Fatalf("OPERATOR için %s 200 dönmeliydi, %d", path, r.StatusCode)
+		}
+	}
+}
+
 func TestPrivacyNoticeEndpoint(t *testing.T) {
 	srv, _ := newServer(t)
 	ts := httptest.NewServer(srv.Handler())

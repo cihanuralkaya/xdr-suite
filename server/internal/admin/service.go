@@ -245,6 +245,12 @@ func (s *Service) EraseDevice(ctx context.Context, adminID, deviceID string) (Er
 	return ErasureReport{EventsDeleted: ev, CommandsDeleted: cmd, CertsRevoked: cert}, nil
 }
 
+// EnsureRole, adminID'nin en az verilen role sahip olduğunu doğrular (yoksa
+// ErrForbidden). Okuma uçlarında RBAC kapısı olarak kullanılır (SEC-009).
+func (s *Service) EnsureRole(ctx context.Context, adminID string, min Role) error {
+	return s.require(ctx, adminID, min)
+}
+
 // AuthorizeExport, KVKK veri sahibi ERİŞİM (dışa aktarma) talebini yetkilendirir
 // (ADMIN) ve denetim izine ("DATA_EXPORT") yazar. Asıl veri toplama okuma
 // servisinde yapılır; bu yalnız RBAC + denetim kapısıdır.

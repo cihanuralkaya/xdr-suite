@@ -6,13 +6,29 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/server/internal/revocation"
 )
+
+// serverOptions, kaynak-tükenmesi (DoS) sınırlarını içeren temel gRPC seçenekleri
+// döner (SEC-007). Ele geçirilmiş/kötü niyetli tek bir ajan sunucuyu boğamamalı.
+func serverOptions(tc *tls.Config) []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.Creds(credentials.NewTLS(tc)),
+		grpc.MaxRecvMsgSize(4 << 20),   // 4 MB üst sınır (olay batch'leri)
+		grpc.MaxConcurrentStreams(128), // bağlantı başına eşzamanlı akış sınırı
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             30 * time.Second, // aşırı sık keepalive ping'i reddet
+			PermitWithoutStream: false,
+		}),
+	}
+}
 
 // TLSMaterial, sunucunun TLS/mTLS için ihtiyaç duyduğu PEM verileridir.
 type TLSMaterial struct {
@@ -56,7 +72,7 @@ func NewAgentServer(m TLSMaterial, h *AgentHandler) (*grpc.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := grpc.NewServer(grpc.Creds(credentials.NewTLS(tc)))
+	s := grpc.NewServer(serverOptions(tc)...)
 	xdrv1.RegisterAgentServiceServer(s, h)
 	return s, nil
 }
@@ -70,7 +86,7 @@ func NewEnrollServer(m TLSMaterial, h *EnrollmentHandler) (*grpc.Server, error) 
 	if err != nil {
 		return nil, err
 	}
-	s := grpc.NewServer(grpc.Creds(credentials.NewTLS(tc)))
+	s := grpc.NewServer(serverOptions(tc)...)
 	xdrv1.RegisterEnrollmentServiceServer(s, h)
 	return s, nil
 }
