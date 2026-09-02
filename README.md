@@ -1,62 +1,33 @@
 # XDR / MDM — Kurumsal Uç Nokta Güvenliği ve Ajan Yönetim Sistemi
 
+[![CI](https://github.com/cihanuralkaya/xdr-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/cihanuralkaya/xdr-suite/actions/workflows/ci.yml)
+
 Yetkili kurumsal ortam için (şirkete ait cihazlar, bildirilmiş kullanım
 politikası, IT yönetimi) tasarlanmış uç nokta güvenlik ve yönetim platformu.
-Tek dil: **Go**. Ajan ↔ C2 iletişimi **gRPC + mTLS**, şema-öncesi kaynak
-sürüm bu iskelettir.
+Tek dil: **Go**. Ajan ↔ C2 iletişimi **gRPC + mTLS** (TLS 1.3).
 
-> **Durum:** Faz 2 tamam ve **uçtan uca derleniyor**. C2 (iki gRPC sunucu:
-> mTLS'li AgentService + TLS'li EnrollmentService) ve ajan (enroll → mTLS
-> heartbeat → store-and-forward olay gönderimi) bağlandı. Üretilen proto,
-> pgx DB katmanı, kriptografik ilkeller ve ajan-domain motoru yerinde;
-> 17 birim testi geçiyor.
+> **Durum: özellik-tam, CI yeşil, dağıtıma hazır.** Ayrıntılı yetenek matrisi ve
+> ne-nasıl-doğrulandı için **[docs/STATUS.md](docs/STATUS.md)**.
 >
-> **Derleme + test:**
-> ```bash
-> make proto        # gen/ üretir (buf)
-> go mod tidy
-> go test ./...     # 5 paket, 17 test
-> make build        # bin/c2, bin/agent, bin/watchdog
-> ```
->
-> **Runtime kanıtlandı:** `server/internal/e2e` gerçek mTLS gRPC üzerinden
-> uçtan-uca akışı doğrular — enroll → mTLS heartbeat (sunucu saati) → olay
-> gönderimi (ack) → tek-kullanımlık token reddi (bellek-içi store, Postgres'siz):
-> ```bash
-> make e2e
-> ```
-> **Politika uygulama (Faz 3):** ajan süreçleri izler, yasaklıları sonlandırır
-> (`agent/internal/enforce`) ve `POLICY_VIOLATION` üretir; Windows kontrolcüsü
-> gerçek süreçlerle doğrulandı.
->
-> **OTA imza doğrulama (Faz 4):** güncelleme manifestoları Ed25519 ile imzalanır
-> (`tools/otasign`), ajan indirmeden önce imzayı gömülü public key ile doğrular —
-> yalnız SHA-256 yetmez (#4). Ajan paketi indirir, SHA-256 doğrular ve atomik
-> olarak staging'e yazar (`update.Prepare`); **watchdog** çalıştırmalar arasında
-> swap eder, yeni sürüm çabuk çökerse **rollback** yapar (`agent/internal/watchdog`).
->
-> **Ağ keşfi (Faz 5a):** ajan komşu/ARP tablosunu tarar (`agent/internal/discovery`),
-> yeni cihazları tespit edip yetkili/yetkisiz sınıflar ve `NETWORK_DISCOVERY`
-> üretir; Windows'ta gerçek ağda doğrulandı.
->
-> **Karantina (Faz 5b):** idempotent karantina yöneticisi (`agent/internal/quarantine`)
-> sahte izolatörle test edildi; Windows (`netsh`) ve Linux (`iptables`) izolatörleri
-> derlendi (canlı çalıştırılmadı — ağı keser). Ajan sunucudan gelen QUARANTINE
-> komutlarını uygular.
->
-> **Admin API (RBAC):** `server/internal/adminapi` — Argon2id parola + HMAC oturum
-> token'ı + Bearer korumalı REST uçları (login, enrollment-token, karantina,
-> politika CRUD); komut kuyruğu heartbeat ile ajana teslim edilir (`device_commands`).
-> `tools/adminseed` ile yönetici tohumlanır.
->
-> **Web konsolu (tamam):** C2 admin sunucusundan aynı köken gömülü tek-sayfa konsol
-> (`GET /`) — login, token üretimi, karantina, politika, **canlı Cihazlar/Olaylar
-> tabloları** (`GET /api/devices`, `/api/events`; şifreli alanlar sunucuda deşifre).
-> Linux enforcement ve StreamPolicies push henüz eksik.
->
-> **Canlı ikililer için (Postgres ile):** `make dev-certs` ile geliştirme
-> sertifikaları üret (komut çıktısı `XDR_*` env değişkenlerini önerir),
-> `db/schema.sql`'i yükle, sonra `bin/c2` ve `bin/agent` çalıştır.
+> - **134 test / 26 paket** geçiyor; **CI** (`.github/workflows/ci.yml`) her push'ta
+>   `go vet` + test + **uçtan uca smoke** + **gerçek PostgreSQL'e karşı DB testi** +
+>   çapraz derleme çalıştırır — hepsi yeşil.
+> - Uçtan uca kanıtlı zincir: enroll (PKI) → mTLS heartbeat (sunucu-saati) → olay →
+>   politika push → OTA imza + rollout → komut teslimi → tek-kullanımlık token
+>   (`server/internal/e2e`, `make e2e`).
+> - **Güvenlik:** HMAC blind index, AES-256-GCM alan şifreleme, Argon2id parola,
+>   Ed25519 OTA/script imzası, RBAC + değişmez denetim izi, giriş kaba-kuvvet
+>   koruması, sıkılaştırılmış güvenlik başlıkları (HSTS/CSP).
+> - **KVKK:** at-rest şifreleme + partition-bazlı saklama; **veri sahibi hakları**
+>   (erişim/dışa aktarma + silme, denetim korunur).
+> - **Konsol:** gömülü tek-sayfa SOC paneli — cihazlar/olaylar/politikalar/yöneticiler,
+>   **canlı SSE push**, önem grafiği, arama, CSV dışa aktarma, sağlık uçları
+>   (`/healthz`, `/readyz`).
+> - **Dağıtım:** çapraz derleme + tek-dosya istemci installer üreteci (token gömülü
+>   veya kod girişli, Win/Linux) + sunucu kurulum betikleri — bkz.
+>   **[deploy/README.md](deploy/README.md)**.
+> - Üçüncü taraf lisanslar (telif uyumu): **[docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md)**
+>   (hepsi izin verici; copyleft yok).
 
 ## Bileşenler
 
@@ -91,14 +62,19 @@ make build        # bin/c2, bin/agent, bin/watchdog
 psql -U postgres -d xdr -f db/schema.sql
 ```
 
-## Kurulum ve dağıtım (planlanan — faz sonu)
+## Kurulum ve dağıtım ✅
 
-- **Sunucu (C2) installer:** Tek dosya kurulum (Windows: MSI, Linux: deb/rpm)
-  ile C2 + PostgreSQL yapılandırması.
-- **İstemci (agent) installer:** Her cihaz için **benzersiz** kurulum paketi.
-  Paket, tek kullanımlık bir **enrollment token** ile damgalanır; ajan ilk
-  çalıştığında bu token ile kendini kaydeder (PKI bootstrap) ve mTLS sertifikası
-  alır. Ayrıntı ve tasarım kararı için [docs/architecture.md](docs/architecture.md#kurulum-ve-paketleme).
+Tam akış: **[deploy/README.md](deploy/README.md)**.
+
+- **Release:** `scripts/build-release.sh 1.0.0` — c2/agent/watchdog/gencerts
+  Windows+Linux için çapraz derlenir (`dist/`).
+- **Sunucu (C2):** `deploy/server/install-linux.sh` (systemd) /
+  `install-windows.ps1` (zamanlanmış görev) — PKI + ana anahtar + config + servis
+  otomatik.
+- **İstemci (agent):** `tools/mkclient` her cihaz için **tek-dosya** kurulum betiği
+  üretir — **benzersiz** (enrollment token gömülü, otomatik kaydolur) veya
+  **paylaşımlı** (kod girişli); ajan ikilisi base64 gömülü, servisi kurar.
+  Windows (`.ps1`) + Linux (`.sh`).
 
 ## Yol haritası
 
