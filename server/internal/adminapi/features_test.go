@@ -24,6 +24,46 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 
 // SEC-008: konsol CSP'si per-request nonce kullanır; script-src'de 'unsafe-inline'
 // YOKTUR ve gövdedeki script tag'i aynı nonce'u taşır (placeholder değiştirilmiş).
+// /api/mitre/coverage: kimlik doğrulanmış admin ATT&CK teknik kataloğunu alır;
+// kimliksiz istek reddedilir.
+func TestMitreCoverageEndpoint(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "v1", "viewer@x", "secret", admin.RoleViewer)
+
+	// Kimliksiz → 401.
+	if r, err := authedGET(t, ts.URL+"/api/mitre/coverage", ""); err != nil || r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("kimliksiz istek 401 dönmeliydi, %d %v", r.StatusCode, err)
+	}
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "viewer@x", "password": "secret"})
+	token := body["token"]
+
+	r, err := authedGET(t, ts.URL+"/api/mitre/coverage", token)
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("coverage 200 dönmeliydi, %d %v", r.StatusCode, err)
+	}
+	var out struct {
+		Techniques []struct {
+			ID, Name, Tactic string
+		} `json:"techniques"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Techniques) == 0 {
+		t.Fatal("teknik kataloğu boş döndü")
+	}
+	var hasScript bool
+	for _, tq := range out.Techniques {
+		if tq.ID == "T1059" && tq.Tactic == "Execution" {
+			hasScript = true
+		}
+	}
+	if !hasScript {
+		t.Fatal("beklenen teknik (T1059/Execution) katalogda yok")
+	}
+}
+
 func TestConsoleCSPNonce(t *testing.T) {
 	ts, _ := setup(t)
 	defer ts.Close()

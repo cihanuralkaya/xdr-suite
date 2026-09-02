@@ -14,6 +14,7 @@ import (
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/server/internal/metrics"
+	"xdr.corp/suite/server/internal/mitre"
 	"xdr.corp/suite/server/internal/model"
 	"xdr.corp/suite/server/internal/notify"
 	"xdr.corp/suite/server/internal/rollout"
@@ -184,14 +185,19 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 		for _, e := range domainEvents {
 			h.admin.PublishEvent(deviceID, e.Severity, e.Message) // konsola canlı push
 			// Yüksek önem düzeyli olaylarda SOC'a gerçek-zamanlı dış uyarı (best-effort;
-			// eşik/filtre notifier içinde). noop notifier'da maliyetsizdir.
-			h.alerter.Notify(notify.Alert{
+			// eşik/filtre notifier içinde). noop notifier'da maliyetsizdir. Uyarı,
+			// MITRE ATT&CK teknik/taktik bağlamıyla zenginleştirilir.
+			al := notify.Alert{
 				DeviceID:   deviceID,
 				Category:   e.Category,
 				Severity:   e.Severity,
 				Message:    e.Message,
 				OccurredAt: e.OccurredAt,
-			})
+			}
+			if tq, ok := mitre.Classify(e.Category, e.Message); ok {
+				al.TechniqueID, al.TechniqueName, al.Tactic = tq.ID, tq.Name, tq.Tactic
+			}
+			h.alerter.Notify(al)
 		}
 		if acc > lastAccepted {
 			lastAccepted = acc

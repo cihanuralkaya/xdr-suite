@@ -40,6 +40,10 @@ type Alert struct {
 	Severity   string    `json:"severity"`
 	Message    string    `json:"message"`
 	OccurredAt time.Time `json:"occurred_at"`
+	// MITRE ATT&CK bağlamı (varsa; eşleşme yoksa boş bırakılır — omitempty).
+	TechniqueID   string `json:"mitre_technique_id,omitempty"`
+	TechniqueName string `json:"mitre_technique,omitempty"`
+	Tactic        string `json:"mitre_tactic,omitempty"`
 }
 
 // Notifier, bir uyarıyı (best-effort) iletir.

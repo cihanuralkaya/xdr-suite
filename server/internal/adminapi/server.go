@@ -26,6 +26,7 @@ import (
 	"xdr.corp/suite/server/internal/adminread"
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/metrics"
+	"xdr.corp/suite/server/internal/mitre"
 	"xdr.corp/suite/server/internal/security"
 )
 
@@ -163,6 +164,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/devices/{id}/erase", s.authed(s.handleEraseDevice))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
+	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
 	mux.HandleFunc("GET /api/audit/verify", s.authed(s.handleVerifyAudit))
 	mux.HandleFunc("GET /api/stream", s.authed(s.handleStream))
@@ -641,6 +643,12 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request, _ string)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"summary": summary})
+}
+
+// handleMitreCoverage, sistemin eşleyebildiği MITRE ATT&CK teknikleri kataloğunu
+// döner (kapsama matrisi). Konsol bunu ATT&CK kapsama görünümünde kullanır.
+func (s *Server) handleMitreCoverage(w http.ResponseWriter, _ *http.Request, _ string) {
+	writeJSON(w, http.StatusOK, map[string]any{"techniques": mitre.Catalog()})
 }
 
 // handleStream, Server-Sent Events (SSE) ile canlı değişiklik bildirimleri iletir.

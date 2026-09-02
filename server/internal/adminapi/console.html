@@ -402,6 +402,18 @@
             <div id="o-mfa" class="out"></div>
           </div>
         </div>
+        <div class="card">
+          <div class="head"><h2>🎯 MITRE ATT&amp;CK Kapsamı</h2>
+            <span class="sp"></span><span id="mitre-count" class="count">0</span></div>
+          <div class="body">
+            <p class="hint" style="margin:0 0 10px">Bu dağıtımın üretilen olaylardan eşleyebildiği düşman teknikleri.</p>
+            <div class="tbl-wrap">
+              <table><thead><tr><th>Teknik</th><th>Ad</th><th>Taktik</th></tr></thead>
+                <tbody id="mitre-body"></tbody></table>
+            </div>
+            <div id="mitre-empty" class="empty" style="padding:14px">Yükleniyor…</div>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -777,6 +789,18 @@
       $("adm-empty").style.display="block";
     });
   }
+  function loadMitre(){
+    return api("/api/mitre/coverage").then(function(r){
+      var t=(r&&r.techniques)||[]; var body=$("mitre-body"); body.innerHTML="";
+      $("mitre-count").textContent=t.length;
+      $("mitre-empty").style.display=t.length?"none":"block";
+      t.forEach(function(x){
+        var tr=document.createElement("tr");
+        tr.innerHTML="<td><b>"+esc(x.id)+"</b></td><td>"+esc(x.name)+"</td><td>"+esc(x.tactic)+"</td>";
+        body.appendChild(tr);
+      });
+    }).catch(function(e){ $("mitre-empty").textContent="ATT&CK kapsamı yüklenemedi ("+e.message+")."; });
+  }
   function renderPolicies(){
     var body=$("pol-body"); body.innerHTML="";
     var p=state.policies||[];
@@ -1036,6 +1060,7 @@
     try { sessionStorage.setItem("xdr_tok", token); sessionStorage.setItem("xdr_email", email); } catch(e){}
     $("who").textContent=email;
     $("login").style.display="none"; $("app").style.display="grid";
+    loadMitre();
     refresh().then(function(){ startAuto(); startStream(); });
   }
 
