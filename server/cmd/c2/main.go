@@ -191,6 +191,7 @@ func run() error {
 	adminAPI.SetStream(liveBus)                                    // canlı SSE akışı
 	adminAPI.SetHealthCheck(backend.Ping)                          // /readyz depo sağlık kontrolü
 	adminAPI.SetLoginLimit(cfg.LoginMaxAttempts, cfg.LoginLockout) // kaba-kuvvet koruması
+	adminAPI.SetPrivacyNotice(os.Getenv("XDR_PRIVACY_NOTICE"))     // KVKK aydınlatma (boşsa varsayılan)
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek

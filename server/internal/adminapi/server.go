@@ -42,7 +42,17 @@ type Server struct {
 	stream   *eventbus.Bus
 	health   func(context.Context) error
 	loginLim *loginLimiter
+	notice   string
 }
+
+// defaultPrivacyNotice, KVKK aydınlatma metninin makul bir varsayılanıdır;
+// kuruluma göre SetPrivacyNotice ile değiştirilebilir.
+const defaultPrivacyNotice = "KVKK Aydınlatma: Bu cihaz kuruma aittir ve kurumsal " +
+	"uç nokta güvenlik/yönetim (EDR/MDM) kapsamındadır. İş amaçlı kullanım " +
+	"sırasında cihaz sağlık/güvenlik telemetrisi (çalışan süreçler, ağ keşfi, " +
+	"güvenlik olayları) 6698 sayılı KVKK ve kurumsal politika uyarınca işlenir. " +
+	"Veriler at-rest şifrelenir, erişim RBAC ile sınırlıdır ve saklama süresi " +
+	"sonunda silinir. Veri sahibi erişim/silme talepleri için IT ile iletişime geçin."
 
 // New oluşturur. Giriş ucu varsayılan olarak istemci başına 5 başarısız
 // denemeden sonra 15 dk kilitlenir (kaba-kuvvet koruması).
@@ -51,6 +61,15 @@ func New(adminSvc *admin.Service, reader *adminread.Service, auth AuthStore, ses
 		adminSvc: adminSvc, reader: reader, auth: auth, sessions: sessions, ttl: ttl,
 		now:      time.Now,
 		loginLim: newLoginLimiter(5, 15*time.Minute),
+		notice:   defaultPrivacyNotice,
+	}
+}
+
+// SetPrivacyNotice, KVKK aydınlatma metnini ayarlar (boş verilirse varsayılan
+// korunur). Kurulum, kurumsal metni buradan geçebilir.
+func (s *Server) SetPrivacyNotice(text string) {
+	if text = strings.TrimSpace(text); text != "" {
+		s.notice = text
 	}
 }
 
@@ -111,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	// Sağlık uçları (kimlik doğrulama YOK — orkestrasyon/LB/monitoring için).
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	mux.HandleFunc("GET /api/notice", s.handleNotice) // KVKK aydınlatma (public)
 	return securityHeaders(mux)
 }
 
@@ -145,6 +165,12 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, string)) http
 		}
 		h(w, r, id)
 	}
+}
+
+// handleNotice, KVKK aydınlatma metnini döner (kimlik doğrulamasız — giriş
+// öncesi konsolda gösterilir, şeffaflık gereği herkese açıktır).
+func (s *Server) handleNotice(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"notice": s.notice})
 }
 
 // handleHealthz, süreç canlılığı (liveness): süreç yanıt veriyorsa 200.

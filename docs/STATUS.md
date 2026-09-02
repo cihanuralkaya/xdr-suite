@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **134 test fonksiyonu / 26 test paketi**, tümü geçiyor (`go test ./...`).
+- **135 test fonksiyonu / 26 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -103,7 +103,7 @@ memstore ona eşitlendi + regresyon testi (`TestLookupAdminExcludesDeactivated`)
   - Linux `/proc`+SIGKILL ve OS izolatörleri — yalnız cross-compile.
   - `go test -race` — C derleyicisi (gcc) yok; eşzamanlılık mutex/atomic ile doğru-inşa.
 - **Operasyonel uçlar:** veri sahibi başvuru akışı (KVKK erişim/silme) **YAPILDI**
-  (aşağı bkz.). Kalan: çalışan aydınlatma metni; lokal ONNX ML anomali hattı.
+  (aşağı bkz.). Kalan: lokal ONNX ML anomali hattı.
   İmzalı script yürütme YAPILDI (imza + sınırlı yürütme) ama gerçek sandbox/
   süreç-ağacı sonlandırma yok — ileri faz.
 

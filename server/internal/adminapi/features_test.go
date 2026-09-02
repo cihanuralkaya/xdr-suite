@@ -88,6 +88,39 @@ func TestLoginBruteForceReturns429(t *testing.T) {
 	}
 }
 
+func TestPrivacyNoticeEndpoint(t *testing.T) {
+	srv, _ := newServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Kimlik doğrulamasız erişilebilir + varsayılan KVKK metni döner.
+	r, err := http.Get(ts.URL + "/api/notice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("/api/notice 200 dönmeliydi, %d", r.StatusCode)
+	}
+	body, _ := io.ReadAll(r.Body)
+	if !strings.Contains(string(body), "KVKK") {
+		t.Fatalf("aydınlatma metni beklenirdi: %s", body)
+	}
+
+	// Özelleştirilebilir; boş verilince varsayılan korunur.
+	srv.SetPrivacyNotice("Özel kurumsal metin.")
+	r2, _ := http.Get(ts.URL + "/api/notice")
+	b2, _ := io.ReadAll(r2.Body)
+	if !strings.Contains(string(b2), "Özel kurumsal metin") {
+		t.Fatalf("özel metin dönmeliydi: %s", b2)
+	}
+	srv.SetPrivacyNotice("   ") // boş/whitespace → varsayılan korunur (değişmez)
+	r3, _ := http.Get(ts.URL + "/api/notice")
+	b3, _ := io.ReadAll(r3.Body)
+	if !strings.Contains(string(b3), "Özel kurumsal metin") {
+		t.Fatalf("boş metin varsayılanı ezmemeliydi: %s", b3)
+	}
+}
+
 func TestHealthAndReadyEndpoints(t *testing.T) {
 	// Kimlik doğrulama GEREKMEZ; sağlık kontrolü ayarlıysa /readyz onu çağırır.
 	srv, _ := newServer(t)
