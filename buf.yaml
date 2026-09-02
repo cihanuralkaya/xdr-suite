@@ -4,6 +4,13 @@ modules:
 lint:
   use:
     - STANDARD
+  # Bilinçli API tasarımı: RPC istek/yanıt tipleri paylaşılan domain adları
+  # taşır (PolicyBundle, EventBatch, ...), her RPC için ayrı <Rpc>Request/Response
+  # değil. Bu üç standart-ad kuralı bu nedenle devre dışı.
+  except:
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
 breaking:
   use:
     - FILE
