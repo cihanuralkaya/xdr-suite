@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -137,11 +138,19 @@ func run() error {
 	if os.Getenv("XDR_ANOMALY_DISABLE") == "" {
 		var scorer anomaly.Scorer
 		if mp := os.Getenv("XDR_ANOMALY_MODEL"); mp != "" {
-			if m, err := anomaly.LoadModel(mp); err != nil {
-				log.Printf("anomali modeli yüklenemedi (%v) — istatistiksel scorer'a düşülüyor", err)
+			// SEC C-7: model YALNIZ Ed25519 imzası doğrulanınca yüklenir. İmzasız
+			// ya da doğrulanamayan model YÜKLENMEZ (fail-closed) — tespiti sıfırlayan
+			// kurcalamayı önler; istatistiksel scorer'a düşülür.
+			pubB64 := os.Getenv("XDR_ANOMALY_PUBKEY")
+			if pubB64 == "" {
+				log.Printf("anomali modeli verildi ama XDR_ANOMALY_PUBKEY yok — imzasız model YÜKLENMEZ; istatistiksel scorer")
+			} else if pub, err := base64.StdEncoding.DecodeString(pubB64); err != nil {
+				log.Printf("XDR_ANOMALY_PUBKEY geçersiz (%v) — istatistiksel scorer", err)
+			} else if m, err := anomaly.LoadModelSigned(mp, ed25519.PublicKey(pub)); err != nil {
+				log.Printf("imzalı anomali modeli reddedildi (%v) — istatistiksel scorer", err)
 			} else {
 				scorer = m
-				log.Printf("anomali modeli yüklendi: %s", mp)
+				log.Printf("imzalı anomali modeli doğrulandı + yüklendi: %s", mp)
 			}
 		}
 		monitor.SetAnomalyDetector(anomaly.NewDetector(0.85, scorer))

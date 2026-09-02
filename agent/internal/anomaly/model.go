@@ -1,11 +1,48 @@
 package anomaly
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 )
+
+// LoadModelSigned, modeli YALNIZ Ed25519 imzası doğrulandıktan sonra yükler
+// (SEC C-7). İmza, model JSON baytları üzerinedir ve `<modelPath>.sig` dosyasında
+// base64 olarak beklenir. Modeli yazabilen ama imzalayamayan bir saldırgan,
+// tespiti sıfırlayarak sömürüyü gizleyemez (fail-closed). İmza/anahtar
+// geçersizse hata döner ve çağıran istatistiksel scorer'a düşmelidir.
+func LoadModelSigned(modelPath string, pub ed25519.PublicKey) (*ModelScorer, error) {
+	data, err := os.ReadFile(modelPath)
+	if err != nil {
+		return nil, fmt.Errorf("anomaly: model okunamadı: %w", err)
+	}
+	sigB64, err := os.ReadFile(modelPath + ".sig")
+	if err != nil {
+		return nil, fmt.Errorf("anomaly: model imza dosyası (%s.sig) okunamadı: %w", modelPath, err)
+	}
+	sig, err := base64.StdEncoding.DecodeString(string(trimSpace(sigB64)))
+	if err != nil {
+		return nil, fmt.Errorf("anomaly: imza base64 çözülemedi: %w", err)
+	}
+	if len(pub) != ed25519.PublicKeySize || !ed25519.Verify(pub, data, sig) {
+		return nil, fmt.Errorf("anomaly: model imzası GEÇERSİZ — yükleme reddedildi")
+	}
+	return LoadModelJSON(data)
+}
+
+func trimSpace(b []byte) []byte {
+	i, j := 0, len(b)
+	for i < j && (b[i] == ' ' || b[i] == '\n' || b[i] == '\r' || b[i] == '\t') {
+		i++
+	}
+	for j > i && (b[j-1] == ' ' || b[j-1] == '\n' || b[j-1] == '\r' || b[j-1] == '\t') {
+		j--
+	}
+	return b[i:j]
+}
 
 // ModelScorer, ÇEVRİMDIŞI eğitilmiş ve JSON'a dışa aktarılmış küçük bir ileri-
 // beslemeli ağı (MLP / lojistik) SAF-GO ile çalıştırır. Bu, "kenar cihazda
