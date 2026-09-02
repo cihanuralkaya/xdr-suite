@@ -103,7 +103,7 @@ jobs:
       - name: Proto üret
         run: make proto
       - name: Release ikilileri
-        run: scripts/build-release.sh "${GITHUB_REF_NAME}"
+        run: bash scripts/build-release.sh "${GITHUB_REF_NAME}"
       - uses: actions/upload-artifact@v4
         with:
           name: xdr-binaries

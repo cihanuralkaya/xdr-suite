@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **133 test fonksiyonu / 26 test paketi**, tümü geçiyor (`go test ./...`).
+- **134 test fonksiyonu / 26 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -74,6 +74,13 @@ Bkz. `docs/threat-model.md`. Özet: kırık şema düzeltildi, şifreli-log yeri
 at-rest + partitioning; düz-hash yerine **HMAC blind index**; yerel-saat yerine
 **sunucu-saati çıpası**; hash-yerine **imza** OTA'da; enrollment/PKI eklendi;
 RBAC + değişmez denetim izi.
+
+**CI'da (Linux) yakalanan bulgu (düzeltildi):** `policy.matchesTarget`
+`filepath.Base` kullanıyordu — Linux'ta `\` ayırıcıyı bölmez, bu yüzden
+Windows-yolu süreçler (`D:\x\a.exe`) Linux'ta dosya adıyla eşleşmiyor ve
+politika/enforce testleri yalnız CI'da FAIL veriyordu. OS-bağımsız `baseName`
+(`/` ve `\`) ile düzeltildi; regresyon testi `TestMatchesTargetSeparatorAgnostic`.
+Ürün hem Windows hem Linux hedeflediği için gerçek cross-platform düzeltmesi.
 
 **Canlı demo sırasında yakalanan bulgu (düzeltildi):** bellek-içi
 `LookupAdmin` `is_active` süzmüyordu → pasifleştirilen yönetici hâlâ giriş
