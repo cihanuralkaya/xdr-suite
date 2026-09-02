@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"time"
 )
 
@@ -21,14 +22,30 @@ func NewHTTPDownloader(maxBytes int64) *HTTPDownloader {
 		maxBytes = 256 << 20 // 256 MiB
 	}
 	return &HTTPDownloader{
-		client:   &http.Client{Timeout: 5 * time.Minute},
+		client: &http.Client{
+			Timeout: 5 * time.Minute,
+			// SEC-012: yönlendirmeler de https olmalı + sınırlı (http'ye düşürme yok).
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("update: çok fazla yönlendirme")
+				}
+				if req.URL.Scheme != "https" {
+					return fmt.Errorf("update: yönlendirme https olmalı, %q", req.URL.Scheme)
+				}
+				return nil
+			},
+		},
 		maxBytes: maxBytes,
 	}
 }
 
-// Download, verilen URL'den paketi indirir (en fazla maxBytes).
-func (d *HTTPDownloader) Download(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// Download, verilen URL'den paketi indirir (en fazla maxBytes). SEC-012: yalnız
+// https kabul edilir (imzalı manifest + SHA-256'ya ek aktarım güvenliği).
+func (d *HTTPDownloader) Download(ctx context.Context, rawURL string) ([]byte, error) {
+	if u, err := neturl.Parse(rawURL); err != nil || u.Scheme != "https" {
+		return nil, fmt.Errorf("update: indirme URL'i https olmalı")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}

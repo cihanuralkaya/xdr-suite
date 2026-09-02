@@ -15,12 +15,20 @@ import (
 	"xdr.corp/suite/otawire"
 )
 
-// payloadServer, sabit bir payload sunan test HTTP sunucusu.
+// payloadServer, sabit bir payload sunan test HTTPS sunucusu (SEC-012: indirici
+// yalnız https kabul eder).
 func payloadServer(t *testing.T, payload []byte) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(payload)
 	}))
+}
+
+// tlsDL, test TLS sunucusunun sertifikasına güvenen bir indirici döner.
+func tlsDL(ts *httptest.Server) *HTTPDownloader {
+	dl := NewHTTPDownloader(0)
+	dl.client = ts.Client()
+	return dl
 }
 
 func signedManifest(t *testing.T, url string, payload []byte) (otawire.Manifest, []byte, ed25519.PublicKey) {
@@ -41,7 +49,7 @@ func TestPrepareHappyPath(t *testing.T) {
 
 	m, sig, pub := signedManifest(t, ts.URL, payload)
 	v, _ := NewVerifier(pub)
-	dl := NewHTTPDownloader(0)
+	dl := tlsDL(ts)
 	stageDir := t.TempDir()
 
 	su, err := Prepare(context.Background(), m, sig, v, dl, stageDir)
@@ -76,7 +84,7 @@ func TestPrepareRejectsBadSignature(t *testing.T) {
 	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
 	v, _ := NewVerifier(otherPub)
 
-	if _, err := Prepare(context.Background(), m, sig, v, NewHTTPDownloader(0), t.TempDir()); err != ErrBadSignature {
+	if _, err := Prepare(context.Background(), m, sig, v, tlsDL(ts), t.TempDir()); err != ErrBadSignature {
 		t.Fatalf("ErrBadSignature beklenirdi, dönen: %v", err)
 	}
 }
@@ -90,7 +98,7 @@ func TestPrepareRejectsHashMismatch(t *testing.T) {
 	m, sig, pub := signedManifest(t, ts.URL, payload) // manifesto orijinal payload'ın hash'ini taşır
 	v, _ := NewVerifier(pub)
 
-	if _, err := Prepare(context.Background(), m, sig, v, NewHTTPDownloader(0), t.TempDir()); err != ErrHashMismatch {
+	if _, err := Prepare(context.Background(), m, sig, v, tlsDL(ts), t.TempDir()); err != ErrHashMismatch {
 		t.Fatalf("ErrHashMismatch beklenirdi, dönen: %v", err)
 	}
 }

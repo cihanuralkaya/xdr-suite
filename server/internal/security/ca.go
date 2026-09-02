@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -64,17 +65,16 @@ func (ca *CA) SignCSR(csrPEM []byte, deviceID string, ttl time.Duration) (*Signe
 	now := time.Now()
 	notAfter := now.Add(ttl)
 
+	// SEC-010: Subject SIFIRDAN kurulur — yalnız CN = atanan device_id. CSR'daki
+	// istemci-kontrollü Subject alanları (O/OU vb.) sertifikaya KOPYALANMAZ.
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      csr.Subject,
-		// Kimliği SUNUCU belirler: CN daima atanan device_id olur; CSR'daki
-		// Subject alanlarına güvenilmez.
-		NotBefore:   now.Add(-1 * time.Minute), // küçük saat kayması toleransı
-		NotAfter:    notAfter,
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		Subject:      pkix.Name{CommonName: deviceID},
+		NotBefore:    now.Add(-1 * time.Minute), // küçük saat kayması toleransı
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
-	tmpl.Subject.CommonName = deviceID
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, csr.PublicKey, ca.key)
 	if err != nil {
