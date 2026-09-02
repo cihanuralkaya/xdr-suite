@@ -131,9 +131,20 @@ func run() error {
 	engine.Store(policy.New(policy.Bundle{}))
 	monitor := enforce.NewMonitor(enforce.NewProcessController(), clock, buf, uint32(os.Getpid()))
 	// Davranışsal anomali tespiti (varsayılan AÇIK; XDR_ANOMALY_DISABLE ile kapatılır).
-	// Muhafazakâr eşik (0.85): yalnız güçlü aykırı değerler SECURITY olayı üretir.
+	// XDR_ANOMALY_MODEL verilirse eğitilmiş JSON model (ModelScorer) yüklenir;
+	// aksi halde saf-Go çevrimiçi istatistiksel scorer kullanılır. Muhafazakâr
+	// eşik (0.85): yalnız güçlü aykırı değerler SECURITY olayı üretir.
 	if os.Getenv("XDR_ANOMALY_DISABLE") == "" {
-		monitor.SetAnomalyDetector(anomaly.NewDetector(0.85, nil))
+		var scorer anomaly.Scorer
+		if mp := os.Getenv("XDR_ANOMALY_MODEL"); mp != "" {
+			if m, err := anomaly.LoadModel(mp); err != nil {
+				log.Printf("anomali modeli yüklenemedi (%v) — istatistiksel scorer'a düşülüyor", err)
+			} else {
+				scorer = m
+				log.Printf("anomali modeli yüklendi: %s", mp)
+			}
+		}
+		monitor.SetAnomalyDetector(anomaly.NewDetector(0.85, scorer))
 	}
 	neighbors := discovery.NewNeighborSource()
 	netTracker := discovery.NewTracker(cfg.authMACs)

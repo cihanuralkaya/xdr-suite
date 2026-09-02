@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **139 test fonksiyonu / 27 test paketi**, tümü geçiyor (`go test ./...`).
+- **144 test fonksiyonu / 27 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -66,7 +66,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Web yönetim konsolu (SOC paneli, canlı yenileme) | ✅ | `adminapi/console.html` (embed) | httptest + canlı demo |
 | Okuma API'si + görünürlük | ✅ | `server/internal/adminread` | birim |
 | KVKK saklama otomasyonu | ✅ mantık / DB derlendi | `server/internal/retention` | birim |
-| Davranışsal anomali tespiti (saf-Go, ONNX-hazır) | ✅ Faz 1-2 | `agent/internal/anomaly` + `enforce` | birim |
+| Davranışsal anomali tespiti + eğitilmiş model çıkarımı | ✅ Faz 1-3 | `agent/internal/anomaly` + `enforce` | birim |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
@@ -104,7 +104,7 @@ memstore ona eşitlendi + regresyon testi (`TestLookupAdminExcludesDeactivated`)
   - Linux `/proc`+SIGKILL ve OS izolatörleri — yalnız cross-compile.
   - `go test -race` — C derleyicisi (gcc) yok; eşzamanlılık mutex/atomic ile doğru-inşa.
 - **Operasyonel uçlar:** veri sahibi başvuru akışı (KVKK erişim/silme) **YAPILDI**
-  (aşağı bkz.). Kalan: ONNX ML anomali hattı — **Faz 1 (saf-Go baseline + pluggable Scorer arayüzü) YAPILDI**; gerçek ONNX modeli + ajan-döngüsü bağlama ileri faz.
+  (aşağı bkz.). Kalan: ONNX ML anomali hattı: **Faz 1-3 YAPILDI** — saf-Go istatistiksel + JSON-eğitilmiş-model (MLP/lojistik) çıkarımı, ajan-döngüsüne bağlı, SECURITY olayları üretir. Gerçek .onnx ikili yükleme (onnxruntime CGo, //go:build onnx) arayüz-hazır ama bu ortamda derlenemez (C bağımlılığı saf-Go CI'ı bozar).
   İmzalı script yürütme YAPILDI (imza + sınırlı yürütme) ama gerçek sandbox/
   süreç-ağacı sonlandırma yok — ileri faz.
 
