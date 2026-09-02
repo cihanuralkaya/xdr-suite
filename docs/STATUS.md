@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **149 test fonksiyonu / 28 test paketi**, tümü geçiyor (`go test ./...`).
+- **148 test fonksiyonu / 28 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -75,6 +75,8 @@ Bkz. `docs/threat-model.md`. Özet: kırık şema düzeltildi, şifreli-log yeri
 at-rest + partitioning; düz-hash yerine **HMAC blind index**; yerel-saat yerine
 **sunucu-saati çıpası**; hash-yerine **imza** OTA'da; enrollment/PKI eklendi;
 RBAC + değişmez denetim izi.
+
+**Agent güvenlik denetiminde yakalanan bulgular (düzeltildi):** Adversarial güvenlik incelemesi (siber güvenlik uzmanı agent) iki YÜKSEK bulgu buldu: **SEC-001** konsol XSS (`esc()` HTML kaçışı yapmıyordu → innerHTML'de saldırgan-kontrollü veri) ve **SEC-002** sertifika iptali bypass (`Renew` iptal kontrolü yapmıyordu → 60 sn cache penceresinde yeni cert). İkisi de düzeltildi + regresyon testi. Kalan orta/düşük öneriler (oturum iptali, MFA, SPKI pinning, denetim izi imzalama, anomali modeli imzalama) yol haritasında.
 
 **CI'da (Linux) yakalanan bulgu (düzeltildi):** `policy.matchesTarget`
 `filepath.Base` kullanıyordu — Linux'ta `\` ayırıcıyı bölmez, bu yüzden
