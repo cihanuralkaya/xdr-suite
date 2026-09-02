@@ -51,6 +51,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Komut kuyruğu (karantina teslimi) | ✅ | `server/internal/db` + `grpc` | e2e |
 | Admin servisi (RBAC + denetim izi) | ✅ | `server/internal/admin` | birim |
 | Admin HTTP API + Argon2 + oturum | ✅ | `server/internal/adminapi` | birim (httptest) |
+| Giriş kaba-kuvvet koruması (per-IP kilit) | ✅ | `adminapi/ratelimit.go` | birim + httptest |
 | Yönetici yönetimi (oluştur/rol/pasifleştir) | ✅ | `admin/adminusers.go`, `db/admins.go` | birim + canlı demo |
 | Enrollment token yönetimi (listele/iptal) | ✅ | `db/tokens.go`, `adminread` | birim + canlı demo |
 | Politika listeleme (kural + cihaz sayımı) | ✅ | `adminread.ListPolicies`, `db/policy.go` | birim + canlı demo |
