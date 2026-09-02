@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -68,10 +69,19 @@ func openBackend(ctx context.Context, cfg *config.Config) (Backend, error) {
 		return store, nil
 	}
 
+	// SEC-006: XDR_DATABASE_URL boşken SESSİZCE demo moduna düşme. Bellek-içi demo
+	// (kalıcılık yok + tohumlanmış admin) yalnız AÇIK bir onayla (XDR_DEMO=1)
+	// çalışmalı; aksi halde üretimde yanlış-yapılandırma riski (env unutulması)
+	// tohumlanmış admin ve loglanmış kimlikle açar. Bayrak yoksa hata ver.
+	if os.Getenv("XDR_DEMO") != "1" {
+		return nil, fmt.Errorf("config: XDR_DATABASE_URL zorunlu (bellek-içi demo için açıkça XDR_DEMO=1 ayarlayın)")
+	}
+
 	ms := memstore.New()
 	email := getenv("XDR_DEMO_ADMIN_EMAIL", "admin@local")
 	pass := os.Getenv("XDR_DEMO_ADMIN_PASSWORD")
-	if pass == "" {
+	generated := pass == ""
+	if generated {
 		b := make([]byte, 6)
 		_, _ = rand.Read(b)
 		pass = "demo-" + hex.EncodeToString(b)
@@ -84,8 +94,14 @@ func openBackend(ctx context.Context, cfg *config.Config) (Backend, error) {
 	polID, polVer := ms.SeedDemoPolicy()
 
 	log.Println("=======================================================")
-	log.Println(" BELLEK-İÇİ DEMO MODU — kalıcılık yok (XDR_DATABASE_URL boş)")
-	log.Printf("  Konsol girişi  e-posta: %s   parola: %s", email, pass)
+	log.Println(" BELLEK-İÇİ DEMO MODU (XDR_DEMO=1) — kalıcılık yok")
+	// Parolayı YALNIZ otomatik üretildiyse logla (operatörün bilmesi için);
+	// XDR_DEMO_ADMIN_PASSWORD ile verildiyse loglamaya gerek yok (kimlik sızıntısı).
+	if generated {
+		log.Printf("  Konsol girişi  e-posta: %s   parola: %s (otomatik üretildi)", email, pass)
+	} else {
+		log.Printf("  Konsol girişi  e-posta: %s   (parola XDR_DEMO_ADMIN_PASSWORD'den)", email)
+	}
 	log.Printf("  Demo politika  id: %s  (sürüm %s; 'xdr-demo-blocked.exe' engeller)", polID, polVer)
 	log.Println("=======================================================")
 	return ms, nil

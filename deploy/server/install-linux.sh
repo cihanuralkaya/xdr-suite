@@ -37,6 +37,7 @@ if [ ! -f "$ENV_FILE" ]; then
   ADMIN_PASS="$(openssl rand -base64 12)"
   cat > "$ENV_FILE" <<EOF
 XDR_DATABASE_URL=
+XDR_DEMO=1
 XDR_MASTER_KEY=$MASTER_KEY
 XDR_CA_CERT=$PKI_DIR/ca.crt
 XDR_CA_KEY=$PKI_DIR/ca.key

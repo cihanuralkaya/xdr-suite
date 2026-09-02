@@ -55,7 +55,7 @@ COMMON_ENV=(
 if [ -n "${XDR_DATABASE_URL:-}" ]; then
   env "${COMMON_ENV[@]}" "XDR_DATABASE_URL=$XDR_DATABASE_URL" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
 else
-  env "${COMMON_ENV[@]}" "XDR_DEMO_ADMIN_PASSWORD=smoke1234" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
+  env "${COMMON_ENV[@]}" "XDR_DEMO=1" "XDR_DEMO_ADMIN_PASSWORD=smoke1234" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
 fi
 PIDS+=($!)
 

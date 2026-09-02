@@ -43,6 +43,7 @@ if (-not (Test-Path $EnvFile)) {
     $wrapper = @"
 @echo off
 set XDR_DATABASE_URL=
+set XDR_DEMO=1
 set XDR_MASTER_KEY=$MasterKey
 set XDR_CA_CERT=$PkiDir\ca.crt
 set XDR_CA_KEY=$PkiDir\ca.key
