@@ -41,6 +41,48 @@ jobs:
       - name: Uçtan uca smoke test
         run: bash scripts/smoke-test.sh
 
+  db-test:
+    name: DB yolu (PostgreSQL)
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: xdr
+          POSTGRES_PASSWORD: xdr
+          POSTGRES_DB: xdr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U xdr"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: protoc-gen eklentileri
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+      - name: Proto üret
+        run: make proto
+      - name: psql istemcisi
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      # smoke-test.sh, XDR_DATABASE_URL görünce şemayı yükler, admin tohumlar ve
+      # tüm zinciri GERÇEK PostgreSQL'e karşı çalıştırır (pgx yolu).
+      - name: DB uçtan uca smoke test
+        env:
+          XDR_DATABASE_URL: postgres://xdr:xdr@localhost:5432/xdr?sslmode=disable
+        run: bash scripts/smoke-test.sh
+
   release:
     name: Çapraz derleme (release)
     runs-on: ubuntu-latest

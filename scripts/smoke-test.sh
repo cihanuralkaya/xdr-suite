@@ -29,15 +29,34 @@ go build -o "$WORK/agent$EXT" ./agent/cmd/agent || { echo "agent derlenemedi"; e
 go build -o "$WORK/gencerts$EXT" ./tools/gencerts || { echo "gencerts derlenemedi"; exit 1; }
 pass "c2, agent, gencerts derlendi"
 
-echo "[2/6] PKI + sunucuyu başlat"
+# Depo modu: XDR_DATABASE_URL verilirse PostgreSQL (şema yükle + admin tohumla),
+# aksi halde bellek-içi demo. Diğer tüm adımlar/iddialar aynıdır.
+MODE="bellek-içi"
+if [ -n "${XDR_DATABASE_URL:-}" ]; then
+  MODE="PostgreSQL"
+  command -v psql >/dev/null 2>&1 || { echo "psql gerekli (DB modu)"; exit 1; }
+  echo "[2/6] PostgreSQL: şema yükle + admin tohumla"
+  psql "$XDR_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql \
+    && pass "şema yüklendi (db/schema.sql)" || { fail "şema yüklenemedi"; exit 1; }
+  go run ./tools/adminseed -email admin@local -password smoke1234 -role ADMIN -name Smoke \
+    | tail -n +2 | psql "$XDR_DATABASE_URL" -v ON_ERROR_STOP=1 -q \
+    && pass "yönetici tohumlandı (Argon2id)" || fail "admin tohumlanamadı"
+fi
+
+echo "[2/6] PKI + sunucuyu başlat ($MODE)"
 "$WORK/gencerts$EXT" -out "$WORK/pki" -name xdr-c2 >/dev/null
 MASTER_KEY="$(openssl rand -base64 32 2>/dev/null || head -c32 /dev/urandom | base64)"
-XDR_MASTER_KEY="$MASTER_KEY" \
-XDR_DEMO_ADMIN_PASSWORD="smoke1234" \
-XDR_CA_CERT="$WORK/pki/ca.crt" XDR_CA_KEY="$WORK/pki/ca.key" \
-XDR_SERVER_CERT="$WORK/pki/server.crt" XDR_SERVER_KEY="$WORK/pki/server.key" \
-XDR_LISTEN_AGENT=":$AGENT_PORT" XDR_LISTEN_ENROLL=":$ENROLL_PORT" XDR_LISTEN_ADMIN=":$ADMIN_PORT" \
-  "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
+COMMON_ENV=(
+  "XDR_MASTER_KEY=$MASTER_KEY"
+  "XDR_CA_CERT=$WORK/pki/ca.crt" "XDR_CA_KEY=$WORK/pki/ca.key"
+  "XDR_SERVER_CERT=$WORK/pki/server.crt" "XDR_SERVER_KEY=$WORK/pki/server.key"
+  "XDR_LISTEN_AGENT=:$AGENT_PORT" "XDR_LISTEN_ENROLL=:$ENROLL_PORT" "XDR_LISTEN_ADMIN=:$ADMIN_PORT"
+)
+if [ -n "${XDR_DATABASE_URL:-}" ]; then
+  env "${COMMON_ENV[@]}" "XDR_DATABASE_URL=$XDR_DATABASE_URL" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
+else
+  env "${COMMON_ENV[@]}" "XDR_DEMO_ADMIN_PASSWORD=smoke1234" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
+fi
 PIDS+=($!)
 
 # Admin API hazır olana dek bekle (maks ~10 sn)
