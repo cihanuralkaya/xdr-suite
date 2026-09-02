@@ -3,8 +3,10 @@ package adminapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,44 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return http.DefaultClient.Do(req)
+}
+
+func TestHealthAndReadyEndpoints(t *testing.T) {
+	// Kimlik doğrulama GEREKMEZ; sağlık kontrolü ayarlıysa /readyz onu çağırır.
+	srv, _ := newServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// /healthz her zaman 200 (liveness), token'sız.
+	r, err := http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("/healthz 200 dönmeliydi, %d", r.StatusCode)
+	}
+	body, _ := io.ReadAll(r.Body)
+	if !strings.Contains(string(body), `"status":"ok"`) {
+		t.Fatalf("/healthz gövdesi beklenmedik: %s", body)
+	}
+
+	// Sağlık kontrolü yokken /readyz hazır (ready).
+	if r2, _ := http.Get(ts.URL + "/readyz"); r2.StatusCode != http.StatusOK {
+		t.Fatalf("/readyz (kontrolsüz) 200 dönmeliydi, %d", r2.StatusCode)
+	}
+
+	// Sağlık kontrolü başarısızsa /readyz 503 dönmeli.
+	srv.SetHealthCheck(func(context.Context) error { return errors.New("db down") })
+	r3, _ := http.Get(ts.URL + "/readyz")
+	if r3.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("/readyz (depo hatası) 503 dönmeliydi, %d", r3.StatusCode)
+	}
+
+	// Sağlıklıya dönünce yine 200.
+	srv.SetHealthCheck(func(context.Context) error { return nil })
+	if r4, _ := http.Get(ts.URL + "/readyz"); r4.StatusCode != http.StatusOK {
+		t.Fatalf("/readyz (sağlıklı) 200 dönmeliydi, %d", r4.StatusCode)
+	}
 }
 
 func TestKVKKExportAndEraseHTTP(t *testing.T) {

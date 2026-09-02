@@ -39,6 +39,7 @@ type Server struct {
 	ttl      time.Duration
 	now      func() time.Time
 	stream   *eventbus.Bus
+	health   func(context.Context) error
 }
 
 // New oluşturur.
@@ -49,6 +50,10 @@ func New(adminSvc *admin.Service, reader *adminread.Service, auth AuthStore, ses
 // SetStream, canlı SSE akışını (/api/stream) etkinleştirir. nil ise akış ucu
 // 501 döner ve konsol yalnız periyodik yenilemeye düşer.
 func (s *Server) SetStream(bus *eventbus.Bus) { s.stream = bus }
+
+// SetHealthCheck, /readyz için depo sağlık kontrolünü bağlar (ör. db.Ping).
+// Ayarlanmazsa /readyz yalnız süreç canlılığını (liveness gibi) döner.
+func (s *Server) SetHealthCheck(fn func(context.Context) error) { s.health = fn }
 
 // Handler, yönlendirmeleri kayıtlı bir http.Handler döner.
 func (s *Server) Handler() http.Handler {
@@ -91,6 +96,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
 	mux.HandleFunc("GET /api/stream", s.authed(s.handleStream))
+	// Sağlık uçları (kimlik doğrulama YOK — orkestrasyon/LB/monitoring için).
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	return securityHeaders(mux)
 }
 
@@ -117,6 +125,24 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, string)) http
 		}
 		h(w, r, id)
 	}
+}
+
+// handleHealthz, süreç canlılığı (liveness): süreç yanıt veriyorsa 200.
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleReadyz, hazırlık (readiness): depo erişilebilirse 200, değilse 503.
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if s.health != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := s.health(ctx); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "error": "depo erişilemiyor"})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

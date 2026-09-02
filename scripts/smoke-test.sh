@@ -106,6 +106,11 @@ curl -sk "$B/api/summary" -H "Authorization: Bearer $TOK" | grep -q "devices_tot
   && pass "özet uç yanıt verdi" || fail "özet uç başarısız"
 curl -sk "$B/api/policies" -H "Authorization: Bearer $TOK" | grep -q "policies" \
   && pass "politika listeleme uç yanıt verdi" || fail "politika uç başarısız"
+# Sağlık uçları (kimlik doğrulama YOK)
+[ "$(curl -sk -o /dev/null -w '%{http_code}' "$B/healthz")" = "200" ] \
+  && pass "/healthz 200 (liveness)" || fail "/healthz başarısız"
+[ "$(curl -sk -o /dev/null -w '%{http_code}' "$B/readyz")" = "200" ] \
+  && pass "/readyz 200 (readiness)" || fail "/readyz başarısız"
 
 echo "[6/6] SSE canlı akış"
 SSE="$(curl -sk -N --max-time 5 "$B/api/stream" -H "Authorization: Bearer $TOK" 2>/dev/null)"

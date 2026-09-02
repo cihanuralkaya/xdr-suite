@@ -37,6 +37,11 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	return &Store{pool: pool}, nil
 }
 
+// Ping, veritabanı bağlantısının sağlığını kontrol eder (readiness).
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 // Close, havuzu kapatır.
 func (s *Store) Close() { s.pool.Close() }
 

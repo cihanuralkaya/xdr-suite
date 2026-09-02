@@ -50,6 +50,9 @@ type Backend interface {
 	// MarkStaleOffline, last_seen'i eşiğin gerisinde kalan ACTIVE cihazları
 	// OFFLINE işaretler (bayat-OFFLINE görevi). Hem db hem memstore uygular.
 	MarkStaleOffline(ctx context.Context, olderThan time.Time) (int, error)
+
+	// Ping, depo sağlık kontrolü (/readyz). Hem db (pool.Ping) hem memstore (nil).
+	Ping(ctx context.Context) error
 }
 
 // openBackend, XDR_DATABASE_URL varsa PostgreSQL, yoksa bellek-içi demo deposu
@@ -185,7 +188,8 @@ func run() error {
 	readSvc := adminread.NewService(backend, cipher)
 	sessions := security.NewSessionSigner(security.DeriveKey(cfg.MasterKey, security.LabelSessionToken))
 	adminAPI := adminapi.New(adminSvc, readSvc, backend, sessions, cfg.AdminSessionTTL)
-	adminAPI.SetStream(liveBus) // canlı SSE akışı
+	adminAPI.SetStream(liveBus)           // canlı SSE akışı
+	adminAPI.SetHealthCheck(backend.Ping) // /readyz depo sağlık kontrolü
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek

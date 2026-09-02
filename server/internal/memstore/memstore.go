@@ -385,6 +385,9 @@ func (s *Store) RevokeDeviceCerts(_ context.Context, deviceID, _ string) error {
 	return nil
 }
 
+// Ping, bellek-içi depo her zaman sağlıklıdır (readiness).
+func (s *Store) Ping(_ context.Context) error { return nil }
+
 // EraseDeviceData, KVKK veri silme: cihazın olay logları + komut geçmişini siler,
 // bekleyen komutları temizler ve sertifikalarını iptal eder. Denetim izi korunur.
 func (s *Store) EraseDeviceData(_ context.Context, deviceID string) (int, int, int, error) {
