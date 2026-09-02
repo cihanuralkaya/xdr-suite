@@ -7,6 +7,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -61,6 +62,9 @@ func (h *EnrollmentHandler) RenewCertificate(ctx context.Context, req *xdrv1.Ren
 	}
 	res, err := h.svc.Renew(ctx, deviceID, req.GetCsrPem())
 	if err != nil {
+		if errors.Is(err, enroll.ErrDeviceRevoked) {
+			return nil, status.Error(codes.PermissionDenied, "cihaz iptal edilmiş — yenileme reddedildi")
+		}
 		return nil, status.Error(codes.Internal, "yenileme işlenemedi")
 	}
 	return &xdrv1.EnrollResponse{

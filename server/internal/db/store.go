@@ -129,6 +129,18 @@ func (s *Store) SaveCertificate(ctx context.Context, c enroll.CertRecord) error 
 	return nil
 }
 
+// DeviceHasActiveCert, cihazın iptal edilmemiş (revoked_at IS NULL) en az bir
+// sertifikası var mı. Yenileme iptal-bypass korumasında (SEC-002) kullanılır —
+// revocation cache yerine KESİN DB kontrolü.
+func (s *Store) DeviceHasActiveCert(ctx context.Context, deviceID string) (bool, error) {
+	const q = `SELECT EXISTS(SELECT 1 FROM agent_certificates WHERE device_id = $1::uuid AND revoked_at IS NULL)`
+	var ok bool
+	if err := s.pool.QueryRow(ctx, q, deviceID).Scan(&ok); err != nil {
+		return false, fmt.Errorf("db: aktif sertifika kontrolü: %w", err)
+	}
+	return ok, nil
+}
+
 // --- AgentService (heartbeat/olay) depolaması ---
 
 // TouchHeartbeat, last_seen ve agent_version günceller; cihazın sunucudaki

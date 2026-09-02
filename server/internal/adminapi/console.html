@@ -417,7 +417,16 @@
   }
 
   // ---------- helpers ----------
-  function esc(s){ return s == null ? "" : String(s); }
+  // esc, HTML-özel karakterleri kaçırır (XSS koruması). innerHTML'e giren
+  // saldırgan-kontrollü veriler (hostname, olay mesajı, hedef adı vb.) MUTLAKA
+  // bundan geçmelidir — ör. ele geçirilmiş bir ajan '<img src=x onerror=...>'
+  // gönderebilir.
+  function esc(s){
+    if(s == null) return "";
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
   function cell(text, cls){ var td=document.createElement("td"); td.textContent=esc(text); if(cls) td.className=cls; return td; }
   function relTime(iso){
     if(!iso) return "-";

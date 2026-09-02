@@ -210,6 +210,19 @@ func (s *Store) SaveCertificate(_ context.Context, c enroll.CertRecord) error {
 	return nil
 }
 
+// DeviceHasActiveCert, cihazın iptal edilmemiş en az bir sertifikası var mı (db
+// ile aynı davranış: revoked=false). Yenileme iptal-bypass korumasında kullanılır.
+func (s *Store) DeviceHasActiveCert(_ context.Context, deviceID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.certs {
+		if c.deviceID == deviceID && !c.revoked {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // --- DeviceRegistry ---
 
 func (s *Store) TouchHeartbeat(_ context.Context, deviceID, agentVersion string, at time.Time) (string, error) {

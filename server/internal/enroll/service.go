@@ -18,6 +18,10 @@ import (
 // ErrInvalidToken, token geçersiz/kullanılmış/süresi geçmiş olduğunda döner.
 var ErrInvalidToken = errors.New("enroll: geçersiz veya kullanılmış enrollment token")
 
+// ErrDeviceRevoked, iptal edilmiş bir cihaz sertifika yenilemeye çalıştığında
+// döner (SEC-002 iptal bypass koruması).
+var ErrDeviceRevoked = errors.New("enroll: cihaz iptal edilmiş — yenileme reddedildi")
+
 // Store, enrollment'ın ihtiyaç duyduğu kalıcılık işlemleridir.
 type Store interface {
 	// ConsumeEnrollmentToken, token'ı ATOMİK olarak doğrular ve kullanılmış
@@ -31,6 +35,13 @@ type Store interface {
 
 	// SaveCertificate, imzalanan istemci sertifikasını kaydeder.
 	SaveCertificate(ctx context.Context, cert CertRecord) error
+
+	// DeviceHasActiveCert, cihazın iptal EDİLMEMİŞ (revoked_at IS NULL) en az bir
+	// sertifikası olup olmadığını DB'den döner. Yenilemede iptal bypass'ını
+	// önlemek için kullanılır: admin cihazı iptal ettiğinde tüm sertifikaları
+	// iptal edilir → aktif sertifika kalmaz → yenileme reddedilir (60 sn'lik
+	// revocation cache penceresine güvenmeden, kesin kontrol).
+	DeviceHasActiveCert(ctx context.Context, deviceID string) (bool, error)
 }
 
 // DeviceEnrollment, bir cihazın kaydında saklanacak (şifrelenmiş) verilerdir.
@@ -183,6 +194,17 @@ func (s *Service) Renew(ctx context.Context, deviceID string, csrPEM []byte) (*R
 	}
 	if len(csrPEM) == 0 {
 		return nil, errors.New("enroll: CSR boş")
+	}
+	// İptal bypass koruması (SEC-002): iptal edilmiş bir cihaz, revocation
+	// cache tazelenmeden (≤60 sn) yenileme çağırıp yeni parmak-izli bir
+	// sertifika alarak iptali kalıcı atlatmamalı. DB'den kesin kontrol:
+	// cihazın iptal edilmemiş aktif sertifikası yoksa yenileme reddedilir.
+	active, err := s.store.DeviceHasActiveCert(ctx, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("enroll: yenileme iptal kontrolü: %w", err)
+	}
+	if !active {
+		return nil, ErrDeviceRevoked
 	}
 	now := s.now()
 	signed, err := s.ca.SignCSR(csrPEM, deviceID, s.certTTL)

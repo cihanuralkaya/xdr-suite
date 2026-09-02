@@ -382,6 +382,9 @@ func (m *memStore) UpsertEnrollingDevice(_ context.Context, in enroll.DeviceEnro
 }
 
 func (m *memStore) SaveCertificate(_ context.Context, _ enroll.CertRecord) error { return nil }
+func (m *memStore) DeviceHasActiveCert(_ context.Context, _ string) (bool, error) {
+	return true, nil // e2e yenileme-iptal senaryosunu test etmez; aktif kabul
+}
 
 func (m *memStore) TouchHeartbeat(_ context.Context, deviceID, _ string, _ time.Time) (string, error) {
 	return "", nil

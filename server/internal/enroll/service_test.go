@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -17,14 +18,27 @@ import (
 
 // memStore, testler için bellek-içi Store implementasyonudur.
 type memStore struct {
-	tokens map[string]string // tokenIndex(hex) -> boundDeviceID (kullanılmamış)
-	used   map[string]bool
-	certs  []CertRecord
-	seq    int
+	tokens  map[string]string // tokenIndex(hex) -> boundDeviceID (kullanılmamış)
+	used    map[string]bool
+	certs   []CertRecord
+	revoked map[string]bool // deviceID -> iptal edildi (aktif sertifikası yok)
+	seq     int
 }
 
 func newMemStore() *memStore {
-	return &memStore{tokens: map[string]string{}, used: map[string]bool{}}
+	return &memStore{tokens: map[string]string{}, used: map[string]bool{}, revoked: map[string]bool{}}
+}
+
+func (m *memStore) DeviceHasActiveCert(_ context.Context, deviceID string) (bool, error) {
+	if m.revoked[deviceID] {
+		return false, nil
+	}
+	for _, c := range m.certs {
+		if c.DeviceID == deviceID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *memStore) addToken(idx []byte, boundDeviceID string) {
@@ -85,6 +99,26 @@ func makeCSR(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+}
+
+// SEC-002: iptal edilmiş bir cihaz sertifika yenileyerek iptali atlatamamalı.
+func TestRenewRejectedForRevokedDevice(t *testing.T) {
+	store := newMemStore()
+	svc, _ := newTestService(t, store)
+	dev := "device-1"
+
+	// Aktif sertifikalı cihaz normalde yenileyebilir.
+	_ = store.SaveCertificate(context.Background(), CertRecord{DeviceID: dev, Serial: "1"})
+	if _, err := svc.Renew(context.Background(), dev, makeCSR(t)); err != nil {
+		t.Fatalf("aktif cihaz yenileyebilmeliydi: %v", err)
+	}
+
+	// Cihaz iptal edilince (aktif sertifikası kalmayınca) yenileme reddedilmeli.
+	store.revoked[dev] = true
+	_, err := svc.Renew(context.Background(), dev, makeCSR(t))
+	if !errors.Is(err, ErrDeviceRevoked) {
+		t.Fatalf("iptalli cihaz için ErrDeviceRevoked beklenirdi, dönen: %v", err)
+	}
 }
 
 func TestEnrollHappyPath(t *testing.T) {
