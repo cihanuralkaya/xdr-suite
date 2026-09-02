@@ -85,6 +85,8 @@ func (s *Server) Handler() http.Handler {
 	// Okuma (görünürlük) uçları — herhangi bir kimlik doğrulanmış admin (VIEWER+).
 	mux.HandleFunc("GET /api/devices", s.authed(s.handleListDevices))
 	mux.HandleFunc("GET /api/devices/{id}", s.authed(s.handleDeviceDetail))
+	mux.HandleFunc("GET /api/devices/{id}/export", s.authed(s.handleExportDevice))
+	mux.HandleFunc("POST /api/devices/{id}/erase", s.authed(s.handleEraseDevice))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
@@ -342,6 +344,35 @@ func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request, _ st
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"policies": policies})
+}
+
+// handleExportDevice, KVKK ERİŞİM talebi: cihaz hakkındaki tüm veriyi tek JSON
+// dosyası olarak indirir (ADMIN; AuthorizeExport RBAC + denetim yazar).
+func (s *Server) handleExportDevice(w http.ResponseWriter, r *http.Request, adminID string) {
+	id := r.PathValue("id")
+	if respondErr(w, s.adminSvc.AuthorizeExport(r.Context(), adminID, id)) {
+		return
+	}
+	export, ok, err := s.reader.ExportDevice(r.Context(), id)
+	if respondErr(w, err) {
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "cihaz bulunamadı")
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="kvkk-export-`+id+`.json"`)
+	writeJSON(w, http.StatusOK, export)
+}
+
+// handleEraseDevice, KVKK SİLME talebi: cihazın davranışsal/telemetri verisini
+// siler ve sertifikalarını iptal eder (ADMIN).
+func (s *Server) handleEraseDevice(w http.ResponseWriter, r *http.Request, adminID string) {
+	report, err := s.adminSvc.EraseDevice(r.Context(), adminID, r.PathValue("id"))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request, _ string) {

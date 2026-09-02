@@ -22,8 +22,14 @@ type memStore struct {
 	assigned  map[string]string      // deviceID -> policyID
 	statuses  map[string]string      // deviceID -> son ayarlanan durum
 	admins    map[string]*adminEntry // id -> yönetici
+	erased    string                 // EraseDeviceData ile silinen son deviceID
 	nextPolID int
 	nextAdmID int
+}
+
+func (m *memStore) EraseDeviceData(_ context.Context, deviceID string) (int, int, int, error) {
+	m.erased = deviceID
+	return 3, 1, 1, nil // temsili sayımlar: 3 olay, 1 komut, 1 sertifika
 }
 
 type cmd struct{ deviceID, cmdType, issuedBy string }
@@ -182,6 +188,52 @@ func TestRBACQuarantineRequiresOperator(t *testing.T) {
 	if len(store.audits) != 1 || store.audits[0].action != "QUARANTINE" {
 		t.Fatalf("denetim izi yazılmalıydı: %+v", store.audits)
 	}
+}
+
+func TestEraseDeviceAndExportRequireAdminAndAudit(t *testing.T) {
+	store := newMemStore()
+	store.roles["op1"] = RoleOperator
+	store.roles["admin1"] = RoleAdmin
+	svc, _ := newService(t, store)
+
+	// SİLME: OPERATOR yetkisiz (ADMIN gerekir).
+	if _, err := svc.EraseDevice(context.Background(), "op1", "dev-1"); err != ErrForbidden {
+		t.Fatalf("OPERATOR silme için ErrForbidden beklenirdi: %v", err)
+	}
+	// ADMIN silme uygulayabilmeli + rapor + denetim.
+	rep, err := svc.EraseDevice(context.Background(), "admin1", "dev-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.EventsDeleted != 3 || rep.CommandsDeleted != 1 || rep.CertsRevoked != 1 {
+		t.Fatalf("silme raporu sayımları hatalı: %+v", rep)
+	}
+	if store.erased != "dev-1" {
+		t.Fatalf("EraseDeviceData çağrılmalıydı, erased=%q", store.erased)
+	}
+	if !hasAudit(store.audits, "DATA_ERASURE", "device", "dev-1") {
+		t.Fatalf("DATA_ERASURE denetim izine yazılmalıydı: %+v", store.audits)
+	}
+
+	// ERİŞİM (dışa aktarma yetkisi): OPERATOR yetkisiz, ADMIN + denetim.
+	if err := svc.AuthorizeExport(context.Background(), "op1", "dev-1"); err != ErrForbidden {
+		t.Fatalf("OPERATOR export için ErrForbidden beklenirdi: %v", err)
+	}
+	if err := svc.AuthorizeExport(context.Background(), "admin1", "dev-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !hasAudit(store.audits, "DATA_EXPORT", "device", "dev-1") {
+		t.Fatalf("DATA_EXPORT denetim izine yazılmalıydı: %+v", store.audits)
+	}
+}
+
+func hasAudit(audits []audit, action, targetType, targetID string) bool {
+	for _, a := range audits {
+		if a.action == action && a.targetType == targetType && a.targetID == targetID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCollectDiagnosticsQueuesCommandWithoutStatusChange(t *testing.T) {

@@ -385,6 +385,45 @@ func (s *Store) RevokeDeviceCerts(_ context.Context, deviceID, _ string) error {
 	return nil
 }
 
+// EraseDeviceData, KVKK veri silme: cihazın olay logları + komut geçmişini siler,
+// bekleyen komutları temizler ve sertifikalarını iptal eder. Denetim izi korunur.
+func (s *Store) EraseDeviceData(_ context.Context, deviceID string) (int, int, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	keptEv := s.events[:0:0]
+	evDel := 0
+	for _, e := range s.events {
+		if e.deviceID == deviceID {
+			evDel++
+		} else {
+			keptEv = append(keptEv, e)
+		}
+	}
+	s.events = keptEv
+
+	keptCmd := s.cmdHistory[:0:0]
+	cmdDel := 0
+	for _, c := range s.cmdHistory {
+		if c.deviceID == deviceID {
+			cmdDel++
+		} else {
+			keptCmd = append(keptCmd, c)
+		}
+	}
+	s.cmdHistory = keptCmd
+	delete(s.commands, deviceID)
+
+	certRev := 0
+	for i := range s.certs {
+		if s.certs[i].deviceID == deviceID && !s.certs[i].revoked {
+			s.certs[i].revoked = true
+			certRev++
+		}
+	}
+	return evDel, cmdDel, certRev, nil
+}
+
 // WriteAudit, denetim izine bir kayıt ekler. Admin e-postası adminsByID'den
 // çözülür (eşleşmezse boş kalır — db LEFT JOIN davranışını taklit eder).
 func (s *Store) WriteAudit(_ context.Context, adminID, action, targetType, targetID string) error {

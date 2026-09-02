@@ -119,6 +119,13 @@ func (m *memStore) RevokeDeviceCerts(_ context.Context, deviceID, _ string) erro
 	m.commands = append(m.commands, deviceID+":REVOKE")
 	return nil
 }
+func (m *memStore) EraseDeviceData(_ context.Context, deviceID string) (int, int, int, error) {
+	m.commands = append(m.commands, deviceID+":ERASE")
+	// Bu cihaza ait olayları temizle (device-scoped alan yoksa tümünü temsilen).
+	n := len(m.evtRows)
+	m.evtRows = nil
+	return n, 0, 1, nil
+}
 func (m *memStore) WriteAudit(_ context.Context, adminID, action, targetType, targetID string) error {
 	m.auditRows = append([]adminread.AuditRow{{
 		ID: int64(len(m.auditRows) + 1), AdminEmail: adminID, Action: action,

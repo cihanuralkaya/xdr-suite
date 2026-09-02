@@ -417,6 +417,46 @@ func (s *Service) EnrollmentTokens(ctx context.Context, limit int) ([]Enrollment
 	return out, nil
 }
 
+// DeviceExportDTO, bir cihaz hakkında tutulan tüm veriyi tek pakette toplar
+// (KVKK veri sahibi ERİŞİM talebi). Şifreli alanlar deşifre edilerek verilir.
+type DeviceExportDTO struct {
+	GeneratedAt time.Time       `json:"generated_at"`
+	DeviceID    string          `json:"device_id"`
+	Device      DeviceDetailDTO `json:"device"`
+	Events      []EventDTO      `json:"events"`
+	Audit       []AuditDTO      `json:"audit"` // bu cihazı hedefleyen denetim kayıtları
+}
+
+// ExportDevice, cihaz hakkında tutulan veriyi (detay + tüm olaylar + cihazı
+// hedefleyen denetim kayıtları) tek pakette toplar. Cihaz yoksa ok=false.
+func (s *Service) ExportDevice(ctx context.Context, deviceID string) (DeviceExportDTO, bool, error) {
+	detail, ok, err := s.DeviceDetail(ctx, deviceID)
+	if err != nil || !ok {
+		return DeviceExportDTO{}, ok, err
+	}
+	events, err := s.Events(ctx, deviceID, "", "", 0)
+	if err != nil {
+		return DeviceExportDTO{}, false, err
+	}
+	allAudit, err := s.Audit(ctx, 0)
+	if err != nil {
+		return DeviceExportDTO{}, false, err
+	}
+	deviceAudit := make([]AuditDTO, 0)
+	for _, a := range allAudit {
+		if a.TargetType == "device" && a.TargetID == deviceID {
+			deviceAudit = append(deviceAudit, a)
+		}
+	}
+	return DeviceExportDTO{
+		GeneratedAt: time.Now().UTC(),
+		DeviceID:    deviceID,
+		Device:      detail,
+		Events:      events,
+		Audit:       deviceAudit,
+	}, true, nil
+}
+
 // Policies, tüm politikaları (kural + atanmış cihaz sayımlarıyla) döner.
 func (s *Service) Policies(ctx context.Context, limit int) ([]PolicyDTO, error) {
 	rows, err := s.store.ListPolicies(ctx, clampLimit(limit))

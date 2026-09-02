@@ -75,6 +75,11 @@ type Store interface {
 	// girdikten sonra durumun UI'da yansıması için).
 	SetDeviceStatus(ctx context.Context, deviceID, status string) error
 	RevokeDeviceCerts(ctx context.Context, deviceID, reason string) error
+	// EraseDeviceData, KVKK veri silme talebi için cihazın davranışsal/telemetri
+	// verisini (olay logları, komut geçmişi) siler ve sertifikalarını iptal eder
+	// (kalıcı erişim engeli). Denetim izi KORUNUR (işleme kaydı). Silinen olay/komut
+	// ve iptal edilen sertifika sayısını döner.
+	EraseDeviceData(ctx context.Context, deviceID string) (events, commands, certs int, err error)
 	WriteAudit(ctx context.Context, adminID, action, targetType, targetID string) error
 	CreatePolicy(ctx context.Context, name, version string) (policyID string, err error)
 	AssignPolicy(ctx context.Context, deviceID, policyID string) error
@@ -215,6 +220,39 @@ func (s *Service) command(ctx context.Context, adminID, deviceID, cmdType, refle
 		// Best-effort: komut kuyruğa girdiği için hata olsa da akışı bozma.
 		_ = s.store.SetDeviceStatus(ctx, deviceID, reflectStatus)
 	}
+	return nil
+}
+
+// ErasureReport, bir KVKK veri silme işleminin sonucudur.
+type ErasureReport struct {
+	EventsDeleted   int `json:"events_deleted"`
+	CommandsDeleted int `json:"commands_deleted"`
+	CertsRevoked    int `json:"certs_revoked"`
+}
+
+// EraseDevice, KVKK veri sahibi SİLME talebini uygular (ADMIN). Cihazın
+// davranışsal/telemetri verisini siler ve sertifikalarını iptal eder; işlemin
+// kendisi denetim izine ("DATA_ERASURE") yazılır (silme kaydı korunur).
+func (s *Service) EraseDevice(ctx context.Context, adminID, deviceID string) (ErasureReport, error) {
+	if err := s.require(ctx, adminID, RoleAdmin); err != nil {
+		return ErasureReport{}, err
+	}
+	ev, cmd, cert, err := s.store.EraseDeviceData(ctx, deviceID)
+	if err != nil {
+		return ErasureReport{}, err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "DATA_ERASURE", "device", deviceID)
+	return ErasureReport{EventsDeleted: ev, CommandsDeleted: cmd, CertsRevoked: cert}, nil
+}
+
+// AuthorizeExport, KVKK veri sahibi ERİŞİM (dışa aktarma) talebini yetkilendirir
+// (ADMIN) ve denetim izine ("DATA_EXPORT") yazar. Asıl veri toplama okuma
+// servisinde yapılır; bu yalnız RBAC + denetim kapısıdır.
+func (s *Service) AuthorizeExport(ctx context.Context, adminID, deviceID string) error {
+	if err := s.require(ctx, adminID, RoleAdmin); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "DATA_EXPORT", "device", deviceID)
 	return nil
 }
 

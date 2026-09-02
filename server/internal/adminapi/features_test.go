@@ -20,6 +20,72 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
+func TestKVKKExportAndEraseHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	addAdmin(t, store, "ad1", "ad@x", "secret", admin.RoleAdmin)
+
+	now := time.Now()
+	store.devRows = []adminread.DeviceRow{{ID: "dev-1", Status: "ACTIVE", LastSeen: now}}
+	store.evtRows = []adminread.EventRow{
+		{ID: "e1", Category: "SECURITY", Severity: "HIGH", Message: "x", OccurredAt: now, CreatedAt: now},
+	}
+
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	opTok := ob["token"]
+	_, ab := post(t, ts.URL+"/api/login", "", map[string]string{"email": "ad@x", "password": "secret"})
+	adTok := ab["token"]
+
+	// EXPORT: OPERATOR yasak (403), ADMIN başarılı (200) + paket.
+	if r, _ := authedGET(t, ts.URL+"/api/devices/dev-1/export", opTok); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("OPERATOR export 403 dönmeliydi, %d", r.StatusCode)
+	}
+	resp, err := authedGET(t, ts.URL+"/api/devices/dev-1/export", adTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ADMIN export 200 dönmeliydi, %d", resp.StatusCode)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "kvkk-export") {
+		t.Fatalf("indirme başlığı beklenirdi: %q", cd)
+	}
+	var bundle struct {
+		DeviceID string `json:"device_id"`
+		Events   []struct {
+			ID string `json:"id"`
+		} `json:"events"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&bundle); err != nil {
+		t.Fatal(err)
+	}
+	if bundle.DeviceID != "dev-1" || len(bundle.Events) != 1 {
+		t.Fatalf("dışa aktarma paketi eksik: %+v", bundle)
+	}
+
+	// ERASE: OPERATOR yasak (403), ADMIN başarılı (200) + rapor.
+	if code, _ := post(t, ts.URL+"/api/devices/dev-1/erase", opTok, map[string]string{}); code != http.StatusForbidden {
+		t.Fatalf("OPERATOR silme 403 dönmeliydi, %d", code)
+	}
+	// ADMIN silme: 200 + ham gövdede sayım alanları (rapor).
+	req, _ := http.NewRequest("POST", ts.URL+"/api/devices/dev-1/erase", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+adTok)
+	er, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer er.Body.Close()
+	if er.StatusCode != http.StatusOK {
+		t.Fatalf("ADMIN silme 200 dönmeliydi, %d", er.StatusCode)
+	}
+	raw, _ := io.ReadAll(er.Body)
+	if !strings.Contains(string(raw), "events_deleted") || !strings.Contains(string(raw), "certs_revoked") {
+		t.Fatalf("silme raporu sayım alanları içermeliydi: %s", raw)
+	}
+}
+
 func TestStreamSSEDeliversNotice(t *testing.T) {
 	ts, store, bus := setupStream(t)
 	defer ts.Close()
