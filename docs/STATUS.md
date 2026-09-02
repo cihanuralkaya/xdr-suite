@@ -83,7 +83,10 @@ memstore ona eşitlendi + regresyon testi (`TestLookupAdminExcludesDeactivated`)
   sertifikası, WHQL/attestation imzalama, BSOD riski — Go kod tabanının dışında,
   çok yüksek maliyetli **ayrı proje**. Watchdog + liveness yalnız **ilk savunma**.
 - **Canlı çalıştırılmayanlar** (mantık test edildi, ama bu ortamda çalıştırılmadı):
-  - PostgreSQL'e karşı gerçek sorgular (Postgres kurulu değil) — pgx katmanı derlendi.
+  - PostgreSQL'e karşı gerçek sorgular: bu makinede Postgres/Docker YOK, bu yüzden
+    **yerelde** çalıştırılmadı. Ancak **CI'da** `postgres:16` servisine karşı DB
+    uçtan uca smoke testi kurgulandı (`.github/workflows/ci.yml` → `db-test`):
+    şema yüklenir, admin tohumlanır, pgx yolu tüm zincirle çalıştırılır.
   - Gerçek firewall izolasyonu (`netsh`/`iptables`) — ağı keser, riskli.
   - Gerçek süreç **sonlandırma** — testte sahte controller (gerçek süreç öldürülmedi).
   - Linux `/proc`+SIGKILL ve OS izolatörleri — yalnız cross-compile.
