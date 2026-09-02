@@ -188,8 +188,9 @@ func run() error {
 	readSvc := adminread.NewService(backend, cipher)
 	sessions := security.NewSessionSigner(security.DeriveKey(cfg.MasterKey, security.LabelSessionToken))
 	adminAPI := adminapi.New(adminSvc, readSvc, backend, sessions, cfg.AdminSessionTTL)
-	adminAPI.SetStream(liveBus)           // canlı SSE akışı
-	adminAPI.SetHealthCheck(backend.Ping) // /readyz depo sağlık kontrolü
+	adminAPI.SetStream(liveBus)                                    // canlı SSE akışı
+	adminAPI.SetHealthCheck(backend.Ping)                          // /readyz depo sağlık kontrolü
+	adminAPI.SetLoginLimit(cfg.LoginMaxAttempts, cfg.LoginLockout) // kaba-kuvvet koruması
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek

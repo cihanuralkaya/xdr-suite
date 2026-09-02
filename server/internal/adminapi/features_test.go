@@ -22,6 +22,36 @@ func authedGET(t *testing.T, url, token string) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
+func TestLoginBruteForceReturns429(t *testing.T) {
+	srv, store := newServer(t)
+	srv.SetLoginLimit(3, time.Minute) // 3 başarısızlıkta kilit
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	addAdmin(t, store, "ad1", "ad@x", "dogru-parola", admin.RoleAdmin)
+
+	// 3 başarısız deneme → her biri 401.
+	for i := 0; i < 3; i++ {
+		code, _ := post(t, ts.URL+"/api/login", "", map[string]string{"email": "ad@x", "password": "yanlis"})
+		if code != http.StatusUnauthorized {
+			t.Fatalf("%d. başarısız deneme 401 dönmeliydi, %d", i+1, code)
+		}
+	}
+
+	// 4. deneme (DOĞRU parola bile) kilit nedeniyle 429 dönmeli + Retry-After.
+	body, _ := json.Marshal(map[string]string{"email": "ad@x", "password": "dogru-parola"})
+	resp, err := http.Post(ts.URL+"/api/login", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("kilit sonrası 429 dönmeliydi, %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Retry-After") == "" {
+		t.Fatal("429 yanıtı Retry-After başlığı içermeliydi")
+	}
+}
+
 func TestHealthAndReadyEndpoints(t *testing.T) {
 	// Kimlik doğrulama GEREKMEZ; sağlık kontrolü ayarlıysa /readyz onu çağırır.
 	srv, _ := newServer(t)

@@ -25,6 +25,11 @@ type Config struct {
 	// event_logs saklama süresi (gün) — dolan partition'lar DROP edilir (KVKK).
 	RetentionDays int
 
+	// Giriş kaba-kuvvet koruması: istemci başına izin verilen başarısız deneme ve
+	// eşik aşılınca kilit süresi.
+	LoginMaxAttempts int
+	LoginLockout     time.Duration
+
 	// PostgreSQL bağlantı dizesi (pgx DSN / URL).
 	DatabaseURL string
 
@@ -45,18 +50,20 @@ type Config struct {
 // Load, ortam değişkenlerinden Config üretir ve doğrular.
 func Load() (*Config, error) {
 	c := &Config{
-		ListenAgent:     getenv("XDR_LISTEN_AGENT", ":8443"),
-		ListenEnroll:    getenv("XDR_LISTEN_ENROLL", ":8444"),
-		ListenAdmin:     getenv("XDR_LISTEN_ADMIN", ":8445"),
-		AdminSessionTTL: getdur("XDR_ADMIN_SESSION_TTL", 12*time.Hour),
-		EnrollTokenTTL:  getdur("XDR_ENROLL_TOKEN_TTL", 24*time.Hour),
-		DatabaseURL:     os.Getenv("XDR_DATABASE_URL"),
-		CACertPath:      os.Getenv("XDR_CA_CERT"),
-		CAKeyPath:       os.Getenv("XDR_CA_KEY"),
-		ServerCertPath:  os.Getenv("XDR_SERVER_CERT"),
-		ServerKeyPath:   os.Getenv("XDR_SERVER_KEY"),
-		ClientCertTTL:   getdur("XDR_CLIENT_CERT_TTL", 720*time.Hour), // 30 gün
-		RetentionDays:   getint("XDR_RETENTION_DAYS", 90),
+		ListenAgent:      getenv("XDR_LISTEN_AGENT", ":8443"),
+		ListenEnroll:     getenv("XDR_LISTEN_ENROLL", ":8444"),
+		ListenAdmin:      getenv("XDR_LISTEN_ADMIN", ":8445"),
+		AdminSessionTTL:  getdur("XDR_ADMIN_SESSION_TTL", 12*time.Hour),
+		EnrollTokenTTL:   getdur("XDR_ENROLL_TOKEN_TTL", 24*time.Hour),
+		DatabaseURL:      os.Getenv("XDR_DATABASE_URL"),
+		CACertPath:       os.Getenv("XDR_CA_CERT"),
+		CAKeyPath:        os.Getenv("XDR_CA_KEY"),
+		ServerCertPath:   os.Getenv("XDR_SERVER_CERT"),
+		ServerKeyPath:    os.Getenv("XDR_SERVER_KEY"),
+		ClientCertTTL:    getdur("XDR_CLIENT_CERT_TTL", 720*time.Hour), // 30 gün
+		RetentionDays:    getint("XDR_RETENTION_DAYS", 90),
+		LoginMaxAttempts: getint("XDR_LOGIN_MAX_ATTEMPTS", 5),
+		LoginLockout:     getdur("XDR_LOGIN_LOCKOUT", 15*time.Minute),
 	}
 
 	mk := os.Getenv("XDR_MASTER_KEY")

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,11 +41,22 @@ type Server struct {
 	now      func() time.Time
 	stream   *eventbus.Bus
 	health   func(context.Context) error
+	loginLim *loginLimiter
 }
 
-// New oluşturur.
+// New oluşturur. Giriş ucu varsayılan olarak istemci başına 5 başarısız
+// denemeden sonra 15 dk kilitlenir (kaba-kuvvet koruması).
 func New(adminSvc *admin.Service, reader *adminread.Service, auth AuthStore, sessions *security.SessionSigner, ttl time.Duration) *Server {
-	return &Server{adminSvc: adminSvc, reader: reader, auth: auth, sessions: sessions, ttl: ttl, now: time.Now}
+	return &Server{
+		adminSvc: adminSvc, reader: reader, auth: auth, sessions: sessions, ttl: ttl,
+		now:      time.Now,
+		loginLim: newLoginLimiter(5, 15*time.Minute),
+	}
+}
+
+// SetLoginLimit, giriş kaba-kuvvet eşiğini ayarlar (test/yapılandırma için).
+func (s *Server) SetLoginLimit(maxAttempts int, window time.Duration) {
+	s.loginLim = newLoginLimiter(maxAttempts, window)
 }
 
 // SetStream, canlı SSE akışını (/api/stream) etkinleştirir. nil ise akış ucu
@@ -146,6 +158,14 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	// Kaba-kuvvet koruması: istemci kilitliyse denemeyi hiç işleme.
+	if ok, retry := s.loginLim.allowed(ip); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+		writeErr(w, http.StatusTooManyRequests, "çok fazla başarısız deneme — sonra tekrar deneyin")
+		return
+	}
+
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -155,16 +175,30 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	adminID, hash, err := s.auth.LookupAdmin(r.Context(), req.Email)
 	if err != nil || adminID == "" {
+		s.loginLim.recordFailure(ip)
 		writeErr(w, http.StatusUnauthorized, "geçersiz kimlik bilgileri")
 		return
 	}
 	ok, err := security.VerifyPassword(hash, req.Password)
 	if err != nil || !ok {
+		s.loginLim.recordFailure(ip)
 		writeErr(w, http.StatusUnauthorized, "geçersiz kimlik bilgileri")
 		return
 	}
+	s.loginLim.recordSuccess(ip)
 	token := s.sessions.Sign(adminID, s.now().Add(s.ttl))
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+// clientIP, istemci IP'sini RemoteAddr'dan çıkarır (port'suz). Not: X-Forwarded-For
+// bilinçli olarak GÜVENİLMEZ (sahte olabilir); güvenilir bir ters vekil arkasında
+// dağıtım, gerçek IP'yi RemoteAddr'da sunmalı ya da bu katman ona göre ayarlanmalı.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (s *Server) handleIssueToken(w http.ResponseWriter, r *http.Request, adminID string) {
