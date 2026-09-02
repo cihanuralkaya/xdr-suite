@@ -6,9 +6,11 @@
 package memstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -20,6 +22,7 @@ import (
 	"xdr.corp/suite/server/internal/adminread"
 	"xdr.corp/suite/server/internal/enroll"
 	"xdr.corp/suite/server/internal/model"
+	"xdr.corp/suite/server/internal/security"
 )
 
 type device struct {
@@ -97,6 +100,7 @@ type auditRec struct {
 	targetType string
 	targetID   string
 	createdAt  time.Time
+	hash       []byte // zincir hash'i (kurcalama-kanıtı)
 }
 
 // Store, tüm C2 depolama arayüzlerini bellek-içi karşılar.
@@ -450,10 +454,33 @@ func (s *Store) WriteAudit(_ context.Context, adminID, action, targetType, targe
 		email = a.email
 	}
 	s.auditSeq++
+	at := time.Now()
+	var prev []byte
+	if n := len(s.audit); n > 0 {
+		prev = s.audit[n-1].hash
+	}
+	hash := security.AuditChainHash(prev, email, action, targetType, targetID, at.UnixNano())
 	s.audit = append(s.audit, auditRec{
 		id: s.auditSeq, adminEmail: email, action: action,
-		targetType: targetType, targetID: targetID, createdAt: time.Now(),
+		targetType: targetType, targetID: targetID, createdAt: at, hash: hash,
 	})
+	return nil
+}
+
+// VerifyAuditChain, denetim izi hash-zincirinin bütünlüğünü doğrular: her kaydın
+// saklanan hash'i, bir önceki hash + kayıt alanlarından yeniden hesaplananla
+// eşleşmeli. Eşleşmezse ilk kırık kaydın id'siyle hata döner (SEC C-1).
+func (s *Store) VerifyAuditChain(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var prev []byte
+	for _, r := range s.audit {
+		want := security.AuditChainHash(prev, r.adminEmail, r.action, r.targetType, r.targetID, r.createdAt.UnixNano())
+		if !bytes.Equal(want, r.hash) {
+			return fmt.Errorf("denetim izi zinciri kırık: kayıt id=%d", r.id)
+		}
+		prev = r.hash
+	}
 	return nil
 }
 

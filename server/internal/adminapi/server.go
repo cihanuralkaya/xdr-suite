@@ -35,18 +35,19 @@ type AuthStore interface {
 
 // Server, admin HTTP API'sidir.
 type Server struct {
-	adminSvc  *admin.Service
-	reader    *adminread.Service
-	auth      AuthStore
-	sessions  *security.SessionSigner
-	ttl       time.Duration
-	now       func() time.Time
-	stream    *eventbus.Bus
-	health    func(context.Context) error
-	loginLim  *loginLimiter
-	notice    string
-	dummyHash string // SEC-004: bilinmeyen e-postada sabit-zaman için sahte Argon2 hash
-	sseConns  int64  // SEC-007: aktif SSE bağlantı sayısı (atomik)
+	adminSvc    *admin.Service
+	reader      *adminread.Service
+	auth        AuthStore
+	sessions    *security.SessionSigner
+	ttl         time.Duration
+	now         func() time.Time
+	stream      *eventbus.Bus
+	health      func(context.Context) error
+	loginLim    *loginLimiter
+	notice      string
+	dummyHash   string // SEC-004: bilinmeyen e-postada sabit-zaman için sahte Argon2 hash
+	sseConns    int64  // SEC-007: aktif SSE bağlantı sayısı (atomik)
+	auditVerify func(context.Context) error
 }
 
 // maxSSEConns, eşzamanlı SSE akış bağlantısı üst sınırıdır (SEC-007).
@@ -100,6 +101,10 @@ func (s *Server) SetStream(bus *eventbus.Bus) { s.stream = bus }
 // Ayarlanmazsa /readyz yalnız süreç canlılığını (liveness gibi) döner.
 func (s *Server) SetHealthCheck(fn func(context.Context) error) { s.health = fn }
 
+// SetAuditVerifier, GET /api/audit/verify için denetim izi hash-zinciri
+// doğrulayıcıyı bağlar (ör. backend.VerifyAuditChain).
+func (s *Server) SetAuditVerifier(fn func(context.Context) error) { s.auditVerify = fn }
+
 // Handler, yönlendirmeleri kayıtlı bir http.Handler döner.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -140,6 +145,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
+	mux.HandleFunc("GET /api/audit/verify", s.authed(s.handleVerifyAudit))
 	mux.HandleFunc("GET /api/stream", s.authed(s.handleStream))
 	// Sağlık uçları (kimlik doğrulama YOK — orkestrasyon/LB/monitoring için).
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -564,6 +570,23 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, _ string) 
 			flusher.Flush()
 		}
 	}
+}
+
+// handleVerifyAudit, denetim izi hash-zincirinin bütünlüğünü doğrular (SEC C-1,
+// ADMIN). Zincir sağlamsa 200 {valid:true}; kırıksa 200 {valid:false, error}.
+func (s *Server) handleVerifyAudit(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.EnsureRole(r.Context(), adminID, admin.RoleAdmin)) {
+		return
+	}
+	if s.auditVerify == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": true, "note": "doğrulayıcı yapılandırılmadı"})
+		return
+	}
+	if err := s.auditVerify(r.Context()); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"valid": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"valid": true})
 }
 
 func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, adminID string) {

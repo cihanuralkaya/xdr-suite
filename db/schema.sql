@@ -244,7 +244,12 @@ CREATE TABLE audit_log (
     target_type VARCHAR(50),                 -- "device" | "policy" | ...
     target_id   UUID,
     metadata    JSONB,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Kurcalama-kanıtı hash zinciri (SEC C-1): entry_hash =
+    -- SHA-256(prev_hash || kanonik(alanlar)). Bir kaydın değiştirilmesi/silinmesi
+    -- sonraki hash'leri geçersiz kılar. VerifyAuditChain ile doğrulanır.
+    prev_hash   BYTEA,
+    entry_hash  BYTEA
 );
 CREATE INDEX idx_audit_admin  ON audit_log (admin_id, created_at DESC);
 CREATE INDEX idx_audit_target ON audit_log (target_type, target_id);

@@ -54,6 +54,9 @@ type Backend interface {
 
 	// Ping, depo sağlık kontrolü (/readyz). Hem db (pool.Ping) hem memstore (nil).
 	Ping(ctx context.Context) error
+
+	// VerifyAuditChain, denetim izi hash-zincirinin bütünlüğünü doğrular (SEC C-1).
+	VerifyAuditChain(ctx context.Context) error
 }
 
 // openBackend, XDR_DATABASE_URL varsa PostgreSQL, yoksa bellek-içi demo deposu
@@ -208,6 +211,7 @@ func run() error {
 	adminAPI.SetHealthCheck(backend.Ping)                          // /readyz depo sağlık kontrolü
 	adminAPI.SetLoginLimit(cfg.LoginMaxAttempts, cfg.LoginLockout) // kaba-kuvvet koruması
 	adminAPI.SetPrivacyNotice(os.Getenv("XDR_PRIVACY_NOTICE"))     // KVKK aydınlatma (boşsa varsayılan)
+	adminAPI.SetAuditVerifier(backend.VerifyAuditChain)            // denetim izi hash-zincir doğrulama
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek

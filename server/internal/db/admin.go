@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"xdr.corp/suite/server/internal/admin"
 	"xdr.corp/suite/server/internal/adminapi"
+	"xdr.corp/suite/server/internal/security"
 )
 
 // Derleme-zamanı arayüz kontrolleri.
@@ -61,14 +63,60 @@ func (s *Store) SaveEnrollmentToken(ctx context.Context, tokenIndex []byte, crea
 
 // WriteAudit, değişmez denetim izine bir satır yazar (#10).
 func (s *Store) WriteAudit(ctx context.Context, adminID, action, targetType, targetID string) error {
-	const q = `
-		INSERT INTO audit_log (admin_id, action, target_type, target_id)
-		VALUES (NULLIF($1,'')::uuid, $2, NULLIF($3,''), NULLIF($4,'')::uuid)`
-	_, err := s.pool.Exec(ctx, q, adminID, action, targetType, targetID)
+	// Kurcalama-kanıtı hash zinciri (SEC C-1): önceki entry_hash okunur, yeni hash
+	// hesaplanır ve prev_hash+entry_hash+created_at ile eklenir — hepsi tek
+	// transaction'da (araya kayıt sıkışması/yarış olmadan sıralı zincir).
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("db: denetim tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var prev []byte
+	err = tx.QueryRow(ctx, `SELECT entry_hash FROM audit_log ORDER BY id DESC LIMIT 1`).Scan(&prev)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("db: son denetim hash: %w", err)
+	}
+	now := time.Now().Truncate(time.Microsecond)
+	hash := security.AuditChainHash(prev, adminID, action, targetType, targetID, now.UnixNano())
+
+	const q = `
+		INSERT INTO audit_log (admin_id, action, target_type, target_id, created_at, prev_hash, entry_hash)
+		VALUES (NULLIF($1,'')::uuid, $2, NULLIF($3,''), NULLIF($4,'')::uuid, $5, $6, $7)`
+	if _, err := tx.Exec(ctx, q, adminID, action, targetType, targetID, now, prev, hash); err != nil {
 		return fmt.Errorf("db: denetim izi: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
+}
+
+// VerifyAuditChain, audit_log hash zincirinin bütünlüğünü doğrular (SEC C-1).
+// Kayıtları id sırasıyla okur ve her entry_hash'i yeniden hesaplayıp karşılaştırır.
+func (s *Store) VerifyAuditChain(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, COALESCE(admin_id::text,''), action, COALESCE(target_type,''),
+		        COALESCE(target_id::text,''), created_at, entry_hash
+		   FROM audit_log ORDER BY id`)
+	if err != nil {
+		return fmt.Errorf("db: denetim zinciri okuma: %w", err)
+	}
+	defer rows.Close()
+
+	var prev []byte
+	for rows.Next() {
+		var id int64
+		var adminID, action, targetType, targetID string
+		var createdAt time.Time
+		var stored []byte
+		if err := rows.Scan(&id, &adminID, &action, &targetType, &targetID, &createdAt, &stored); err != nil {
+			return fmt.Errorf("db: denetim satırı: %w", err)
+		}
+		want := security.AuditChainHash(prev, adminID, action, targetType, targetID, createdAt.UnixNano())
+		if !bytes.Equal(want, stored) {
+			return fmt.Errorf("db: denetim izi zinciri kırık: kayıt id=%d", id)
+		}
+		prev = stored
+	}
+	return rows.Err()
 }
 
 // CreatePolicy, yeni bir politika oluşturur ve id'sini döner.

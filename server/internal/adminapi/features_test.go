@@ -88,6 +88,36 @@ func TestLoginBruteForceReturns429(t *testing.T) {
 	}
 }
 
+// Denetim izi doğrulama ucu: ADMIN gerektirir; doğrulayıcı sonucunu yansıtır.
+func TestAuditVerifyEndpoint(t *testing.T) {
+	srv, store := newServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	addAdmin(t, store, "ad1", "ad@x", "secret", admin.RoleAdmin)
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	_, ab := post(t, ts.URL+"/api/login", "", map[string]string{"email": "ad@x", "password": "secret"})
+
+	// OPERATOR yasak.
+	if r, _ := authedGET(t, ts.URL+"/api/audit/verify", ob["token"]); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("OPERATOR için 403 beklenirdi, %d", r.StatusCode)
+	}
+	// ADMIN + sağlam zincir → valid:true.
+	srv.SetAuditVerifier(func(context.Context) error { return nil })
+	r, _ := authedGET(t, ts.URL+"/api/audit/verify", ab["token"])
+	b, _ := io.ReadAll(r.Body)
+	if r.StatusCode != http.StatusOK || !strings.Contains(string(b), `"valid":true`) {
+		t.Fatalf("sağlam zincir valid:true olmalıydı: %d %s", r.StatusCode, b)
+	}
+	// ADMIN + kırık zincir → valid:false.
+	srv.SetAuditVerifier(func(context.Context) error { return errors.New("kırık") })
+	r2, _ := authedGET(t, ts.URL+"/api/audit/verify", ab["token"])
+	b2, _ := io.ReadAll(r2.Body)
+	if !strings.Contains(string(b2), `"valid":false`) {
+		t.Fatalf("kırık zincir valid:false olmalıydı: %s", b2)
+	}
+}
+
 // SEC-009: denetim izi ve enrollment token meta verisi VIEWER'a kapalı (OPERATOR+).
 func TestAuditAndTokensRequireOperator(t *testing.T) {
 	ts, store := setup(t)
