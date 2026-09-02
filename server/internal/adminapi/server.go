@@ -7,6 +7,7 @@ package adminapi
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -33,16 +34,17 @@ type AuthStore interface {
 
 // Server, admin HTTP API'sidir.
 type Server struct {
-	adminSvc *admin.Service
-	reader   *adminread.Service
-	auth     AuthStore
-	sessions *security.SessionSigner
-	ttl      time.Duration
-	now      func() time.Time
-	stream   *eventbus.Bus
-	health   func(context.Context) error
-	loginLim *loginLimiter
-	notice   string
+	adminSvc  *admin.Service
+	reader    *adminread.Service
+	auth      AuthStore
+	sessions  *security.SessionSigner
+	ttl       time.Duration
+	now       func() time.Time
+	stream    *eventbus.Bus
+	health    func(context.Context) error
+	loginLim  *loginLimiter
+	notice    string
+	dummyHash string // SEC-004: bilinmeyen e-postada sabit-zaman için sahte Argon2 hash
 }
 
 // defaultPrivacyNotice, KVKK aydınlatma metninin makul bir varsayılanıdır;
@@ -57,11 +59,18 @@ const defaultPrivacyNotice = "KVKK Aydınlatma: Bu cihaz kuruma aittir ve kurums
 // New oluşturur. Giriş ucu varsayılan olarak istemci başına 5 başarısız
 // denemeden sonra 15 dk kilitlenir (kaba-kuvvet koruması).
 func New(adminSvc *admin.Service, reader *adminread.Service, auth AuthStore, sessions *security.SessionSigner, ttl time.Duration) *Server {
+	// SEC-004: bilinmeyen/pasif e-postada da Argon2 maliyeti ödensin diye rastgele
+	// bir parolanın hash'i önceden hesaplanır (kullanıcı numaralandırmayı süre
+	// bakımından sabitler). Hesaplanamazsa boş kalır (o durumda dallanma korunur).
+	dummy := make([]byte, 16)
+	_, _ = rand.Read(dummy)
+	dummyHash, _ := security.HashPassword(string(dummy))
 	return &Server{
 		adminSvc: adminSvc, reader: reader, auth: auth, sessions: sessions, ttl: ttl,
-		now:      time.Now,
-		loginLim: newLoginLimiter(5, 15*time.Minute),
-		notice:   defaultPrivacyNotice,
+		now:       time.Now,
+		loginLim:  newLoginLimiter(5, 15*time.Minute),
+		notice:    defaultPrivacyNotice,
+		dummyHash: dummyHash,
 	}
 }
 
@@ -192,14 +201,6 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
-	// Kaba-kuvvet koruması: istemci kilitliyse denemeyi hiç işleme.
-	if ok, retry := s.loginLim.allowed(ip); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
-		writeErr(w, http.StatusTooManyRequests, "çok fazla başarısız deneme — sonra tekrar deneyin")
-		return
-	}
-
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -207,19 +208,32 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	// SEC-005: kaba-kuvvet sayacı IP+e-posta bileşimine bağlıdır. Böylece bir ters
+	// vekil/LB arkasında (tüm istemciler aynı RemoteAddr) bir hesabın başarısız
+	// denemeleri DİĞER yöneticileri kilitlemez (küresel-kilit DoS'u önlenir).
+	key := clientIP(r) + "|" + strings.ToLower(strings.TrimSpace(req.Email))
+	if ok, retry := s.loginLim.allowed(key); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+		writeErr(w, http.StatusTooManyRequests, "çok fazla başarısız deneme — sonra tekrar deneyin")
+		return
+	}
+
 	adminID, hash, err := s.auth.LookupAdmin(r.Context(), req.Email)
 	if err != nil || adminID == "" {
-		s.loginLim.recordFailure(ip)
+		// SEC-004: bilinmeyen/pasif e-postada da Argon2 maliyetini öde (sabit-zaman;
+		// kullanıcı numaralandırma yan-kanalını kapatır). Sonuç yok sayılır.
+		_, _ = security.VerifyPassword(s.dummyHash, req.Password)
+		s.loginLim.recordFailure(key)
 		writeErr(w, http.StatusUnauthorized, "geçersiz kimlik bilgileri")
 		return
 	}
 	ok, err := security.VerifyPassword(hash, req.Password)
 	if err != nil || !ok {
-		s.loginLim.recordFailure(ip)
+		s.loginLim.recordFailure(key)
 		writeErr(w, http.StatusUnauthorized, "geçersiz kimlik bilgileri")
 		return
 	}
-	s.loginLim.recordSuccess(ip)
+	s.loginLim.recordSuccess(key)
 	token := s.sessions.Sign(adminID, s.now().Add(s.ttl))
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
