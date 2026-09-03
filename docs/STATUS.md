@@ -29,7 +29,7 @@ OTA imza + rollout kapısı → komut teslimi (karantina) → tek-kullanımlık 
 **Smoke/kabul testi** (`scripts/smoke-test.sh`, `make smoke`): gerçek c2 + gerçek
 agent süreçlerini izole portlarda ayağa kaldırır ve kayıt → CSR imza → heartbeat →
 olay → admin eylem (tanılama) → denetim izi → özet/politika okuma → **SSE canlı
-akış** zincirini 11 iddiayla doğrular. **CI** (`.github/workflows/ci.yml`):
+akış** zincirini 14 iddiayla doğrular. **CI** (`.github/workflows/ci.yml`):
 proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifact).
 
 ## Yetenek matrisi
@@ -193,7 +193,7 @@ OTA signature + rollout gate -> command delivery (quarantine) -> single-use toke
 **Smoke/acceptance test** (`scripts/smoke-test.sh`, `make smoke`): brings up real c2
 + real agent processes on isolated ports and verifies the enroll -> CSR signing ->
 heartbeat -> event -> admin action (diagnostics) -> audit log -> summary/policy read
--> **live SSE stream** chain with 11 assertions. **CI** (`.github/workflows/ci.yml`):
+-> **live SSE stream** chain with 14 assertions. **CI** (`.github/workflows/ci.yml`):
 proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
 
 ## Capability matrix
