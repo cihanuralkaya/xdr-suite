@@ -203,8 +203,11 @@ func run() error {
 		}
 	}
 
-	// Başlangıç yaşam-döngüsü olayı (gerçek olay; uydurma telemetri değil).
-	buf.Add(collector.Event{Category: "SYSTEM", Severity: "INFO", Message: "ajan başladı", OccurredAt: time.Now()})
+	// Başlangıç yaşam-döngüsü olayı (gerçek olay; uydurma telemetri değil). Host
+	// bilgisi Details'e iliştirilir (konsol olay-detayında filo görünürlüğü).
+	hostname, _ := os.Hostname()
+	buf.Add(collector.Event{Category: "SYSTEM", Severity: "INFO", Message: "ajan başladı", OccurredAt: time.Now(),
+		Details: map[string]any{"os": runtime.GOOS, "arch": runtime.GOARCH, "agent_version": agentVersion, "hostname": hostname}})
 
 	// Uyum durumu: başlangıçta disk şifreleme kontrol edilir ve raporlanır. Şifreleme
 	// KAPALIYSA güvenlik-duruşu ihlali (SECURITY/MEDIUM); açık/bilinmiyor bilgi amaçlı.
