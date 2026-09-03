@@ -17,6 +17,7 @@ import (
 	"xdr.corp/suite/server/internal/mitre"
 	"xdr.corp/suite/server/internal/model"
 	"xdr.corp/suite/server/internal/notify"
+	"xdr.corp/suite/server/internal/response"
 	"xdr.corp/suite/server/internal/rollout"
 )
 
@@ -79,17 +80,29 @@ type noopAlerter struct{}
 
 func (noopAlerter) Notify(notify.Alert) {}
 
+// AutoResponder, kritik olaylara otomatik müdahale eder (ör. karantina). nil ise
+// noop kullanılır (otomatik müdahale kapalı).
+type AutoResponder interface {
+	AutoQuarantine(ctx context.Context, deviceID, reason string) error
+}
+
+// noopResponder, otomatik müdahale yapılandırılmadığında kullanılır.
+type noopResponder struct{}
+
+func (noopResponder) AutoQuarantine(context.Context, string, string) error { return nil }
+
 // AgentHandler, AgentService gRPC sunucusunu uygular.
 type AgentHandler struct {
 	xdrv1.UnimplementedAgentServiceServer
-	devices  DeviceRegistry
-	events   EventSink
-	policies PolicyProvider
-	updates  UpdateProvider
-	notifier PolicyNotifier
-	admin    AdminNotifier
-	alerter  notify.Notifier
-	now      func() time.Time
+	devices   DeviceRegistry
+	events    EventSink
+	policies  PolicyProvider
+	updates   UpdateProvider
+	notifier  PolicyNotifier
+	admin     AdminNotifier
+	alerter   notify.Notifier
+	responder AutoResponder
+	now       func() time.Time
 }
 
 // SetAlerter, yüksek önem düzeyli olaylarda dış uyarı (webhook) gönderimini
@@ -99,6 +112,15 @@ func (h *AgentHandler) SetAlerter(a notify.Notifier) {
 		a = noopAlerter{}
 	}
 	h.alerter = a
+}
+
+// SetAutoResponder, kritik olaylara otomatik müdahaleyi (karantina) etkinleştirir.
+// nil ise noop kalır (otomatik müdahale kapalı — güvenli varsayılan).
+func (h *AgentHandler) SetAutoResponder(r AutoResponder) {
+	if r == nil {
+		r = noopResponder{}
+	}
+	h.responder = r
 }
 
 // SetAdminNotifier, admin-tarafı SSE yayınını etkinleştirir. nil ise noop kalır.
@@ -115,7 +137,7 @@ func NewAgentHandler(devices DeviceRegistry, events EventSink, policies PolicyPr
 	if notifier == nil {
 		notifier = noopNotifier{}
 	}
-	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, alerter: noopAlerter{}, now: time.Now}
+	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, alerter: noopAlerter{}, responder: noopResponder{}, now: time.Now}
 }
 
 // Heartbeat, yaşam sinyalini işler. Yanıt SUNUCU SAATİNİ taşır — ajan, politika
@@ -158,6 +180,7 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 	}
 
 	var lastAccepted uint64
+	autoTriggered := false // akış başına en çok bir kez otomatik karantina
 	for {
 		batch, err := stream.Recv()
 		if err == io.EOF {
@@ -198,6 +221,17 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 				al.TechniqueID, al.TechniqueName, al.Tactic = tq.ID, tq.Name, tq.Tactic
 			}
 			h.alerter.Notify(al)
+		}
+		// Otomatik müdahale (SOAR): kritik olay geldiyse cihazı otomatik karantinaya
+		// al (akış başına bir kez; noop responder'da maliyetsiz). Hata olay-alımını
+		// KESMEZ (best-effort; komut kuyruğu kalıcıdır).
+		if !autoTriggered {
+			if reason, ok := response.ShouldTrigger(domainEvents); ok {
+				if err := h.responder.AutoQuarantine(stream.Context(), deviceID, reason); err == nil {
+					autoTriggered = true
+					h.admin.PublishDevice(deviceID) // konsol durumu tazelesin
+				}
+			}
 		}
 		if acc > lastAccepted {
 			lastAccepted = acc

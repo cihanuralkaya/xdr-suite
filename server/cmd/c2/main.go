@@ -31,6 +31,7 @@ import (
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/notify"
 	"xdr.corp/suite/server/internal/policypush"
+	"xdr.corp/suite/server/internal/response"
 	"xdr.corp/suite/server/internal/retention"
 	"xdr.corp/suite/server/internal/revocation"
 	"xdr.corp/suite/server/internal/security"
@@ -198,6 +199,13 @@ func run() error {
 		}
 		agentHandler.SetAlerter(alerter)
 		log.Println("dış uyarı: webhook etkin (yüksek önem düzeyli olaylar)")
+	}
+
+	// Otomatik müdahale (SOAR): XDR_AUTO_RESPONSE=1 ise kritik güvenlik olayında
+	// cihaz otomatik karantinaya alınır. Varsayılan KAPALI (karantina bozucudur).
+	if os.Getenv("XDR_AUTO_RESPONSE") == "1" {
+		agentHandler.SetAutoResponder(response.New(backend))
+		log.Println("otomatik müdahale: kritik olayda otomatik karantina ETKİN")
 	}
 
 	// Sertifika iptali: bellek-içi küme + depodan periyodik tazeleme.
