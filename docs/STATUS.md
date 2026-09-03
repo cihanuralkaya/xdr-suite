@@ -15,7 +15,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **193 test fonksiyonu / 36 test paketi**, tümü geçiyor (`go test ./...`).
+- **201 test fonksiyonu / 38 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -87,6 +87,11 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Slack/Teams uyumlu uyarı biçimi | ✅ opsiyonel | `server/internal/notify` | birim (TLS httptest) |
 | Genişletilmiş /metrics (tespit/uyarı/SOAR/IoC + runtime) | ✅ | `server/internal/metrics` | birim |
 | Konsol: sol kenar çubuğu IA + bölüm derin-bağlama | ✅ | `adminapi/console.html` | canlı demo |
+| Yapısal JSON loglama (server+agent, SIEM) | ✅ opsiyonel | `logx`, c2/agent main | birim |
+| Config başlangıç öz-doğrulaması | ✅ | `server/internal/config` | birim |
+| Denetim izi zincir doğrulama (konsol düğmesi) | ✅ | `adminapi`, console | canlı |
+| Dağıtım koruma-duruşu görünürlüğü (/api/features) | ✅ | `adminapi`, c2 main, console | birim + canlı |
+| Tehdit etkinlik sayaçları kartı (/api/activity) | ✅ | `adminapi`, `metrics`, console | birim + canlı |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
@@ -179,7 +184,7 @@ protection is deliberately out of scope (see below).
 
 - Language: **Go** (single language), communication over **gRPC + mTLS**, TLS 1.3.
 - ~8,100 lines of production Go + comprehensive tests.
-- **193 test functions / 36 test packages**, all passing (`go test ./...`).
+- **201 test functions / 38 test packages**, all passing (`go test ./...`).
 - Cross-compilation verified: Windows (native), Linux, macOS.
 - **In-memory demo mode** run live (`XDR_DATABASE_URL` empty): real enrollment, real
   network discovery, all admin/console flows exercised end-to-end.
