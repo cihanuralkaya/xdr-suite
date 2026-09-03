@@ -94,6 +94,26 @@ Tam akış: **[deploy/README.md](deploy/README.md)**.
   **paylaşımlı** (kod girişli); ajan ikilisi base64 gömülü, servisi kurar.
   Windows (`.ps1`) + Linux (`.sh`).
 
+## Yapılandırma (ortam değişkenleri)
+
+Tüm ayarlar ortam değişkenleriyle yapılır. Tam liste + açıklama:
+**[deploy/server/c2.env.example](deploy/server/c2.env.example)** (sunucu) ve
+**[deploy/agent.env.example](deploy/agent.env.example)** (ajan).
+
+- **Zorunlu (sunucu):** `XDR_MASTER_KEY` (32 bayt base64), TLS yolları
+  (`XDR_CA_CERT`/`XDR_CA_KEY`/`XDR_SERVER_CERT`/`XDR_SERVER_KEY`); üretim için
+  `XDR_DATABASE_URL` (boşsa `XDR_DEMO=1` ile bellek-içi demo).
+- **Opsiyonel korumalar (sunucu):** `XDR_ALERT_WEBHOOK_URL`/`XDR_ALERT_FORMAT`
+  (SOC uyarı, Slack/Teams), `XDR_AUTO_RESPONSE` (SOAR oto-karantina), `XDR_IOC_FILE`
+  (tehdit istihbaratı), `XDR_DETECT_RULES_FILE` (özel tespit kuralları),
+  `XDR_METRICS_TOKEN` (Prometheus), `XDR_LOG_FORMAT=json` (SIEM).
+- **Ajan:** bağlantı (`XDR_ENROLL_ADDR`/`XDR_AGENT_ADDR`/`XDR_SERVER_NAME`/`XDR_CA_PEM`),
+  `XDR_SERVER_SPKI_PIN` (pinning), `XDR_UPDATE_PUBKEY`/`XDR_SCRIPT_PUBKEY` (imza),
+  `XDR_ANOMALY_*`, `XDR_SAFE_MODE`, `XDR_LOG_FORMAT`.
+
+Etkin korumaları konsoldan (Yönetim → **Koruma Katmanları**) veya `GET /api/features`
+ile görebilirsiniz.
+
 ## Yol haritası
 
 Bkz. [docs/architecture.md](docs/architecture.md) — fazlara bölünmüş plan.
@@ -181,6 +201,26 @@ Full flow: **[deploy/README.md](deploy/README.md)**.
   device — **unique** (enrollment token embedded, auto-enrolls) or **shared**
   (code-entry); the agent binary is base64-embedded and installs the service.
   Windows (`.ps1`) + Linux (`.sh`).
+
+## Configuration (environment variables)
+
+All settings are via environment variables. Full list + descriptions:
+**[deploy/server/c2.env.example](deploy/server/c2.env.example)** (server) and
+**[deploy/agent.env.example](deploy/agent.env.example)** (agent).
+
+- **Required (server):** `XDR_MASTER_KEY` (32-byte base64), TLS paths
+  (`XDR_CA_CERT`/`XDR_CA_KEY`/`XDR_SERVER_CERT`/`XDR_SERVER_KEY`); for production
+  `XDR_DATABASE_URL` (if empty, in-memory demo with `XDR_DEMO=1`).
+- **Optional protections (server):** `XDR_ALERT_WEBHOOK_URL`/`XDR_ALERT_FORMAT`
+  (SOC alerting, Slack/Teams), `XDR_AUTO_RESPONSE` (SOAR auto-quarantine),
+  `XDR_IOC_FILE` (threat intel), `XDR_DETECT_RULES_FILE` (custom detection rules),
+  `XDR_METRICS_TOKEN` (Prometheus), `XDR_LOG_FORMAT=json` (SIEM).
+- **Agent:** connection (`XDR_ENROLL_ADDR`/`XDR_AGENT_ADDR`/`XDR_SERVER_NAME`/`XDR_CA_PEM`),
+  `XDR_SERVER_SPKI_PIN` (pinning), `XDR_UPDATE_PUBKEY`/`XDR_SCRIPT_PUBKEY` (signing),
+  `XDR_ANOMALY_*`, `XDR_SAFE_MODE`, `XDR_LOG_FORMAT`.
+
+You can see which protections are enabled from the console (Management → **Protection
+Layers**) or via `GET /api/features`.
 
 ## Roadmap
 
