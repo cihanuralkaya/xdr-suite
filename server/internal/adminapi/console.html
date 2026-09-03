@@ -399,12 +399,12 @@
           <div class="head">
             <h2>💻 Cihazlar <span id="dev-count" class="count">0</span></h2>
             <span class="sp"></span>
-            <input id="dev-search" placeholder="🔍 hostname / MAC ara" style="width:auto;padding:5px 10px;font-size:12px">
+            <input id="dev-search" placeholder="🔍 hostname / MAC / OS / etiket" style="width:auto;padding:5px 10px;font-size:12px">
             <button class="btn ghost sm" id="dev-refresh">↻ Yenile</button>
           </div>
           <div class="tbl-wrap">
             <table>
-              <thead><tr><th>Durum</th><th>Hostname</th><th>MAC</th><th>Sürüm</th><th>Son görülme</th></tr></thead>
+              <thead><tr><th>Durum</th><th>Hostname</th><th>MAC</th><th>OS</th><th>Sürüm</th><th>Son görülme</th></tr></thead>
               <tbody id="dev-body"></tbody>
             </table>
           </div>
@@ -936,7 +936,9 @@
     var q=state.devSearch.trim().toLowerCase();
     var list=state.devices.filter(function(d){
       if(!q) return true;
-      return (d.hostname||"").toLowerCase().indexOf(q)>=0 || (d.mac||"").toLowerCase().indexOf(q)>=0;
+      return (d.hostname||"").toLowerCase().indexOf(q)>=0 || (d.mac||"").toLowerCase().indexOf(q)>=0 ||
+             (d.os_version||"").toLowerCase().indexOf(q)>=0 || (d.os_platform||"").toLowerCase().indexOf(q)>=0 ||
+             (d.tags||[]).some(function(t){ return t.toLowerCase().indexOf(q)>=0; });
     });
     $("dev-count").textContent=list.length;
     $("dev-empty").style.display = list.length ? "none" : "block";
@@ -963,6 +965,7 @@
       }
       tr.appendChild(hostTd);
       tr.appendChild(cell(d.mac||"-","mono"));
+      tr.appendChild(cell(d.os_version||d.os_platform||"-"));
       tr.appendChild(cell(d.agent_version||"-","mono"));
       tr.appendChild(cell(relTime(d.last_seen)));
       tr.onclick=function(){ selectDevice(d.id); };
