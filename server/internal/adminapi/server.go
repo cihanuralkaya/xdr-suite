@@ -56,6 +56,7 @@ type Server struct {
 	auditVerify  func(context.Context) error
 	metricsToken string         // ayarlıysa /metrics bu Bearer token ile açılır; boşsa uç kapalı
 	detector     *detect.Engine // tespit kural kataloğu (görünürlük ucu)
+	features     map[string]any // dağıtım koruma-duruşu (opsiyonel özellik bayrakları)
 }
 
 // SetDetector, tespit kural motorunu bağlar (kural kataloğu ucu için). nil ise
@@ -66,6 +67,10 @@ func (s *Server) SetDetector(e *detect.Engine) {
 	}
 	s.detector = e
 }
+
+// SetFeatures, dağıtımın hangi opsiyonel korumalarının etkin olduğunu bildirir
+// (main tarafından bir kez). /api/features ADMIN'e bu duruşu döner.
+func (s *Server) SetFeatures(m map[string]any) { s.features = m }
 
 // SetMetricsToken, Prometheus /metrics ucunu verilen statik Bearer token ile
 // etkinleştirir. Boş bırakılırsa uç tamamen kapalıdır (cihaz sayıları gibi
@@ -180,6 +185,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
 	mux.HandleFunc("GET /api/detections/rules", s.authed(s.handleDetectionRules))
 	mux.HandleFunc("GET /api/activity", s.authed(s.handleActivity))
+	mux.HandleFunc("GET /api/features", s.authed(s.handleFeatures))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
 	mux.HandleFunc("GET /api/audit/verify", s.authed(s.handleVerifyAudit))
 	mux.HandleFunc("GET /api/stream", s.authed(s.handleStream))
@@ -728,6 +734,22 @@ func (s *Server) handleActivity(w http.ResponseWriter, _ *http.Request, _ string
 		"counters":       metrics.Counters(),
 		"uptime_seconds": metrics.UptimeSeconds(),
 	})
+}
+
+// handleFeatures, dağıtımın koruma-duruşunu döner (ADMIN): hangi opsiyonel
+// korumalar etkin, kaç tespit kuralı yüklü, /metrics açık mı. Yapılandırma
+// görünürlüğü hassas olduğundan ADMIN gerekir.
+func (s *Server) handleFeatures(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.EnsureRole(r.Context(), adminID, admin.RoleAdmin)) {
+		return
+	}
+	out := map[string]any{}
+	for k, v := range s.features {
+		out[k] = v
+	}
+	out["detection_rules"] = len(s.detector.Rules())
+	out["metrics_enabled"] = s.metricsToken != ""
+	writeJSON(w, http.StatusOK, map[string]any{"features": out})
 }
 
 // handleStream, Server-Sent Events (SSE) ile canlı değişiklik bildirimleri iletir.

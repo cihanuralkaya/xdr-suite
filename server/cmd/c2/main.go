@@ -211,12 +211,14 @@ func run() error {
 	// Dış uyarı (SOC webhook): XDR_ALERT_WEBHOOK_URL ayarlıysa yüksek önem düzeyli
 	// olaylar bir HTTPS webhook'una gönderilir (Slack/Teams/genel). Eşik
 	// XDR_ALERT_MIN_SEVERITY (varsayılan HIGH).
+	alertingOn, iocCount, autoRespOn := false, 0, false
 	if hook := os.Getenv("XDR_ALERT_WEBHOOK_URL"); hook != "" {
 		alerter, err := notify.NewWebhookNotifier(hook, getenv("XDR_ALERT_MIN_SEVERITY", "HIGH"), os.Getenv("XDR_ALERT_FORMAT"))
 		if err != nil {
 			return err
 		}
 		agentHandler.SetAlerter(alerter)
+		alertingOn = true
 		log.Println("dış uyarı: webhook etkin (yüksek önem düzeyli olaylar)")
 	}
 
@@ -228,13 +230,15 @@ func run() error {
 			return fmt.Errorf("IoC listesi yüklenemedi: %w", err)
 		}
 		agentHandler.SetIoCSet(set)
-		log.Printf("tehdit istihbaratı: %d IoC göstergesi yüklendi", set.Size())
+		iocCount = set.Size()
+		log.Printf("tehdit istihbaratı: %d IoC göstergesi yüklendi", iocCount)
 	}
 
 	// Otomatik müdahale (SOAR): XDR_AUTO_RESPONSE=1 ise kritik güvenlik olayında
 	// cihaz otomatik karantinaya alınır. Varsayılan KAPALI (karantina bozucudur).
 	if os.Getenv("XDR_AUTO_RESPONSE") == "1" {
 		agentHandler.SetAutoResponder(response.New(backend))
+		autoRespOn = true
 		log.Println("otomatik müdahale: kritik olayda otomatik karantina ETKİN")
 	}
 
@@ -274,6 +278,15 @@ func run() error {
 	metrics.SetBuildVersion(os.Getenv("XDR_BUILD_VERSION"))
 	adminAPI.SetMetricsToken(os.Getenv("XDR_METRICS_TOKEN"))
 	adminAPI.SetDetector(detector) // tespit kural kataloğu (ingest ile aynı motor)
+	// Dağıtım koruma-duruşu (admin görünürlüğü: /api/features + konsol sistem kartı).
+	adminAPI.SetFeatures(map[string]any{
+		"alerting_enabled":      alertingOn,
+		"alert_format":          getenv("XDR_ALERT_FORMAT", "json"),
+		"auto_response_enabled": autoRespOn,
+		"ioc_indicators":        iocCount,
+		"log_format":            getenv("XDR_LOG_FORMAT", "text"),
+		"persistence":           cfg.DatabaseURL != "",
+	})
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek

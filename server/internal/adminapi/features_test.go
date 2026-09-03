@@ -151,6 +151,38 @@ func TestDetectionRulesEndpoint(t *testing.T) {
 	}
 }
 
+// /api/features: yalnız ADMIN dağıtım koruma-duruşunu alır (VIEWER/OPERATOR 403).
+func TestFeaturesEndpointAdminOnly(t *testing.T) {
+	srv, store := newServer(t)
+	srv.SetFeatures(map[string]any{"alerting_enabled": true, "ioc_indicators": 3})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	addAdmin(t, store, "ad1", "ad@x", "secret", admin.RoleAdmin)
+
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	if r, _ := authedGET(t, ts.URL+"/api/features", ob["token"]); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("OPERATOR 403 almalıydı, %d", r.StatusCode)
+	}
+	_, ab := post(t, ts.URL+"/api/login", "", map[string]string{"email": "ad@x", "password": "secret"})
+	r, err := authedGET(t, ts.URL+"/api/features", ab["token"])
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("ADMIN 200 almalıydı, %d %v", r.StatusCode, err)
+	}
+	var out struct {
+		Features map[string]any `json:"features"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Features["alerting_enabled"] != true {
+		t.Fatalf("alerting_enabled bayrağı bekleniyordu: %+v", out.Features)
+	}
+	if _, ok := out.Features["detection_rules"]; !ok {
+		t.Fatal("detection_rules alanı (detector'dan) olmalıydı")
+	}
+}
+
 // /api/activity: kimlik doğrulanmış admin süreç-içi tehdit sayaçlarını alır.
 func TestActivityEndpoint(t *testing.T) {
 	ts, store := setup(t)
