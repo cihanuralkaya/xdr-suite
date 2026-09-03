@@ -90,9 +90,24 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 [ "$dev" = 1 ] && pass "ajan kaydoldu (cihaz listede)" || fail "cihaz kaydı görünmedi"
-grep -q "kimlik hazır" "$WORK/agent.log" && pass "ajan kimliği üretildi (CSR imzalandı)" || fail "ajan kimliği yok"
 
-evc="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -o '"id"' | wc -l)"
+# "kimlik hazır" log satırı, cihaz sunucuda göründükten SONRA yazılır (ajan
+# ensureEnrolled → sunucuya kayıt → log). Tek-atışta yarışa girmemek için poll et.
+idok=0
+for _ in $(seq 1 40); do
+  if grep -q "kimlik hazır" "$WORK/agent.log"; then idok=1; break; fi
+  sleep 0.25
+done
+[ "$idok" = 1 ] && pass "ajan kimliği üretildi (CSR imzalandı)" || fail "ajan kimliği yok"
+
+# Olaylar ilk heartbeat/toplama döngüsünden SONRA gelir (interval 2s). Tek-atış
+# yerine yayılım için poll et (en çok ~15 sn).
+evc=0
+for _ in $(seq 1 60); do
+  evc="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -o '"id"' | wc -l)"
+  if [ "$evc" -ge 1 ]; then break; fi
+  sleep 0.25
+done
 [ "$evc" -ge 1 ] && pass "olaylar alındı ($evc olay)" || fail "olay yok"
 
 echo "[5/6] Admin eylemleri + okuma uçları"
