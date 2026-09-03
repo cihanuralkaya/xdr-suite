@@ -174,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devices/{id}", s.authed(s.handleDeviceDetail))
 	mux.HandleFunc("GET /api/devices/{id}/export", s.authed(s.handleExportDevice))
 	mux.HandleFunc("POST /api/devices/{id}/erase", s.authed(s.handleEraseDevice))
+	mux.HandleFunc("POST /api/devices/{id}/tags", s.authed(s.handleSetDeviceTags))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
@@ -589,7 +590,52 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request, _ str
 	if respondErr(w, err) {
 		return
 	}
+	// Opsiyonel etiket filtresi (?tag=...): yalnız o etikete sahip cihazlar (filo
+	// gruplama). Sunucu-tarafında filtreleme; büyük filolarda kısayol.
+	if tag := strings.TrimSpace(r.URL.Query().Get("tag")); tag != "" {
+		filtered := devices[:0]
+		for _, d := range devices {
+			for _, t := range d.Tags {
+				if t == tag {
+					filtered = append(filtered, d)
+					break
+				}
+			}
+		}
+		devices = filtered
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
+}
+
+// handleSetDeviceTags, cihazın etiketlerini ayarlar (OPERATOR+, servis içinde
+// RBAC). Gövde: {"tags":["prod","finans"]}.
+func (s *Server) handleSetDeviceTags(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Tags []string `json:"tags"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if respondErr(w, s.adminSvc.SetDeviceTags(r.Context(), adminID, r.PathValue("id"), req.Tags)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tags": normalizeTagsForResponse(req.Tags)})
+}
+
+// normalizeTagsForResponse, yanıt için etiketleri kırpar/tekilleştirir (servis
+// katmanıyla aynı normalize; yanıtta güncel hali göstermek için).
+func normalizeTagsForResponse(tags []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return out
 }
 
 func (s *Server) handleDeviceDetail(w http.ResponseWriter, r *http.Request, _ string) {

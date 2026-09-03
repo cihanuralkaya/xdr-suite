@@ -12,6 +12,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"xdr.corp/suite/server/internal/security"
@@ -75,6 +76,8 @@ type Store interface {
 	// SetDeviceStatus, cihazın durum sütununu doğrudan ayarlar (komut kuyruğa
 	// girdikten sonra durumun UI'da yansıması için).
 	SetDeviceStatus(ctx context.Context, deviceID, status string) error
+	// SetDeviceTags, cihazın etiketlerini (filo gruplama) değiştirir.
+	SetDeviceTags(ctx context.Context, deviceID string, tags []string) error
 	RevokeDeviceCerts(ctx context.Context, deviceID, reason string) error
 	// EraseDeviceData, KVKK veri silme talebi için cihazın davranışsal/telemetri
 	// verisini (olay logları, komut geçmişi) siler ve sertifikalarını iptal eder
@@ -260,6 +263,52 @@ func (s *Service) DisableMFA(ctx context.Context, adminID, code string) error {
 		_ = s.store.WriteAudit(ctx, adminID, "MFA_DISABLED", "admin", adminID)
 	}
 	return nil
+}
+
+// maxTags, cihaz başına etiket üst sınırı; maxTagLen tek etiket uzunluk sınırı.
+const (
+	maxTags   = 20
+	maxTagLen = 40
+)
+
+// SetDeviceTags, cihazın etiketlerini ayarlar (OPERATOR+). Etiketler kırpılır,
+// boşlar atılır, tekilleştirilir; sayısı/uzunluğu sınırlanır (kaynak/DoS koruması).
+// Denetim izine yazılır.
+func (s *Service) SetDeviceTags(ctx context.Context, adminID, deviceID string, tags []string) error {
+	if err := s.require(ctx, adminID, RoleOperator); err != nil {
+		return err
+	}
+	clean := normalizeTags(tags)
+	if err := s.store.SetDeviceTags(ctx, deviceID, clean); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "SET_TAGS", "device", deviceID)
+	return nil
+}
+
+// normalizeTags, etiketleri kırpar, boşları atar, tekilleştirir (sıra korunur) ve
+// sayı/uzunluk sınırlarını uygular.
+func normalizeTags(tags []string) []string {
+	seen := make(map[string]bool, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if len(t) > maxTagLen {
+			t = t[:maxTagLen]
+		}
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+		if len(out) >= maxTags {
+			break
+		}
+	}
+	return out
 }
 
 // QuarantineDevice, cihazı karantinaya alma komutu kuyruğa ekler (OPERATOR+).

@@ -16,7 +16,7 @@ func (s *Store) ListDevices(ctx context.Context, limit int) ([]adminread.DeviceR
 	const q = `
 		SELECT id::text, status::text, COALESCE(agent_version,''),
 		       COALESCE(os_platform,''), COALESCE(last_seen, 'epoch'::timestamptz),
-		       hostname_encrypted, mac_address_encrypted
+		       hostname_encrypted, mac_address_encrypted, COALESCE(tags, '{}')
 		  FROM devices
 		 ORDER BY last_seen DESC NULLS LAST
 		 LIMIT $1`
@@ -31,7 +31,7 @@ func (s *Store) ListDevices(ctx context.Context, limit int) ([]adminread.DeviceR
 		var d adminread.DeviceRow
 		var lastSeen time.Time
 		if err := rows.Scan(&d.ID, &d.Status, &d.AgentVersion, &d.OSPlatform,
-			&lastSeen, &d.HostnameEnc, &d.MACEnc); err != nil {
+			&lastSeen, &d.HostnameEnc, &d.MACEnc, &d.Tags); err != nil {
 			return nil, fmt.Errorf("db: cihaz okuma: %w", err)
 		}
 		d.LastSeen = lastSeen

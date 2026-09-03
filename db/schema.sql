@@ -61,6 +61,7 @@ CREATE TABLE devices (
     os_platform            VARCHAR(20),               -- "windows" | "linux"
     status                 device_status NOT NULL DEFAULT 'PENDING_ENROLLMENT',
     current_policy_version VARCHAR(64),
+    tags                   TEXT[] NOT NULL DEFAULT '{}',   -- filo gruplama/etiketleme
     last_seen              TIMESTAMPTZ,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );

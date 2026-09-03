@@ -298,6 +298,11 @@
               <button class="btn danger sm" data-act="eraseData" disabled>🗑 Veriyi Sil</button>
             </div>
             <div class="divider"></div>
+            <div class="lbl">Etiketler (filo gruplama)</div>
+            <div id="dev-tags" style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px"></div>
+            <div class="field"><input id="tag-input" type="text" placeholder="virgülle ayır: prod, finans, istanbul"></div>
+            <button class="btn sm" data-act="setTags" disabled style="margin-top:6px">Etiketleri Kaydet</button>
+            <div class="divider"></div>
             <div class="lbl">Politika Ata</div>
             <div class="field"><select id="a-pol"><option value="">— politika seç —</option></select></div>
             <button class="btn sm" data-act="assignPolicy" disabled style="margin-top:10px">Seçili cihaza ata</button>
@@ -652,12 +657,27 @@
       head.textContent="Bir cihaz seçmek için tablodan satıra tıklayın.";
     }
     document.querySelectorAll("[data-act]").forEach(function(b){
-      var needsSel = ["quarantine","release","diagnostics","revoke","exportData","eraseData","assignPolicy"].indexOf(b.dataset.act)>=0;
+      var needsSel = ["quarantine","release","diagnostics","revoke","exportData","eraseData","assignPolicy","setTags"].indexOf(b.dataset.act)>=0;
       if(needsSel) b.disabled = !state.sel;
     });
+    renderTags(d);
     var det=$("dev-detail");
     if(state.sel){ loadDetail(state.sel); } else { det.className="detail"; det.innerHTML=""; }
     renderDevices();
+  }
+
+  function renderTags(d){
+    var box=$("dev-tags"), inp=$("tag-input");
+    box.innerHTML="";
+    var tags=(d&&d.tags)||[];
+    if(!state.sel){ inp.value=""; return; }
+    inp.value=tags.join(", ");
+    tags.forEach(function(t){
+      var chip=document.createElement("span");
+      chip.textContent=t;
+      chip.style.cssText="background:var(--accent-dim);color:var(--accent);border:1px solid var(--line2);border-radius:10px;padding:2px 8px;font-size:11px";
+      box.appendChild(chip);
+    });
   }
 
   // ---------- refresh loop ----------
@@ -1043,6 +1063,13 @@
       if(!$("a-pol").value){ showOut("o-dev","Listeden bir politika seçin.","err"); return Promise.resolve(); }
       return api("/api/policies/assign","POST",{device_id:state.sel,policy_id:$("a-pol").value}).then(function(){
         showOut("o-dev","Politika atandı (ajana anında iletilir).","ok"); toast("Politika atandı","Anlık push gönderildi","ok"); }); },
+    setTags: function(){
+      if(!state.sel){ return Promise.resolve(); }
+      var tags=$("tag-input").value.split(",").map(function(s){return s.trim();}).filter(function(s){return s;});
+      return api("/api/devices/"+encodeURIComponent(state.sel)+"/tags","POST",{tags:tags}).then(function(d){
+        showOut("o-dev","Etiketler kaydedildi: "+((d.tags||[]).join(", ")||"—"),"ok");
+        toast("Etiketler güncellendi",null,"ok");
+        refresh().then(function(){ renderTags(state.devices.filter(function(x){return x.id===state.sel;})[0]); }); }); },
     addRule: function(){
       var pol=$("r-pol").value; if(!pol){ showOut("o-rule","Politika ID girin.","err"); return Promise.resolve(); }
       var type=$("r-type").value, body={type:type, target:$("r-target").value};

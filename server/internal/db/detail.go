@@ -17,13 +17,13 @@ func (s *Store) DeviceByID(ctx context.Context, id string) (adminread.DeviceRow,
 	const q = `
 		SELECT id::text, status::text, COALESCE(agent_version,''),
 		       COALESCE(os_platform,''), COALESCE(last_seen, 'epoch'::timestamptz),
-		       hostname_encrypted, mac_address_encrypted
+		       hostname_encrypted, mac_address_encrypted, COALESCE(tags, '{}')
 		  FROM devices
 		 WHERE id = $1`
 	var d adminread.DeviceRow
 	var lastSeen time.Time
 	err := s.pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Status, &d.AgentVersion,
-		&d.OSPlatform, &lastSeen, &d.HostnameEnc, &d.MACEnc)
+		&d.OSPlatform, &lastSeen, &d.HostnameEnc, &d.MACEnc, &d.Tags)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return adminread.DeviceRow{}, false, nil
 	}

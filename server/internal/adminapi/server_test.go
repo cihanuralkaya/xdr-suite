@@ -121,6 +121,14 @@ func (m *memStore) SetDeviceStatus(_ context.Context, deviceID, status string) e
 	m.statuses[deviceID] = status
 	return nil
 }
+func (m *memStore) SetDeviceTags(_ context.Context, deviceID string, tags []string) error {
+	for i := range m.devRows {
+		if m.devRows[i].ID == deviceID {
+			m.devRows[i].Tags = tags
+		}
+	}
+	return nil
+}
 func (m *memStore) RevokeDeviceCerts(_ context.Context, deviceID, _ string) error {
 	m.commands = append(m.commands, deviceID+":REVOKE")
 	return nil

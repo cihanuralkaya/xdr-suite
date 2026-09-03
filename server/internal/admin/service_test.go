@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"crypto/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ type memStore struct {
 	rules     map[string][]RuleInput // id -> kurallar
 	assigned  map[string]string      // deviceID -> policyID
 	statuses  map[string]string      // deviceID -> son ayarlanan durum
+	tags      map[string][]string    // deviceID -> etiketler
 	admins    map[string]*adminEntry // id -> yönetici
 	erased    string                 // EraseDeviceData ile silinen son deviceID
 	nextPolID int
@@ -78,6 +80,13 @@ func (m *memStore) EnqueueCommand(_ context.Context, deviceID, cmdType, issuedBy
 }
 func (m *memStore) SetDeviceStatus(_ context.Context, deviceID, status string) error {
 	m.statuses[deviceID] = status
+	return nil
+}
+func (m *memStore) SetDeviceTags(_ context.Context, deviceID string, tags []string) error {
+	if m.tags == nil {
+		m.tags = map[string][]string{}
+	}
+	m.tags[deviceID] = tags
 	return nil
 }
 func (m *memStore) RevokeDeviceCerts(_ context.Context, deviceID, _ string) error {
@@ -190,6 +199,46 @@ func newService(t *testing.T, store Store) (*Service, *security.BlindIndexer) {
 	}
 	bidx := security.NewBlindIndexer(security.DeriveKey(master, security.LabelBlindIndex))
 	return NewService(store, bidx, time.Hour), bidx
+}
+
+func TestSetDeviceTagsRBACAndNormalize(t *testing.T) {
+	store := newMemStore()
+	store.roles["viewer1"] = RoleViewer
+	store.roles["op1"] = RoleOperator
+	svc, _ := newService(t, store)
+
+	// VIEWER reddedilmeli.
+	if err := svc.SetDeviceTags(context.Background(), "viewer1", "dev-1", []string{"prod"}); err != ErrForbidden {
+		t.Fatalf("VIEWER etiket ayarlayamamalı, dönen: %v", err)
+	}
+	// OPERATOR: normalize (kırp, boş at, tekilleştir) + audit.
+	if err := svc.SetDeviceTags(context.Background(), "op1", "dev-1",
+		[]string{"  prod ", "prod", "", "finans"}); err != nil {
+		t.Fatal(err)
+	}
+	got := store.tags["dev-1"]
+	if len(got) != 2 || got[0] != "prod" || got[1] != "finans" {
+		t.Fatalf("etiketler normalize edilmeliydi: %v", got)
+	}
+	if !hasAudit(store.audits, "SET_TAGS", "device", "dev-1") {
+		t.Fatal("SET_TAGS denetim izine yazılmalıydı")
+	}
+}
+
+func TestNormalizeTagsLimits(t *testing.T) {
+	// Sayı sınırı.
+	many := make([]string, 0, 30)
+	for i := 0; i < 30; i++ {
+		many = append(many, "t"+string(rune('a'+i%26))+string(rune('0'+i)))
+	}
+	if n := len(normalizeTags(many)); n != maxTags {
+		t.Fatalf("etiket sayısı %d ile sınırlanmalıydı, %d döndü", maxTags, n)
+	}
+	// Uzunluk sınırı.
+	long := strings.Repeat("x", maxTagLen+50)
+	if got := normalizeTags([]string{long}); len(got[0]) != maxTagLen {
+		t.Fatalf("etiket uzunluğu %d ile sınırlanmalıydı, %d", maxTagLen, len(got[0]))
+	}
 }
 
 func TestRBACQuarantineRequiresOperator(t *testing.T) {

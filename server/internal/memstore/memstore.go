@@ -37,6 +37,7 @@ type device struct {
 	policyVersion string
 	policyID      string
 	lastSeen      time.Time
+	tags          []string
 }
 
 type tokenInfo struct {
@@ -709,7 +710,7 @@ func (s *Store) ListDevices(_ context.Context, limit int) ([]adminread.DeviceRow
 	for _, d := range s.devices {
 		out = append(out, adminread.DeviceRow{
 			ID: d.id, Status: d.status, AgentVersion: d.agentVersion, OSPlatform: d.osPlatform,
-			LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc,
+			LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc, Tags: append([]string(nil), d.tags...),
 		})
 		if limit > 0 && len(out) >= limit {
 			break
@@ -813,8 +814,18 @@ func (s *Store) DeviceByID(_ context.Context, id string) (adminread.DeviceRow, b
 	}
 	return adminread.DeviceRow{
 		ID: d.id, Status: d.status, AgentVersion: d.agentVersion, OSPlatform: d.osPlatform,
-		LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc,
+		LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc, Tags: append([]string(nil), d.tags...),
 	}, true, nil
+}
+
+// SetDeviceTags, cihazın etiketlerini değiştirir (bilinmeyen cihazda no-op).
+func (s *Store) SetDeviceTags(_ context.Context, deviceID string, tags []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d, ok := s.devices[deviceID]; ok {
+		d.tags = append([]string(nil), tags...)
+	}
+	return nil
 }
 
 func (s *Store) CertsByDevice(_ context.Context, id string) ([]adminread.CertRow, error) {

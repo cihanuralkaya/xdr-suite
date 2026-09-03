@@ -64,6 +64,63 @@ func TestMitreCoverageEndpoint(t *testing.T) {
 	}
 }
 
+// Cihaz etiketleme: OPERATOR etiket ayarlar, liste ?tag= ile filtrelenir, VIEWER
+// ayarlayamaz.
+func TestDeviceTagsSetAndFilter(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	addAdmin(t, store, "v1", "viewer@x", "secret", admin.RoleViewer)
+	store.devRows = []adminread.DeviceRow{
+		{ID: "dev-1", Status: "ACTIVE"},
+		{ID: "dev-2", Status: "ACTIVE"},
+	}
+
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	opTok := ob["token"]
+	_, vb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "viewer@x", "password": "secret"})
+	vTok := vb["token"]
+
+	// VIEWER reddedilmeli (403).
+	if code, _ := post(t, ts.URL+"/api/devices/dev-1/tags", vTok, map[string][]string{"tags": {"prod"}}); code != http.StatusForbidden {
+		t.Fatalf("VIEWER etiket ayarlayamamalı (403), %d", code)
+	}
+	// OPERATOR dev-1'e "prod" etiketi ekler.
+	if code, _ := post(t, ts.URL+"/api/devices/dev-1/tags", opTok, map[string][]string{"tags": {"prod", "finans"}}); code != http.StatusOK {
+		t.Fatalf("OPERATOR etiket ayarlamalı (200), %d", code)
+	}
+
+	// Filtre: ?tag=prod yalnız dev-1'i döner.
+	r, err := authedGET(t, ts.URL+"/api/devices?tag=prod", opTok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Devices []struct {
+			ID   string   `json:"id"`
+			Tags []string `json:"tags"`
+		} `json:"devices"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Devices) != 1 || out.Devices[0].ID != "dev-1" {
+		t.Fatalf("?tag=prod yalnız dev-1 dönmeliydi: %+v", out.Devices)
+	}
+	if len(out.Devices[0].Tags) != 2 {
+		t.Fatalf("dev-1 iki etiket taşımalıydı: %+v", out.Devices[0].Tags)
+	}
+	// Eşleşmeyen etiket → boş.
+	r2, _ := authedGET(t, ts.URL+"/api/devices?tag=yok", opTok)
+	var out2 struct {
+		Devices []struct{ ID string } `json:"devices"`
+	}
+	_ = json.NewDecoder(r2.Body).Decode(&out2)
+	if len(out2.Devices) != 0 {
+		t.Fatalf("eşleşmeyen etiket boş dönmeliydi: %+v", out2.Devices)
+	}
+}
+
 // /api/detections/rules: kimlik doğrulanmış admin tespit kural kataloğunu alır.
 func TestDetectionRulesEndpoint(t *testing.T) {
 	ts, store := setup(t)

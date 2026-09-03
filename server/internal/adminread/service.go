@@ -21,6 +21,7 @@ type DeviceRow struct {
 	LastSeen     time.Time
 	HostnameEnc  []byte
 	MACEnc       []byte
+	Tags         []string
 }
 
 // EventRow, DB'den okunan ham olay satırıdır (şifresiz).
@@ -77,10 +78,10 @@ type EnrollmentTokenRow struct {
 // PolicyRow, DB'den okunan ham politika satırıdır (kural + atanmış cihaz
 // sayımlarıyla). Politika adı/sürümü hassas değildir; şifrelenmez.
 type PolicyRow struct {
-	ID         string
-	Name       string
-	Version    string
-	RuleCount  int
+	ID          string
+	Name        string
+	Version     string
+	RuleCount   int
 	DeviceCount int
 }
 
@@ -118,6 +119,7 @@ type DeviceDTO struct {
 	AgentVersion string    `json:"agent_version"`
 	OSPlatform   string    `json:"os_platform"`
 	LastSeen     time.Time `json:"last_seen"`
+	Tags         []string  `json:"tags"`
 }
 
 // CertView, konsola dönen sertifika görünümüdür.
@@ -232,9 +234,19 @@ func (s *Service) Devices(ctx context.Context, limit int) ([]DeviceDTO, error) {
 			AgentVersion: r.AgentVersion,
 			OSPlatform:   r.OSPlatform,
 			LastSeen:     r.LastSeen,
+			Tags:         nonNilTags(r.Tags),
 		})
 	}
 	return out, nil
+}
+
+// nonNilTags, JSON'da null yerine boş dizi dönmek için nil dilimi []string{}'e
+// çevirir (konsol her zaman dizi bekler).
+func nonNilTags(t []string) []string {
+	if t == nil {
+		return []string{}
+	}
+	return t
 }
 
 // DeviceDetail, tek bir cihazın tam görünümünü döner. Cihaz bulunamazsa
@@ -286,6 +298,7 @@ func (s *Service) DeviceDetail(ctx context.Context, id string) (DeviceDetailDTO,
 			AgentVersion: row.AgentVersion,
 			OSPlatform:   row.OSPlatform,
 			LastSeen:     row.LastSeen,
+			Tags:         nonNilTags(row.Tags),
 		},
 		Certs:                 certs,
 		Commands:              commands,
