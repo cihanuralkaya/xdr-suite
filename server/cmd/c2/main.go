@@ -25,6 +25,7 @@ import (
 	"xdr.corp/suite/server/internal/adminread"
 	"xdr.corp/suite/server/internal/config"
 	"xdr.corp/suite/server/internal/db"
+	"xdr.corp/suite/server/internal/detect"
 	"xdr.corp/suite/server/internal/enroll"
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/memstore"
@@ -189,6 +190,11 @@ func run() error {
 	liveBus := eventbus.New()
 	agentHandler.SetAdminNotifier(liveBus)
 
+	// Sunucu-taraflı tespit motoru (tek kaynak): ingest'te değerlendirme + konsol
+	// kural kataloğu ucu aynı motoru paylaşır.
+	detector := detect.NewEngine(nil)
+	agentHandler.SetDetector(detector)
+
 	// Dış uyarı (SOC webhook): XDR_ALERT_WEBHOOK_URL ayarlıysa yüksek önem düzeyli
 	// olaylar bir HTTPS webhook'una gönderilir (Slack/Teams/genel). Eşik
 	// XDR_ALERT_MIN_SEVERITY (varsayılan HIGH).
@@ -243,6 +249,7 @@ func run() error {
 	// token). Ayarlı değilse uç kapalıdır (toplu veriyi kimliksiz sızdırmama).
 	metrics.SetBuildVersion(os.Getenv("XDR_BUILD_VERSION"))
 	adminAPI.SetMetricsToken(os.Getenv("XDR_METRICS_TOKEN"))
+	adminAPI.SetDetector(detector) // tespit kural kataloğu (ingest ile aynı motor)
 	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek

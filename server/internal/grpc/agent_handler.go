@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
+	"xdr.corp/suite/server/internal/detect"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/mitre"
 	"xdr.corp/suite/server/internal/model"
@@ -102,7 +103,17 @@ type AgentHandler struct {
 	admin     AdminNotifier
 	alerter   notify.Notifier
 	responder AutoResponder
+	detector  *detect.Engine
 	now       func() time.Time
+}
+
+// SetDetector, sunucu-taraflı tespit kural motorunu ayarlar. nil ise yerleşik
+// varsayılan kural seti kullanılır.
+func (h *AgentHandler) SetDetector(e *detect.Engine) {
+	if e == nil {
+		e = detect.NewEngine(nil)
+	}
+	h.detector = e
 }
 
 // SetAlerter, yüksek önem düzeyli olaylarda dış uyarı (webhook) gönderimini
@@ -137,7 +148,7 @@ func NewAgentHandler(devices DeviceRegistry, events EventSink, policies PolicyPr
 	if notifier == nil {
 		notifier = noopNotifier{}
 	}
-	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, alerter: noopAlerter{}, responder: noopResponder{}, now: time.Now}
+	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, alerter: noopAlerter{}, responder: noopResponder{}, detector: detect.NewEngine(nil), now: time.Now}
 }
 
 // Heartbeat, yaşam sinyalini işler. Yanıt SUNUCU SAATİNİ taşır — ajan, politika
@@ -207,20 +218,36 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 		metrics.AddEventsIngested(len(domainEvents))
 		for _, e := range domainEvents {
 			h.admin.PublishEvent(deviceID, e.Severity, e.Message) // konsola canlı push
-			// Yüksek önem düzeyli olaylarda SOC'a gerçek-zamanlı dış uyarı (best-effort;
-			// eşik/filtre notifier içinde). noop notifier'da maliyetsizdir. Uyarı,
-			// MITRE ATT&CK teknik/taktik bağlamıyla zenginleştirilir.
-			al := notify.Alert{
-				DeviceID:   deviceID,
-				Category:   e.Category,
-				Severity:   e.Severity,
-				Message:    e.Message,
-				OccurredAt: e.OccurredAt,
+			// Sunucu-taraflı tespit: kural eşleşirse ADLANDIRILMIŞ, normalize önem
+			// düzeyli + MITRE bağlamlı uyarı üret (ham olayın yerine geçer). Eşleşme
+			// yoksa jenerik yol: ham önem düzeyi + MITRE sınıflandırması. Uyarı
+			// best-effort; eşik/filtre notifier içinde. noop notifier'da maliyetsiz.
+			if dets := h.detector.Evaluate(e); len(dets) > 0 {
+				for _, d := range dets {
+					h.alerter.Notify(notify.Alert{
+						DeviceID:      deviceID,
+						Category:      e.Category,
+						Severity:      d.Severity,
+						Message:       "[" + d.RuleName + "] " + e.Message,
+						OccurredAt:    e.OccurredAt,
+						TechniqueID:   d.Technique.ID,
+						TechniqueName: d.Technique.Name,
+						Tactic:        d.Technique.Tactic,
+					})
+				}
+			} else {
+				al := notify.Alert{
+					DeviceID:   deviceID,
+					Category:   e.Category,
+					Severity:   e.Severity,
+					Message:    e.Message,
+					OccurredAt: e.OccurredAt,
+				}
+				if tq, ok := mitre.Classify(e.Category, e.Message); ok {
+					al.TechniqueID, al.TechniqueName, al.Tactic = tq.ID, tq.Name, tq.Tactic
+				}
+				h.alerter.Notify(al)
 			}
-			if tq, ok := mitre.Classify(e.Category, e.Message); ok {
-				al.TechniqueID, al.TechniqueName, al.Tactic = tq.ID, tq.Name, tq.Tactic
-			}
-			h.alerter.Notify(al)
 		}
 		// Otomatik müdahale (SOAR): kritik olay geldiyse cihazı otomatik karantinaya
 		// al (akış başına bir kez; noop responder'da maliyetsiz). Hata olay-alımını

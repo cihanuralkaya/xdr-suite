@@ -24,6 +24,7 @@ import (
 
 	"xdr.corp/suite/server/internal/admin"
 	"xdr.corp/suite/server/internal/adminread"
+	"xdr.corp/suite/server/internal/detect"
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/mitre"
@@ -53,7 +54,17 @@ type Server struct {
 	dummyHash    string // SEC-004: bilinmeyen e-postada sabit-zaman için sahte Argon2 hash
 	sseConns     int64  // SEC-007: aktif SSE bağlantı sayısı (atomik)
 	auditVerify  func(context.Context) error
-	metricsToken string // ayarlıysa /metrics bu Bearer token ile açılır; boşsa uç kapalı
+	metricsToken string         // ayarlıysa /metrics bu Bearer token ile açılır; boşsa uç kapalı
+	detector     *detect.Engine // tespit kural kataloğu (görünürlük ucu)
+}
+
+// SetDetector, tespit kural motorunu bağlar (kural kataloğu ucu için). nil ise
+// yerleşik varsayılan kurallar kullanılır.
+func (s *Server) SetDetector(e *detect.Engine) {
+	if e == nil {
+		e = detect.NewEngine(nil)
+	}
+	s.detector = e
 }
 
 // SetMetricsToken, Prometheus /metrics ucunu verilen statik Bearer token ile
@@ -88,6 +99,7 @@ func New(adminSvc *admin.Service, reader *adminread.Service, auth AuthStore, ses
 		loginLim:  newLoginLimiter(5, 15*time.Minute),
 		notice:    defaultPrivacyNotice,
 		dummyHash: dummyHash,
+		detector:  detect.NewEngine(nil),
 	}
 }
 
@@ -165,6 +177,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
+	mux.HandleFunc("GET /api/detections/rules", s.authed(s.handleDetectionRules))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
 	mux.HandleFunc("GET /api/audit/verify", s.authed(s.handleVerifyAudit))
 	mux.HandleFunc("GET /api/stream", s.authed(s.handleStream))
@@ -649,6 +662,12 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request, _ string)
 // döner (kapsama matrisi). Konsol bunu ATT&CK kapsama görünümünde kullanır.
 func (s *Server) handleMitreCoverage(w http.ResponseWriter, _ *http.Request, _ string) {
 	writeJSON(w, http.StatusOK, map[string]any{"techniques": mitre.Catalog()})
+}
+
+// handleDetectionRules, devrede olan sunucu-taraflı tespit kurallarını (katalog)
+// döner. Konsol bunu "hangi tespitler etkin" görünümünde kullanır.
+func (s *Server) handleDetectionRules(w http.ResponseWriter, _ *http.Request, _ string) {
+	writeJSON(w, http.StatusOK, map[string]any{"rules": s.detector.Rules()})
 }
 
 // handleStream, Server-Sent Events (SSE) ile canlı değişiklik bildirimleri iletir.

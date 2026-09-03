@@ -414,6 +414,18 @@
             <div id="mitre-empty" class="empty" style="padding:14px">Yükleniyor…</div>
           </div>
         </div>
+        <div class="card">
+          <div class="head"><h2>🛰️ Tespit Kuralları</h2>
+            <span class="sp"></span><span id="det-count" class="count">0</span></div>
+          <div class="body">
+            <p class="hint" style="margin:0 0 10px">Sunucu-taraflı, adlandırılmış tespit kuralları (olay örüntüsü → önem + ATT&amp;CK).</p>
+            <div class="tbl-wrap">
+              <table><thead><tr><th>ID</th><th>Ad</th><th>Önem</th><th>Teknik</th></tr></thead>
+                <tbody id="det-body"></tbody></table>
+            </div>
+            <div id="det-empty" class="empty" style="padding:14px">Yükleniyor…</div>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -801,6 +813,19 @@
       });
     }).catch(function(e){ $("mitre-empty").textContent="ATT&CK kapsamı yüklenemedi ("+e.message+")."; });
   }
+  function loadDetections(){
+    return api("/api/detections/rules").then(function(r){
+      var rules=(r&&r.rules)||[]; var body=$("det-body"); body.innerHTML="";
+      $("det-count").textContent=rules.length;
+      $("det-empty").style.display=rules.length?"none":"block";
+      rules.forEach(function(x){
+        var tech=(x.technique&&x.technique.id)?(x.technique.id):"";
+        var tr=document.createElement("tr");
+        tr.innerHTML="<td><b>"+esc(x.id)+"</b></td><td>"+esc(x.name)+"</td><td>"+esc(x.severity)+"</td><td>"+esc(tech)+"</td>";
+        body.appendChild(tr);
+      });
+    }).catch(function(e){ $("det-empty").textContent="Tespit kuralları yüklenemedi ("+e.message+")."; });
+  }
   function renderPolicies(){
     var body=$("pol-body"); body.innerHTML="";
     var p=state.policies||[];
@@ -1061,6 +1086,7 @@
     $("who").textContent=email;
     $("login").style.display="none"; $("app").style.display="grid";
     loadMitre();
+    loadDetections();
     refresh().then(function(){ startAuto(); startStream(); });
   }
 

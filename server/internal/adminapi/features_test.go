@@ -64,6 +64,36 @@ func TestMitreCoverageEndpoint(t *testing.T) {
 	}
 }
 
+// /api/detections/rules: kimlik doğrulanmış admin tespit kural kataloğunu alır.
+func TestDetectionRulesEndpoint(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "v1", "viewer@x", "secret", admin.RoleViewer)
+
+	if r, _ := authedGET(t, ts.URL+"/api/detections/rules", ""); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("kimliksiz istek 401 dönmeliydi, %d", r.StatusCode)
+	}
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "viewer@x", "password": "secret"})
+	r, err := authedGET(t, ts.URL+"/api/detections/rules", body["token"])
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("kural kataloğu 200 dönmeliydi, %d %v", r.StatusCode, err)
+	}
+	var out struct {
+		Rules []struct {
+			ID, Name, Severity string
+		} `json:"rules"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Rules) == 0 {
+		t.Fatal("kural kataloğu boş döndü")
+	}
+	if out.Rules[0].ID == "" || out.Rules[0].Severity == "" {
+		t.Fatalf("kural alanları eksik: %+v", out.Rules[0])
+	}
+}
+
 func TestConsoleCSPNonce(t *testing.T) {
 	ts, _ := setup(t)
 	defer ts.Close()
