@@ -214,6 +214,20 @@ func run() error {
 	// Uyum durumu: başlangıçta disk şifreleme kontrol edilir ve raporlanır. Şifreleme
 	// KAPALIYSA güvenlik-duruşu ihlali (SECURITY/MEDIUM); açık/bilinmiyor bilgi amaçlı.
 	reportCompliance(buf, compliance.NewChecker())
+	// Periyodik uyum yeniden-kontrolü: disk şifreleme açılıştan sonra kapatılırsa
+	// yakalanır (EDR duruş takibi). Seyrek (exec-ağır); durum değişince olay üretir.
+	go func() {
+		t := time.NewTicker(complianceInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				reportCompliance(buf, compliance.NewChecker())
+			}
+		}
+	}()
 
 	// Kalıcı politika aboneliği: sunucu politika değiştikçe anında iter.
 	go runPolicyStream(ctx, cli, ident, &engine)
@@ -518,6 +532,9 @@ func runCertRenewal(ctx context.Context, cfg envConfig, holder *transport.CertHo
 // scanNetwork, komşu tablosunu tarar ve yeni tespit edilen cihazları
 // NETWORK_DISCOVERY olayı olarak tamponlar. Yetkisiz cihazlar MEDIUM olarak
 // işaretlenir.
+// complianceInterval, uyum durumunun periyodik yeniden-kontrol aralığıdır.
+const complianceInterval = 6 * time.Hour
+
 // reportCompliance, disk şifreleme uyum durumunu bir olay olarak yayınlar. Şifreleme
 // kapalıysa SECURITY/MEDIUM (uyum ihlali), aksi halde SYSTEM/INFO. Details, konsol
 // detay panelinde ve sunucu event_logs'ta durumu taşır.
