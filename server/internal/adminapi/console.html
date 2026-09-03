@@ -1427,17 +1427,25 @@
 
   // ---------- sidebar navigation (görünüm geçişi) ----------
   var NAV_TITLES={ overview:"Genel Bakış", devices:"Cihazlar", policies:"Politika & Kayıt", security:"Güvenlik", admin:"Yönetim" };
-  function setView(v){
+  function setView(v, fromHash){
     if(!NAV_TITLES[v]) v="overview";
     var m=document.querySelector("main"); if(m) m.setAttribute("data-active",v);
     var pt=$("page-title"); if(pt) pt.textContent=NAV_TITLES[v];
     document.querySelectorAll(".nav-item[data-nav]").forEach(function(b){ b.classList.toggle("active", b.dataset.nav===v); });
     try{ localStorage.setItem("xdr_view",v); }catch(e){}
+    // Paylaşılabilir/yer-imlenebilir derin bağlantı: URL hash'ini bölüme eşle.
+    if(!fromHash && ("#"+v)!==location.hash){ try{ history.replaceState(null,"","#"+v); }catch(e){ location.hash=v; } }
   }
   document.querySelectorAll(".nav-item[data-nav]").forEach(function(b){
     b.addEventListener("click",function(){ setView(b.dataset.nav); });
   });
-  (function(){ var v="overview"; try{ v=localStorage.getItem("xdr_view")||"overview"; }catch(e){} setView(v); })();
+  // Tarayıcı geri/ileri ve elle hash değişimi bölümü değiştirir.
+  window.addEventListener("hashchange",function(){ var h=location.hash.replace(/^#/,""); if(NAV_TITLES[h]) setView(h,true); });
+  (function(){
+    var h=location.hash.replace(/^#/,""), v;
+    if(NAV_TITLES[h]) v=h; else { try{ v=localStorage.getItem("xdr_view"); }catch(e){} }
+    setView(v||"overview", true);
+  })();
 
   // ---------- wire ----------
   $("l-btn").onclick=doLogin;
