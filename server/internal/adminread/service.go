@@ -171,7 +171,8 @@ type SummaryDTO struct {
 	DevicesQuarantined int            `json:"devices_quarantined"`
 	EventsBySeverity   map[string]int `json:"events_by_severity"` // INFO/LOW/MEDIUM/HIGH/CRITICAL
 	EventsByCategory   map[string]int `json:"events_by_category"`
-	Since              time.Time      `json:"since"` // sayımların kapsadığı pencerenin başı (RFC3339)
+	DevicesByOS        map[string]int `json:"devices_by_os"` // OS sürümü/platform → cihaz sayısı (filo envanteri)
+	Since              time.Time      `json:"since"`         // sayımların kapsadığı pencerenin başı (RFC3339)
 }
 
 // summaryWindow, özet olay sayımlarının kapsadığı zaman penceresidir (son 24 saat).
@@ -365,10 +366,20 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		return SummaryDTO{}, err
 	}
 	online := 0
+	byOS := map[string]int{}
 	for _, r := range rows {
 		if now.Sub(r.LastSeen) < onlineWindow {
 			online++
 		}
+		// Filo OS envanteri: sürüm varsa ona, yoksa platforma, o da yoksa "bilinmiyor".
+		key := r.OSVersion
+		if key == "" {
+			key = r.OSPlatform
+		}
+		if key == "" {
+			key = "bilinmiyor"
+		}
+		byOS[key]++
 	}
 	offline := total - online
 	if offline < 0 {
@@ -389,6 +400,7 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		DevicesQuarantined: statusCounts["QUARANTINED"],
 		EventsBySeverity:   sevCounts,
 		EventsByCategory:   catCounts,
+		DevicesByOS:        byOS,
 		Since:              since,
 	}, nil
 }

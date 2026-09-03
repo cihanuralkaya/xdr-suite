@@ -143,9 +143,9 @@ func TestSummaryCounts(t *testing.T) {
 	now := time.Now()
 	store := &memStore{
 		devices: []DeviceRow{
-			{ID: "d1", Status: "ACTIVE", LastSeen: now},                       // online
-			{ID: "d2", Status: "ACTIVE", LastSeen: now.Add(-5 * time.Minute)}, // offline
-			{ID: "d3", Status: "QUARANTINED", LastSeen: now.Add(-time.Hour)},  // offline
+			{ID: "d1", Status: "ACTIVE", LastSeen: now, OSVersion: "Windows 10"},                       // online
+			{ID: "d2", Status: "ACTIVE", LastSeen: now.Add(-5 * time.Minute), OSVersion: "Windows 10"}, // offline
+			{ID: "d3", Status: "QUARANTINED", LastSeen: now.Add(-time.Hour), OSPlatform: "linux"},      // offline (sürüm yok → platform)
 		},
 		events: []EventRow{
 			{Severity: "HIGH", Category: "SECURITY", CreatedAt: now},
@@ -171,6 +171,9 @@ func TestSummaryCounts(t *testing.T) {
 	}
 	if sum.DevicesQuarantined != 1 {
 		t.Fatalf("karantina 1 beklenirdi, %d", sum.DevicesQuarantined)
+	}
+	if sum.DevicesByOS["Windows 10"] != 2 || sum.DevicesByOS["linux"] != 1 {
+		t.Fatalf("OS envanteri hatalı (Windows 10:2, linux:1 beklenirdi): %+v", sum.DevicesByOS)
 	}
 	if sum.EventsBySeverity["HIGH"] != 2 || sum.EventsBySeverity["INFO"] != 1 {
 		t.Fatalf("önem sayımları hatalı: %+v", sum.EventsBySeverity)

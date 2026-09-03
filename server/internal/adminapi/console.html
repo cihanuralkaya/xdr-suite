@@ -385,6 +385,13 @@
       </div>
     </div>
 
+    <div class="card" data-view="overview">
+      <div class="head"><h2>🖥️ OS Envanteri <span class="count" id="osinv-count">0</span></h2></div>
+      <div class="body">
+        <div id="osinv" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+
     <div class="grid">
       <div class="col">
         <!-- DEVICES -->
@@ -884,6 +891,24 @@
 
   var SEV_ORDER=["CRITICAL","HIGH","MEDIUM","LOW","INFO"];
   var SEV_COLOR={CRITICAL:"var(--crit)",HIGH:"var(--warn)",MEDIUM:"var(--med)",LOW:"var(--accent)",INFO:"var(--faint)"};
+  function renderOSInventory(){
+    var box=$("osinv"); if(!box) return;
+    var m=(state.summary&&state.summary.devices_by_os)||{};
+    var items=Object.keys(m).map(function(k){ return [k,m[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+    var total=items.reduce(function(s,x){ return s+x[1]; },0);
+    $("osinv-count").textContent=items.length;
+    if(!items.length){ box.innerHTML="<div class='empty' style='padding:8px'>Kayıtlı cihaz yok.</div>"; return; }
+    box.innerHTML="";
+    items.forEach(function(x){
+      var pct=total?Math.round(x[1]*100/total):0;
+      var row=document.createElement("div");
+      row.innerHTML="<div style='display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px'>"+
+        "<span>"+esc(x[0])+"</span><span class='mono' style='color:var(--muted)'>"+x[1]+" (%"+pct+")</span></div>"+
+        "<div style='height:7px;border-radius:4px;background:var(--panel2);overflow:hidden'>"+
+        "<div style='height:100%;width:"+pct+"%;background:var(--accent)'></div></div>";
+      box.appendChild(row);
+    });
+  }
   function renderSeverity(){
     var s=state.summary, card=$("sevcard");
     var sev=(s&&s.events_by_severity)||null;
@@ -1040,7 +1065,7 @@
       state.tokens = (r[4] && r[4].tokens) || [];
       if(r[5] && r[5].admins) state.admins = r[5].admins;
       state.policies = (r[6] && r[6].policies) || [];
-      renderStats(); renderSeverity(); renderDevices(); renderEvents(); renderAudit();
+      renderStats(); renderSeverity(); renderOSInventory(); renderDevices(); renderEvents(); renderAudit();
       renderTokens(); renderAdmins(); renderPolicies(); setLive(true);
       loadActivity();
       if(state.sel) loadDetail(state.sel);
