@@ -67,6 +67,8 @@ mkclient -os linux -server c2.sirket.local \
 ```
 Hedefte (root): `sudo ./xdr-agent-setup.sh` → kayıt kodunu girin.
 
+Tüm ajan ortam değişkenleri: `deploy/agent.env.example`.
+
 `-safe-mode` bayrağı: karantina gerçek ağ değişikliği yapmaz (test/dağıtım
 başlangıcı için güvenli).
 
