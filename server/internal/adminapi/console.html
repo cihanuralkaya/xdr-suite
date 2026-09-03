@@ -1437,8 +1437,22 @@
       }).join("") : "<div class='mini'>— bu cihaz için olay yok</div>";
       var dev=d.device||{};
       var sysLine=esc(dev.os_platform||"-")+(dev.os_version?" · "+esc(dev.os_version):"")+" · ajan "+esc(dev.agent_version||"-");
+      // Ağ keşfi: NETWORK_DISCOVERY olaylarının Details'inden komşu (ip/mac) listesi.
+      var neigh={};
+      evs.forEach(function(e){
+        if(e.category!=="NETWORK_DISCOVERY" || !e.details) return;
+        var dt=e.details, key=(dt.mac||dt.ip||"");
+        if(key) neigh[key]={ip:dt.ip||"", mac:dt.mac||"", authorized:dt.authorized};
+      });
+      var nk=Object.keys(neigh);
+      var neighHtml = nk.length ? nk.map(function(k){ var n=neigh[k];
+        return "<div class='mini' style='display:flex;gap:8px'><span class='mono' style='min-width:112px'>"+esc(n.ip||"-")+"</span>"+
+          "<span class='mono' style='color:var(--muted);flex:1'>"+esc(n.mac||"-")+"</span>"+
+          (n.authorized===false?"<span style='color:var(--warn)'>YETKİSİZ</span>":"")+"</div>";
+      }).join("") : "";
       el.innerHTML =
         "<h4>Sistem</h4><div class='mini'>"+sysLine+"</div>"+
+        (neighHtml?("<h4>Ağ keşfi — komşular ("+nk.length+")</h4>"+neighHtml):"")+
         "<h4>Atanmış politika</h4><div class='mini'>"+(d.assigned_policy_id?(esc(d.assigned_policy_id)+" ("+esc(d.assigned_policy_version)+")"):"— yok")+"</div>"+
         "<h4>Son olaylar ("+evs.length+")</h4>"+evHtml+
         "<h4>Sertifikalar</h4>"+certs+
