@@ -33,6 +33,7 @@ import (
 	"xdr.corp/suite/agent/internal/anomaly"
 	"xdr.corp/suite/agent/internal/certrenew"
 	"xdr.corp/suite/agent/internal/collector"
+	"xdr.corp/suite/agent/internal/compliance"
 	"xdr.corp/suite/agent/internal/discovery"
 	"xdr.corp/suite/agent/internal/enforce"
 	"xdr.corp/suite/agent/internal/liveness"
@@ -203,6 +204,10 @@ func run() error {
 
 	// Başlangıç yaşam-döngüsü olayı (gerçek olay; uydurma telemetri değil).
 	buf.Add(collector.Event{Category: "SYSTEM", Severity: "INFO", Message: "ajan başladı", OccurredAt: time.Now()})
+
+	// Uyum durumu: başlangıçta disk şifreleme kontrol edilir ve raporlanır. Şifreleme
+	// KAPALIYSA güvenlik-duruşu ihlali (SECURITY/MEDIUM); açık/bilinmiyor bilgi amaçlı.
+	reportCompliance(buf, compliance.NewChecker())
 
 	// Kalıcı politika aboneliği: sunucu politika değiştikçe anında iter.
 	go runPolicyStream(ctx, cli, ident, &engine)
@@ -506,6 +511,24 @@ func runCertRenewal(ctx context.Context, cfg envConfig, holder *transport.CertHo
 // scanNetwork, komşu tablosunu tarar ve yeni tespit edilen cihazları
 // NETWORK_DISCOVERY olayı olarak tamponlar. Yetkisiz cihazlar MEDIUM olarak
 // işaretlenir.
+// reportCompliance, disk şifreleme uyum durumunu bir olay olarak yayınlar. Şifreleme
+// kapalıysa SECURITY/MEDIUM (uyum ihlali), aksi halde SYSTEM/INFO. Details, konsol
+// detay panelinde ve sunucu event_logs'ta durumu taşır.
+func reportCompliance(buf *collector.Buffer, chk compliance.Checker) {
+	status := chk.DiskEncryption()
+	cat, sev, msg := "SYSTEM", "INFO", "disk şifreleme: "+status
+	if status == compliance.EncOff {
+		cat, sev, msg = "SECURITY", "MEDIUM", "uyum ihlali: disk şifreleme KAPALI"
+	}
+	buf.Add(collector.Event{
+		Category:   cat,
+		Severity:   sev,
+		Message:    msg,
+		OccurredAt: time.Now(),
+		Details:    map[string]any{"disk_encryption": status},
+	})
+}
+
 func scanNetwork(src discovery.NeighborSource, tr *discovery.Tracker, buf *collector.Buffer) {
 	hosts, err := src.Neighbors()
 	if err != nil {
