@@ -916,7 +916,18 @@
       pill.className="pill "+(q?"q":(online?"on":"offl"));
       pill.textContent = q?"KARANTİNA":(online?"ÇEVRİMİÇİ":"ÇEVRİMDIŞI");
       st.appendChild(pill); tr.appendChild(st);
-      tr.appendChild(cell(d.hostname||"-"));
+      var hostTd=document.createElement("td");
+      var hn=document.createElement("div"); hn.textContent=d.hostname||"-"; hostTd.appendChild(hn);
+      if(d.tags && d.tags.length){
+        var tw=document.createElement("div"); tw.style.cssText="display:flex;flex-wrap:wrap;gap:4px;margin-top:3px";
+        d.tags.slice(0,6).forEach(function(t){
+          var c=document.createElement("span"); c.textContent=t;
+          c.style.cssText="background:var(--accent-dim);color:var(--accent);border:1px solid var(--line2);border-radius:8px;padding:1px 6px;font-size:10px";
+          tw.appendChild(c);
+        });
+        hostTd.appendChild(tw);
+      }
+      tr.appendChild(hostTd);
       tr.appendChild(cell(d.mac||"-","mono"));
       tr.appendChild(cell(d.agent_version||"-","mono"));
       tr.appendChild(cell(relTime(d.last_seen)));
