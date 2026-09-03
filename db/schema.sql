@@ -59,6 +59,7 @@ CREATE TABLE devices (
     mac_address_bidx       BYTEA NOT NULL UNIQUE,
     agent_version          VARCHAR(50),
     os_platform            VARCHAR(20),               -- "windows" | "linux"
+    os_version             VARCHAR(120),              -- okunabilir OS sürümü (filo envanteri)
     status                 device_status NOT NULL DEFAULT 'PENDING_ENROLLMENT',
     current_policy_version VARCHAR(64),
     tags                   TEXT[] NOT NULL DEFAULT '{}',   -- filo gruplama/etiketleme

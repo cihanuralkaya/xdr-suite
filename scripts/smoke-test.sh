@@ -127,6 +127,14 @@ curl -sk "$B/api/activity" -H "Authorization: Bearer $TOK" | grep -q "detections
 # Tespit kural kataloğu ucu.
 curl -sk "$B/api/detections/rules" -H "Authorization: Bearer $TOK" | grep -q "XDR-0001" \
   && pass "/api/detections/rules kataloğu döndü" || fail "/api/detections/rules başarısız"
+# Zengin telemetri: cihaz OS sürümü (ilk heartbeat'ten sonra dolar) — poll et.
+osv=""
+for _ in $(seq 1 40); do
+  osv="$(curl -sk "$B/api/devices" -H "Authorization: Bearer $TOK" | grep -oE '"os_version":"[^"]+"' | head -1)"
+  [ -n "$osv" ] && break
+  sleep 0.25
+done
+[ -n "$osv" ] && pass "cihaz OS sürümü raporlandı ($osv)" || fail "os_version boş kaldı"
 # Sağlık uçları (kimlik doğrulama YOK) — /healthz sürüm + uptime içerir.
 curl -sk "$B/healthz" | grep -q "uptime_seconds" \
   && pass "/healthz sürüm + uptime içeriyor" || fail "/healthz zenginleştirme yok"

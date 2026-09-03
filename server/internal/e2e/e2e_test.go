@@ -386,7 +386,7 @@ func (m *memStore) DeviceHasActiveCert(_ context.Context, _ string) (bool, error
 	return true, nil // e2e yenileme-iptal senaryosunu test etmez; aktif kabul
 }
 
-func (m *memStore) TouchHeartbeat(_ context.Context, deviceID, _ string, _ time.Time) (string, error) {
+func (m *memStore) TouchHeartbeat(_ context.Context, deviceID, _, _ string, _ time.Time) (string, error) {
 	return "", nil
 }
 

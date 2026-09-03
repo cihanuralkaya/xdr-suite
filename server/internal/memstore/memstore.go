@@ -32,6 +32,7 @@ type device struct {
 	osEnc         []byte
 	macBidx       []byte
 	osPlatform    string
+	osVersion     string
 	agentVersion  string
 	status        string
 	policyVersion string
@@ -232,7 +233,7 @@ func (s *Store) DeviceHasActiveCert(_ context.Context, deviceID string) (bool, e
 
 // --- DeviceRegistry ---
 
-func (s *Store) TouchHeartbeat(_ context.Context, deviceID, agentVersion string, at time.Time) (string, error) {
+func (s *Store) TouchHeartbeat(_ context.Context, deviceID, agentVersion, osVersion string, at time.Time) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d, ok := s.devices[deviceID]
@@ -242,6 +243,9 @@ func (s *Store) TouchHeartbeat(_ context.Context, deviceID, agentVersion string,
 	d.lastSeen = at
 	if agentVersion != "" {
 		d.agentVersion = agentVersion
+	}
+	if osVersion != "" {
+		d.osVersion = osVersion
 	}
 	if d.status == "OFFLINE" {
 		d.status = "ACTIVE"
@@ -710,7 +714,7 @@ func (s *Store) ListDevices(_ context.Context, limit int) ([]adminread.DeviceRow
 	for _, d := range s.devices {
 		out = append(out, adminread.DeviceRow{
 			ID: d.id, Status: d.status, AgentVersion: d.agentVersion, OSPlatform: d.osPlatform,
-			LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc, Tags: append([]string(nil), d.tags...),
+			LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc, OSVersion: d.osVersion, Tags: append([]string(nil), d.tags...),
 		})
 		if limit > 0 && len(out) >= limit {
 			break
@@ -814,7 +818,7 @@ func (s *Store) DeviceByID(_ context.Context, id string) (adminread.DeviceRow, b
 	}
 	return adminread.DeviceRow{
 		ID: d.id, Status: d.status, AgentVersion: d.agentVersion, OSPlatform: d.osPlatform,
-		LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc, Tags: append([]string(nil), d.tags...),
+		LastSeen: d.lastSeen, HostnameEnc: d.hostnameEnc, MACEnc: d.macEnc, OSVersion: d.osVersion, Tags: append([]string(nil), d.tags...),
 	}, true, nil
 }
 

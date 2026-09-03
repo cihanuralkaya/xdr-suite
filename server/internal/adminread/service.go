@@ -18,6 +18,7 @@ type DeviceRow struct {
 	Status       string
 	AgentVersion string
 	OSPlatform   string
+	OSVersion    string
 	LastSeen     time.Time
 	HostnameEnc  []byte
 	MACEnc       []byte
@@ -118,6 +119,7 @@ type DeviceDTO struct {
 	Status       string    `json:"status"`
 	AgentVersion string    `json:"agent_version"`
 	OSPlatform   string    `json:"os_platform"`
+	OSVersion    string    `json:"os_version"`
 	LastSeen     time.Time `json:"last_seen"`
 	Tags         []string  `json:"tags"`
 }
@@ -233,6 +235,7 @@ func (s *Service) Devices(ctx context.Context, limit int) ([]DeviceDTO, error) {
 			Status:       r.Status,
 			AgentVersion: r.AgentVersion,
 			OSPlatform:   r.OSPlatform,
+			OSVersion:    r.OSVersion,
 			LastSeen:     r.LastSeen,
 			Tags:         nonNilTags(r.Tags),
 		})
@@ -297,6 +300,7 @@ func (s *Service) DeviceDetail(ctx context.Context, id string) (DeviceDetailDTO,
 			Status:       row.Status,
 			AgentVersion: row.AgentVersion,
 			OSPlatform:   row.OSPlatform,
+			OSVersion:    row.OSVersion,
 			LastSeen:     row.LastSeen,
 			Tags:         nonNilTags(row.Tags),
 		},

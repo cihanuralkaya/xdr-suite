@@ -27,7 +27,7 @@ func TestMarkStaleOfflineOnlyTouchesStaleActive(t *testing.T) {
 
 	now := time.Now()
 	// Cihaz taze görüldü: bayat değil, OFFLINE olmamalı.
-	if _, err := s.TouchHeartbeat(ctx, id, "", now); err != nil {
+	if _, err := s.TouchHeartbeat(ctx, id, "", "", now); err != nil {
 		t.Fatal(err)
 	}
 	n, err := s.MarkStaleOffline(ctx, now.Add(-90*time.Second))
@@ -39,7 +39,7 @@ func TestMarkStaleOfflineOnlyTouchesStaleActive(t *testing.T) {
 	}
 
 	// Cihaz eskisi görüldü (eşiğin gerisinde): OFFLINE işaretlenmeli.
-	if _, err := s.TouchHeartbeat(ctx, id, "", now.Add(-5*time.Minute)); err != nil {
+	if _, err := s.TouchHeartbeat(ctx, id, "", "", now.Add(-5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	n, err = s.MarkStaleOffline(ctx, now.Add(-90*time.Second))
@@ -67,7 +67,7 @@ func TestMarkStaleOfflinePreservesQuarantined(t *testing.T) {
 	id := enrollDevice(t, s)
 
 	// Cihaz eski görüldü ama QUARANTINED: bayat görev buna dokunmamalı.
-	if _, err := s.TouchHeartbeat(ctx, id, "", time.Now().Add(-10*time.Minute)); err != nil {
+	if _, err := s.TouchHeartbeat(ctx, id, "", "", time.Now().Add(-10*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetDeviceStatus(ctx, id, "QUARANTINED"); err != nil {
@@ -90,5 +90,23 @@ func TestSetDeviceStatusUnknownDeviceNoError(t *testing.T) {
 	s := New()
 	if err := s.SetDeviceStatus(context.Background(), "yok", "ACTIVE"); err != nil {
 		t.Fatalf("bilinmeyen cihaz sessizce geçilmeli: %v", err)
+	}
+}
+
+func TestTouchHeartbeatStoresOSVersion(t *testing.T) {
+	s := New()
+	id, _ := s.UpsertEnrollingDevice(context.Background(), enroll.DeviceEnrollment{PreferredDeviceID: "d-os"})
+	if _, err := s.TouchHeartbeat(context.Background(), id, "1.2.0", "Ubuntu 22.04", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.ListDevices(context.Background(), 10)
+	var found bool
+	for _, r := range rows {
+		if r.ID == id && r.OSVersion == "Ubuntu 22.04" && r.AgentVersion == "1.2.0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("os_version/agent_version saklanmalıydı: %+v", rows)
 	}
 }

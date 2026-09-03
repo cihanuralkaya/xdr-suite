@@ -1308,7 +1308,10 @@
           "<span style='color:var(--faint);min-width:62px'>"+esc(relTime(e.created_at))+"</span>"+
           sevDot(e.severity)+"<span style='color:var(--ink);flex:1'>"+esc(e.message||"-")+"</span></div>";
       }).join("") : "<div class='mini'>— bu cihaz için olay yok</div>";
+      var dev=d.device||{};
+      var sysLine=esc(dev.os_platform||"-")+(dev.os_version?" · "+esc(dev.os_version):"")+" · ajan "+esc(dev.agent_version||"-");
       el.innerHTML =
+        "<h4>Sistem</h4><div class='mini'>"+sysLine+"</div>"+
         "<h4>Atanmış politika</h4><div class='mini'>"+(d.assigned_policy_id?(esc(d.assigned_policy_id)+" ("+esc(d.assigned_policy_version)+")"):"— yok")+"</div>"+
         "<h4>Son olaylar ("+evs.length+")</h4>"+evHtml+
         "<h4>Sertifikalar</h4>"+certs+

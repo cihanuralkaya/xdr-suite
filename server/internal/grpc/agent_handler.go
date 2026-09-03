@@ -28,7 +28,7 @@ import (
 type DeviceRegistry interface {
 	// TouchHeartbeat, last_seen ve metrikleri günceller; cihazın SUNUCUDAKI
 	// geçerli politika sürümünü döner.
-	TouchHeartbeat(ctx context.Context, deviceID, agentVersion string, at time.Time) (currentPolicyVersion string, err error)
+	TouchHeartbeat(ctx context.Context, deviceID, agentVersion, osVersion string, at time.Time) (currentPolicyVersion string, err error)
 	// PendingCommands, cihaz için bekleyen komutları döner (karantina vb.).
 	PendingCommands(ctx context.Context, deviceID string) ([]*xdrv1.Command, error)
 }
@@ -166,12 +166,13 @@ func (h *AgentHandler) Heartbeat(ctx context.Context, req *xdrv1.HeartbeatReques
 	}
 	now := h.now()
 
-	agentVersion := ""
+	agentVersion, osVersion := "", ""
 	if id := req.GetIdentity(); id != nil {
 		agentVersion = id.GetAgentVersion()
+		osVersion = id.GetOsVersion()
 	}
 
-	serverPolicyVersion, err := h.devices.TouchHeartbeat(ctx, deviceID, agentVersion, now)
+	serverPolicyVersion, err := h.devices.TouchHeartbeat(ctx, deviceID, agentVersion, osVersion, now)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "heartbeat kaydedilemedi")
 	}

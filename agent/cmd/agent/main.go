@@ -37,6 +37,7 @@ import (
 	"xdr.corp/suite/agent/internal/discovery"
 	"xdr.corp/suite/agent/internal/enforce"
 	"xdr.corp/suite/agent/internal/liveness"
+	"xdr.corp/suite/agent/internal/osinfo"
 	"xdr.corp/suite/agent/internal/policy"
 	"xdr.corp/suite/agent/internal/quarantine"
 	"xdr.corp/suite/agent/internal/script"
@@ -206,8 +207,9 @@ func run() error {
 	// Başlangıç yaşam-döngüsü olayı (gerçek olay; uydurma telemetri değil). Host
 	// bilgisi Details'e iliştirilir (konsol olay-detayında filo görünürlüğü).
 	hostname, _ := os.Hostname()
+	osVersion := osinfo.Version() // okunabilir OS sürümü (bir kez; Windows'ta exec)
 	buf.Add(collector.Event{Category: "SYSTEM", Severity: "INFO", Message: "ajan başladı", OccurredAt: time.Now(),
-		Details: map[string]any{"os": runtime.GOOS, "arch": runtime.GOARCH, "agent_version": agentVersion, "hostname": hostname}})
+		Details: map[string]any{"os": runtime.GOOS, "os_version": osVersion, "arch": runtime.GOARCH, "agent_version": agentVersion, "hostname": hostname}})
 
 	// Uyum durumu: başlangıçta disk şifreleme kontrol edilir ve raporlanır. Şifreleme
 	// KAPALIYSA güvenlik-duruşu ihlali (SECURITY/MEDIUM); açık/bilinmiyor bilgi amaçlı.
@@ -239,6 +241,7 @@ func run() error {
 				DeviceId:     ident.deviceID,
 				AgentVersion: agentVersion,
 				OsPlatform:   runtime.GOOS,
+				OsVersion:    osVersion,
 			},
 			CurrentPolicyVersion: engine.Load().Version(),
 		})

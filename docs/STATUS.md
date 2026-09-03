@@ -15,7 +15,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **201 test fonksiyonu / 38 test paketi**, tümü geçiyor (`go test ./...`).
+- **204 test fonksiyonu / 39 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -29,7 +29,7 @@ OTA imza + rollout kapısı → komut teslimi (karantina) → tek-kullanımlık 
 **Smoke/kabul testi** (`scripts/smoke-test.sh`, `make smoke`): gerçek c2 + gerçek
 agent süreçlerini izole portlarda ayağa kaldırır ve kayıt → CSR imza → heartbeat →
 olay → admin eylem (tanılama) → denetim izi → özet/politika okuma → **SSE canlı
-akış** zincirini 14 iddiayla doğrular. **CI** (`.github/workflows/ci.yml`):
+akış** zincirini 15 iddiayla doğrular. **CI** (`.github/workflows/ci.yml`):
 proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifact).
 
 ## Yetenek matrisi
@@ -82,6 +82,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Yapısal olay Details (ağ/enforce/anomali → structpb) | ✅ | `agent` (enforce, main) | birim |
 | Tehdit istihbaratı (IoC) eşleştirme (IP/MAC/domain/hash) | ✅ opsiyonel | `server/internal/ioc`, `grpc` | birim |
 | Süreç soyağacı zenginleştirme (ebeveyn zinciri) | ✅ Win/Linux | `agent/internal/enforce` | birim (zincir + stat ayrıştırma) |
+| Zengin ajan telemetrisi (OS sürümü → cihaz envanteri) | ✅ Win/Linux | `agent/internal/osinfo`, proto, grpc, db | birim + e2e + smoke (gerçek sürüm) |
 | Disk şifreleme uyum raporu (BitLocker/LUKS) | ✅ mantık/OS-derlendi | `agent/internal/compliance` | birim (ayrıştırıcılar) |
 | Özel tespit kuralları (operatör-tanımlı, dosyadan) | ✅ opsiyonel | `detect.LoadRules`, `c2 main` | birim |
 | Slack/Teams uyumlu uyarı biçimi | ✅ opsiyonel | `server/internal/notify` | birim (TLS httptest) |
@@ -184,7 +185,7 @@ protection is deliberately out of scope (see below).
 
 - Language: **Go** (single language), communication over **gRPC + mTLS**, TLS 1.3.
 - ~8,100 lines of production Go + comprehensive tests.
-- **201 test functions / 38 test packages**, all passing (`go test ./...`).
+- **204 test functions / 39 test packages**, all passing (`go test ./...`).
 - Cross-compilation verified: Windows (native), Linux, macOS.
 - **In-memory demo mode** run live (`XDR_DATABASE_URL` empty): real enrollment, real
   network discovery, all admin/console flows exercised end-to-end.
@@ -198,7 +199,7 @@ OTA signature + rollout gate -> command delivery (quarantine) -> single-use toke
 **Smoke/acceptance test** (`scripts/smoke-test.sh`, `make smoke`): brings up real c2
 + real agent processes on isolated ports and verifies the enroll -> CSR signing ->
 heartbeat -> event -> admin action (diagnostics) -> audit log -> summary/policy read
--> **live SSE stream** chain with 14 assertions. **CI** (`.github/workflows/ci.yml`):
+-> **live SSE stream** chain with 15 assertions. **CI** (`.github/workflows/ci.yml`):
 proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
 
 ## Capability matrix

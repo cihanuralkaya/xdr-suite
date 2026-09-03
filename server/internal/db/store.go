@@ -151,16 +151,17 @@ func (s *Store) DeviceHasActiveCert(ctx context.Context, deviceID string) (bool,
 
 // TouchHeartbeat, last_seen ve agent_version günceller; cihazın sunucudaki
 // geçerli politika sürümünü döner.
-func (s *Store) TouchHeartbeat(ctx context.Context, deviceID, agentVersion string, at time.Time) (string, error) {
+func (s *Store) TouchHeartbeat(ctx context.Context, deviceID, agentVersion, osVersion string, at time.Time) (string, error) {
 	const q = `
 		UPDATE devices
 		   SET last_seen = $2,
 		       agent_version = COALESCE(NULLIF($3, ''), agent_version),
+		       os_version = COALESCE(NULLIF($4, ''), os_version),
 		       status = CASE WHEN status = 'OFFLINE' THEN 'ACTIVE' ELSE status END
 		 WHERE id = $1
 	 RETURNING COALESCE(current_policy_version, '')`
 	var v string
-	err := s.pool.QueryRow(ctx, q, deviceID, at, agentVersion).Scan(&v)
+	err := s.pool.QueryRow(ctx, q, deviceID, at, agentVersion, osVersion).Scan(&v)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("db: bilinmeyen cihaz: %s", deviceID)
 	}

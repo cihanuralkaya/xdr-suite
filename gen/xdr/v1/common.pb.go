@@ -204,6 +204,7 @@ type AgentIdentity struct {
 	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"` // UUID
 	AgentVersion  string                 `protobuf:"bytes,2,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
 	OsPlatform    string                 `protobuf:"bytes,3,opt,name=os_platform,json=osPlatform,proto3" json:"os_platform,omitempty"` // "windows", "linux"
+	OsVersion     string                 `protobuf:"bytes,4,opt,name=os_version,json=osVersion,proto3" json:"os_version,omitempty"`    // okunabilir OS sürümü (ör. "Windows 10 22H2", "Ubuntu 22.04")
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -259,16 +260,25 @@ func (x *AgentIdentity) GetOsPlatform() string {
 	return ""
 }
 
+func (x *AgentIdentity) GetOsVersion() string {
+	if x != nil {
+		return x.OsVersion
+	}
+	return ""
+}
+
 var File_xdr_v1_common_proto protoreflect.FileDescriptor
 
 const file_xdr_v1_common_proto_rawDesc = "" +
 	"\n" +
-	"\x13xdr/v1/common.proto\x12\x06xdr.v1\"r\n" +
+	"\x13xdr/v1/common.proto\x12\x06xdr.v1\"\x91\x01\n" +
 	"\rAgentIdentity\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12#\n" +
 	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\x12\x1f\n" +
 	"\vos_platform\x18\x03 \x01(\tR\n" +
-	"osPlatform*\xc6\x01\n" +
+	"osPlatform\x12\x1d\n" +
+	"\n" +
+	"os_version\x18\x04 \x01(\tR\tosVersion*\xc6\x01\n" +
 	"\fDeviceStatus\x12\x1d\n" +
 	"\x19DEVICE_STATUS_UNSPECIFIED\x10\x00\x12$\n" +
 	" DEVICE_STATUS_PENDING_ENROLLMENT\x10\x01\x12\x18\n" +

@@ -39,4 +39,5 @@ message AgentIdentity {
   string device_id = 1;      // UUID
   string agent_version = 2;
   string os_platform = 3;    // "windows", "linux"
+  string os_version = 4;     // okunabilir OS sürümü (ör. "Windows 10 22H2", "Ubuntu 22.04")
 }
