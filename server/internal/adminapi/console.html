@@ -382,6 +382,8 @@
         <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">süreç başından beri</span></div>
       <div class="body">
         <div id="act-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px"></div>
+        <div class="lbl" style="margin:14px 0 6px">Olay hızı (canlı · alım/aralık)</div>
+        <div id="act-chart" style="display:flex;align-items:flex-end;gap:3px;height:52px;padding:4px 0"></div>
       </div>
     </div>
 
@@ -1252,9 +1254,30 @@
       box.appendChild(featRow("Yapısal loglama (JSON)", (f.log_format==="json"), "biçim: "+(f.log_format||"text")));
     }).catch(function(){ box.innerHTML="<div class='empty' style='padding:10px'>Bu görünüm yalnız ADMIN rolüne açıktır.</div>"; });
   }
+  function renderEventRate(ingested){
+    var chart=$("act-chart"); if(!chart) return;
+    if(state.evtRate===undefined){ state.evtRate=[]; state.evtLastIngested=null; }
+    if(state.evtLastIngested!==null){
+      var delta=Math.max(0, ingested-state.evtLastIngested);
+      state.evtRate.push(delta);
+      if(state.evtRate.length>40) state.evtRate.shift();
+    }
+    state.evtLastIngested=ingested;
+    var arr=state.evtRate, max=Math.max(1, Math.max.apply(null, arr.length?arr:[0]));
+    chart.innerHTML="";
+    if(!arr.length){ chart.innerHTML="<div class='mini' style='color:var(--faint)'>veri toplanıyor…</div>"; return; }
+    arr.forEach(function(v){
+      var b=document.createElement("div");
+      var h=Math.max(2, Math.round(v*100/max));
+      b.style.cssText="flex:1;min-width:3px;height:"+h+"%;border-radius:2px 2px 0 0;background:"+(v>0?"var(--accent)":"var(--line2)");
+      b.title=v+" olay";
+      chart.appendChild(b);
+    });
+  }
   function loadActivity(){
     return api("/api/activity").then(function(r){
       var c=(r&&r.counters)||{}, box=$("act-grid"); if(!box) return;
+      renderEventRate(c.events_ingested||0);
       var up=(r&&r.uptime_seconds)||0, h=Math.floor(up/3600), m=Math.floor((up%3600)/60);
       var utEl=$("act-uptime"); if(utEl) utEl.textContent=(h+"s "+m+"dk");
       var items=[
