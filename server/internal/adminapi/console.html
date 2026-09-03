@@ -431,6 +431,7 @@
           <div class="head"><h2>📝 Denetim İzi <span id="aud-count" class="count">0</span></h2>
             <span class="sp"></span>
             <input id="aud-search" placeholder="🔍 yönetici / eylem / hedef" style="width:auto;padding:5px 10px;font-size:12px">
+            <button class="btn ghost sm" id="aud-verify" title="Denetim izi hash-zincirinin bütünlüğünü doğrula">🔐 Zinciri Doğrula</button>
             <button class="btn ghost sm" id="aud-csv" title="Görünen kayıtları CSV indir">↓ CSV</button>
             <button class="btn ghost sm" id="aud-refresh">↻</button></div>
           <div class="tbl-wrap">
@@ -1502,6 +1503,12 @@
   $("dev-refresh").onclick=refresh; $("evt-refresh").onclick=refresh;
   $("dev-search").addEventListener("input",function(){ state.devSearch=this.value; renderDevices(); });
   $("evt-csv").onclick=exportEvents; $("aud-csv").onclick=exportAudit;
+  $("aud-verify").onclick=function(){
+    api("/api/audit/verify").then(function(r){
+      if(r && r.valid){ toast("Denetim izi bütünlüğü DOĞRULANDI","Hash-zinciri kesintisiz (kurcalama yok)","ok"); }
+      else { toast("Denetim izi bütünlüğü BOZUK","Zincir doğrulanamadı: "+((r&&r.error)||"bilinmeyen"),"err"); }
+    }).catch(function(e){ toast("Doğrulama başarısız",e.message,"err"); });
+  };
   $("rf-on").onclick=function(){ state.auto=true; $("rf-on").className="on"; $("rf-off").className=""; startAuto(); startStream(); refresh(); };
   $("rf-off").onclick=function(){ state.auto=false; $("rf-on").className=""; $("rf-off").className="on"; stopAuto(); stopStream(); setLive(true); $("live-txt").textContent="duraklatıldı"; };
   document.querySelectorAll("#sevfilter button").forEach(function(b){
