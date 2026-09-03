@@ -38,6 +38,12 @@ func SetBuildVersion(v string) {
 	}
 }
 
+// Version, raporlanan build sürümünü döner (sağlık ucu vb.).
+func Version() string { return buildVersion }
+
+// UptimeSeconds, süreç çalışma süresini saniye olarak döner.
+func UptimeSeconds() int64 { return int64(time.Since(startTime).Seconds()) }
+
 // IncLoginSuccess / IncLoginFailure, giriş sonucu sayaçlarını artırır.
 func IncLoginSuccess() { loginSuccess.Add(1) }
 func IncLoginFailure() { loginFailure.Add(1) }

@@ -151,6 +151,29 @@ func TestDetectionRulesEndpoint(t *testing.T) {
 	}
 }
 
+// /healthz: durum + sürüm + uptime döner (kimlik gerekmez).
+func TestHealthzEnriched(t *testing.T) {
+	ts, _ := setup(t)
+	defer ts.Close()
+	r, err := http.Get(ts.URL + "/healthz")
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("/healthz 200 dönmeliydi, %d %v", r.StatusCode, err)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out["status"] != "ok" {
+		t.Fatalf("status ok olmalıydı: %v", out["status"])
+	}
+	if _, ok := out["version"]; !ok {
+		t.Fatal("version alanı olmalıydı")
+	}
+	if _, ok := out["uptime_seconds"]; !ok {
+		t.Fatal("uptime_seconds alanı olmalıydı")
+	}
+}
+
 func TestConsoleCSPNonce(t *testing.T) {
 	ts, _ := setup(t)
 	defer ts.Close()

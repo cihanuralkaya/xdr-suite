@@ -239,7 +239,11 @@ func (s *Server) handleNotice(w http.ResponseWriter, _ *http.Request) {
 
 // handleHealthz, süreç canlılığı (liveness): süreç yanıt veriyorsa 200.
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":         "ok",
+		"version":        metrics.Version(),
+		"uptime_seconds": metrics.UptimeSeconds(),
+	})
 }
 
 // handleReadyz, hazırlık (readiness): depo erişilebilirse 200, değilse 503.
