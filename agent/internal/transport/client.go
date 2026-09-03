@@ -59,9 +59,10 @@ func Enroll(ctx context.Context, addr string, caPEM []byte, serverName, token st
 		return nil, errors.New("transport: gömülü CA PEM'i yüklenemedi")
 	}
 	creds := credentials.NewTLS(&tls.Config{
-		RootCAs:    pool,
-		ServerName: serverName,
-		MinVersion: tls.VersionTLS13,
+		RootCAs:          pool,
+		ServerName:       serverName,
+		MinVersion:       tls.VersionTLS13,
+		VerifyConnection: pinVerifier(), // SPKI pinning (ayarlıysa)
 	})
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
 	if err != nil {
@@ -118,9 +119,10 @@ func (h *CertHolder) tlsConfig(caPEM []byte, serverName string) (*tls.Config, er
 		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			return h.current(), nil
 		},
-		RootCAs:    pool,
-		ServerName: serverName,
-		MinVersion: tls.VersionTLS13,
+		RootCAs:          pool,
+		ServerName:       serverName,
+		MinVersion:       tls.VersionTLS13,
+		VerifyConnection: pinVerifier(), // SPKI pinning (ayarlıysa)
 	}, nil
 }
 

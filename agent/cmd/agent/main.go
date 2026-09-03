@@ -103,6 +103,14 @@ func run() error {
 
 	cfg := loadEnv()
 
+	// Sunucu SPKI pinning (savunma derinliği): XDR_SERVER_SPKI_PIN ayarlıysa (virgülle
+	// ayrılmış base64 SHA-256 pinleri) sunucu sertifikası CA'ya EK OLARAK pin'e karşı
+	// doğrulanır. Ayarlı değilse pinning devre dışıdır (yalnız CA doğrulaması).
+	if pins := splitCSV(os.Getenv("XDR_SERVER_SPKI_PIN")); len(pins) > 0 {
+		transport.SetServerPins(pins)
+		log.Printf("mTLS: sunucu SPKI pinning etkin (%d pin)", len(pins))
+	}
+
 	ident, err := ensureEnrolled(ctx, cfg)
 	if err != nil {
 		return err

@@ -12,7 +12,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **166 test fonksiyonu / 31 test paketi**, tümü geçiyor (`go test ./...`).
+- **168 test fonksiyonu / 32 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -72,6 +72,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Prometheus `/metrics` (token korumalı, bağımlılıksız) | ✅ | `server/internal/metrics`, `adminapi` | birim + httptest |
 | SOC gerçek-zamanlı uyarı (HTTPS webhook, önem eşiği) | ✅ | `server/internal/notify`, `grpc` | birim (TLS httptest) |
 | MITRE ATT&CK teknik eşlemesi + kapsama ucu | ✅ | `server/internal/mitre`, `grpc`, `adminapi` | birim + httptest |
+| mTLS sunucu SPKI pinning (opsiyonel, rotasyonlu) | ✅ | `agent/internal/transport/pin.go` | birim + openssl çapraz-kontrol |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
