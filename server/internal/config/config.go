@@ -79,6 +79,24 @@ func Load() (*Config, error) {
 	}
 	c.MasterKey = key
 
+	// Zorunlu TLS materyali yolları — erken, anlaşılır hata (yanlış-yapılandırmayı
+	// başlangıçta yakala; demo modu dahil gRPC sunucuları TLS gerektirir).
+	for _, m := range []struct{ name, val string }{
+		{"XDR_CA_CERT", c.CACertPath}, {"XDR_CA_KEY", c.CAKeyPath},
+		{"XDR_SERVER_CERT", c.ServerCertPath}, {"XDR_SERVER_KEY", c.ServerKeyPath},
+	} {
+		if m.val == "" {
+			return nil, fmt.Errorf("config: %s zorunlu (TLS materyali yolu)", m.name)
+		}
+	}
+	// Sayısal alanlar makul olmalı (0/negatif değer sessiz hataya yol açar).
+	if c.RetentionDays < 1 {
+		return nil, fmt.Errorf("config: XDR_RETENTION_DAYS >= 1 olmalı, %d verildi", c.RetentionDays)
+	}
+	if c.LoginMaxAttempts < 1 {
+		return nil, fmt.Errorf("config: XDR_LOGIN_MAX_ATTEMPTS >= 1 olmalı, %d verildi", c.LoginMaxAttempts)
+	}
+
 	// XDR_DATABASE_URL boşsa sunucu bellek-içi DEMO deposuyla başlar (kalıcılık yok).
 	return c, nil
 }
