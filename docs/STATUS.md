@@ -15,7 +15,7 @@ olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
 - ~8 100 satır üretim Go + kapsamlı test.
-- **189 test fonksiyonu / 36 test paketi**, tümü geçiyor (`go test ./...`).
+- **193 test fonksiyonu / 36 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -83,6 +83,10 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Tehdit istihbaratı (IoC) eşleştirme (IP/MAC/domain/hash) | ✅ opsiyonel | `server/internal/ioc`, `grpc` | birim |
 | Süreç soyağacı zenginleştirme (ebeveyn zinciri) | ✅ Win/Linux | `agent/internal/enforce` | birim (zincir + stat ayrıştırma) |
 | Disk şifreleme uyum raporu (BitLocker/LUKS) | ✅ mantık/OS-derlendi | `agent/internal/compliance` | birim (ayrıştırıcılar) |
+| Özel tespit kuralları (operatör-tanımlı, dosyadan) | ✅ opsiyonel | `detect.LoadRules`, `c2 main` | birim |
+| Slack/Teams uyumlu uyarı biçimi | ✅ opsiyonel | `server/internal/notify` | birim (TLS httptest) |
+| Genişletilmiş /metrics (tespit/uyarı/SOAR/IoC + runtime) | ✅ | `server/internal/metrics` | birim |
+| Konsol: sol kenar çubuğu IA + bölüm derin-bağlama | ✅ | `adminapi/console.html` | canlı demo |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
@@ -175,7 +179,7 @@ protection is deliberately out of scope (see below).
 
 - Language: **Go** (single language), communication over **gRPC + mTLS**, TLS 1.3.
 - ~8,100 lines of production Go + comprehensive tests.
-- **189 test functions / 36 test packages**, all passing (`go test ./...`).
+- **193 test functions / 36 test packages**, all passing (`go test ./...`).
 - Cross-compilation verified: Windows (native), Linux, macOS.
 - **In-memory demo mode** run live (`XDR_DATABASE_URL` empty): real enrollment, real
   network discovery, all admin/console flows exercised end-to-end.
