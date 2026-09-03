@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/server/internal/detect"
+	"xdr.corp/suite/server/internal/ioc"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/mitre"
 	"xdr.corp/suite/server/internal/model"
@@ -104,8 +106,12 @@ type AgentHandler struct {
 	alerter   notify.Notifier
 	responder AutoResponder
 	detector  *detect.Engine
+	iocSet    *ioc.Set // tehdit istihbaratı göstergeleri (nil = kapalı)
 	now       func() time.Time
 }
+
+// SetIoCSet, tehdit istihbaratı (IoC) eşleştirmesini etkinleştirir. nil ise kapalı.
+func (h *AgentHandler) SetIoCSet(s *ioc.Set) { h.iocSet = s }
 
 // SetDetector, sunucu-taraflı tespit kural motorunu ayarlar. nil ise yerleşik
 // varsayılan kural seti kullanılır.
@@ -247,6 +253,26 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 					al.TechniqueID, al.TechniqueName, al.Tactic = tq.ID, tq.Name, tq.Tactic
 				}
 				h.alerter.Notify(al)
+			}
+			// Tehdit istihbaratı (IoC): olayın yapısal Details'i (ip/mac/process) veya
+			// mesajı bilinen-kötü bir göstergeyle eşleşirse KRİTİK uyarı (yüksek-güven).
+			if h.iocSet.Size() > 0 {
+				var dm map[string]any
+				if e.Details != "" {
+					_ = json.Unmarshal([]byte(e.Details), &dm)
+				}
+				if lbl, ind, ok := h.iocSet.Match(dm, e.Message); ok {
+					h.alerter.Notify(notify.Alert{
+						DeviceID:      deviceID,
+						Category:      e.Category,
+						Severity:      "CRITICAL",
+						Message:       "IoC eşleşmesi [" + lbl + "] " + ind + ": " + e.Message,
+						OccurredAt:    e.OccurredAt,
+						TechniqueID:   "T1071",
+						TechniqueName: "Application Layer Protocol",
+						Tactic:        "Command and Control",
+					})
+				}
 			}
 		}
 		// Otomatik müdahale (SOAR): kritik olay geldiyse cihazı otomatik karantinaya

@@ -28,6 +28,7 @@ import (
 	"xdr.corp/suite/server/internal/detect"
 	"xdr.corp/suite/server/internal/enroll"
 	"xdr.corp/suite/server/internal/eventbus"
+	"xdr.corp/suite/server/internal/ioc"
 	"xdr.corp/suite/server/internal/memstore"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/notify"
@@ -205,6 +206,17 @@ func run() error {
 		}
 		agentHandler.SetAlerter(alerter)
 		log.Println("dış uyarı: webhook etkin (yüksek önem düzeyli olaylar)")
+	}
+
+	// Tehdit istihbaratı (IoC): XDR_IOC_FILE ayarlıysa bilinen-kötü göstergeler
+	// (IP/MAC/alan adı/hash/süreç) yüklenir; eşleşen olaylar KRİTİK uyarı üretir.
+	if iocPath := os.Getenv("XDR_IOC_FILE"); iocPath != "" {
+		set, err := ioc.LoadFile(iocPath)
+		if err != nil {
+			return fmt.Errorf("IoC listesi yüklenemedi: %w", err)
+		}
+		agentHandler.SetIoCSet(set)
+		log.Printf("tehdit istihbaratı: %d IoC göstergesi yüklendi", set.Size())
 	}
 
 	// Otomatik müdahale (SOAR): XDR_AUTO_RESPONSE=1 ise kritik güvenlik olayında

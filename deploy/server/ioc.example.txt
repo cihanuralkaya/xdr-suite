@@ -1,0 +1,15 @@
+# XDR Tehdit İstihbaratı (IoC) listesi — örnek.
+# Biçim: <gösterge> [etiket...]
+#  - İlk boşlukla-ayrılmış belirteç göstergedir (IP / MAC / alan adı / hash / süreç adı).
+#  - Kalanı isteğe bağlı etikettir (uyarıda gösterilir).
+#  - '#' ile başlayan satırlar yorum, boş satırlar atlanır.
+# Eşleştirme küçük/büyük harf duyarsızdır ve olayın yapısal Details alanı
+# (ip/mac/process) + mesajı ile karşılaştırılır.
+#
+# XDR_IOC_FILE=/etc/xdr/ioc.txt ile yüklenir.
+
+# --- Örnek göstergeler (kendi feed'inizle değiştirin) ---
+10.13.37.5            bilinen-c2-sunucusu
+aa:bb:cc:dd:ee:ff     yetkisiz-cihaz
+mimikatz.exe          kimlik-hırsızı-araç
+evil.example.com      phishing-altyapısı
