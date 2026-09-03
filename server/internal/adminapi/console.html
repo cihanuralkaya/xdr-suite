@@ -531,6 +531,24 @@
           <div id="pol-empty" class="empty" style="padding:14px">Henüz politika yok. Yukarıdan oluşturun.</div>
         </div>
 
+        <!-- BULK -->
+        <div class="card" data-view="policies">
+          <div class="head"><h2>🎯 Toplu İşlem (etikete göre)</h2></div>
+          <div class="body">
+            <p class="hint" style="margin:0 0 10px">Bir <b>etikete</b> sahip TÜM cihazlara tek seferde eylem uygular (filo yönetimi).</p>
+            <div class="field"><input id="bulk-tag" type="text" placeholder="etiket (ör. prod)"></div>
+            <div class="field"><select id="bulk-action">
+              <option value="collect-diagnostics">🩺 Tanılama Topla</option>
+              <option value="quarantine">🔒 Karantina</option>
+              <option value="release">🔓 Serbest Bırak</option>
+              <option value="assign-policy">📋 Politika Ata</option>
+            </select></div>
+            <div class="field" id="bulk-pol-wrap" style="display:none"><select id="bulk-pol"><option value="">— politika seç —</option></select></div>
+            <button class="btn sm" data-act="bulkApply">Uygula</button>
+            <div id="o-bulk" class="out"></div>
+          </div>
+        </div>
+
         <!-- ADMINS -->
         <div class="card" data-view="admin">
           <div class="head"><h2>👥 Yöneticiler <span id="adm-count" class="count">0</span></h2>
@@ -1275,14 +1293,16 @@
     var p=state.policies||[];
     $("pol-count").textContent=p.length;
     $("pol-empty").style.display=p.length?"none":"block";
-    // "Politika Ata" dropdown'ını güncelle (seçimi koru).
-    var sel=$("a-pol"), cur=sel.value;
-    sel.innerHTML='<option value="">— politika seç —</option>';
-    p.forEach(function(x){
-      var o=document.createElement("option"); o.value=x.id;
-      o.textContent=(x.name||x.id)+" ("+(x.version||"")+")"; sel.appendChild(o);
+    // "Politika Ata" + "Toplu İşlem" dropdown'larını güncelle (seçimi koru).
+    ["a-pol","bulk-pol"].forEach(function(selId){
+      var sel=$(selId); if(!sel) return; var cur=sel.value;
+      sel.innerHTML='<option value="">— politika seç —</option>';
+      p.forEach(function(x){
+        var o=document.createElement("option"); o.value=x.id;
+        o.textContent=(x.name||x.id)+" ("+(x.version||"")+")"; sel.appendChild(o);
+      });
+      sel.value=cur;
     });
-    sel.value=cur;
     p.forEach(function(x){
       var open=state.polOpen[x.id];
       var tr=document.createElement("tr"); tr.className="click"; tr.title="Kurallar için tıklayın";
@@ -1490,6 +1510,19 @@
       if(!$("a-pol").value){ showOut("o-dev","Listeden bir politika seçin.","err"); return Promise.resolve(); }
       return api("/api/policies/assign","POST",{device_id:state.sel,policy_id:$("a-pol").value}).then(function(){
         showOut("o-dev","Politika atandı (ajana anında iletilir).","ok"); toast("Politika atandı","Anlık push gönderildi","ok"); }); },
+    bulkApply: function(){
+      var tag=$("bulk-tag").value.trim(), action=$("bulk-action").value;
+      if(!tag){ showOut("o-bulk","Etiket girin.","err"); return Promise.resolve(); }
+      var body={tag:tag, action:action};
+      if(action==="assign-policy"){
+        if(!$("bulk-pol").value){ showOut("o-bulk","Politika seçin.","err"); return Promise.resolve(); }
+        body.policy_id=$("bulk-pol").value;
+      }
+      var labels={"collect-diagnostics":"tanılama toplama","quarantine":"karantina","release":"serbest bırakma","assign-policy":"politika atama"};
+      if(!confirm("“"+tag+"” etiketli TÜM cihazlara "+(labels[action]||action)+" uygulanacak. Onaylıyor musunuz?")) return Promise.resolve();
+      return api("/api/devices/bulk","POST",body).then(function(d){
+        showOut("o-bulk",(d.matched||0)+" cihaz eşleşti, "+(d.applied||0)+" uygulandı.","ok");
+        toast("Toplu işlem uygulandı",tag+" → "+(d.applied||0)+"/"+(d.matched||0)+" cihaz","ok"); refresh(); }); },
     setTags: function(){
       if(!state.sel){ return Promise.resolve(); }
       var tags=$("tag-input").value.split(",").map(function(s){return s.trim();}).filter(function(s){return s;});
@@ -1581,6 +1614,7 @@
   $("dev-search").addEventListener("input",function(){ state.devSearch=this.value; renderDevices(); });
   $("evt-csv").onclick=exportEvents; $("aud-csv").onclick=exportAudit;
   $("feat-refresh").onclick=loadFeatures;
+  $("bulk-action").addEventListener("change",function(){ $("bulk-pol-wrap").style.display=(this.value==="assign-policy")?"block":"none"; });
   $("aud-verify").onclick=function(){
     api("/api/audit/verify").then(function(r){
       if(r && r.valid){ toast("Denetim izi bütünlüğü DOĞRULANDI","Hash-zinciri kesintisiz (kurcalama yok)","ok"); }

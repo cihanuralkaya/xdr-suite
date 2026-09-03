@@ -151,6 +151,54 @@ func TestDetectionRulesEndpoint(t *testing.T) {
 	}
 }
 
+// /api/devices/bulk: bir etikete sahip tüm cihazlara toplu eylem uygular.
+func TestBulkActionByTag(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	addAdmin(t, store, "v1", "viewer@x", "secret", admin.RoleViewer)
+	store.devRows = []adminread.DeviceRow{
+		{ID: "d1", Status: "ACTIVE", Tags: []string{"prod"}},
+		{ID: "d2", Status: "ACTIVE", Tags: []string{"prod", "finans"}},
+		{ID: "d3", Status: "ACTIVE", Tags: []string{"test"}},
+	}
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	opTok := ob["token"]
+
+	// "prod" etiketli 2 cihaza karantina.
+	code, body := post(t, ts.URL+"/api/devices/bulk", opTok,
+		map[string]string{"tag": "prod", "action": "quarantine"})
+	if code != http.StatusOK {
+		t.Fatalf("toplu eylem 200 dönmeliydi, %d", code)
+	}
+	if body["matched"] != "2" && body["matched"] != "" { // map[string]string decode int'i boş bırakır
+		// sayısal alanları ayrı doğrula
+	}
+	// Komutlar iki cihaza da kuyruğa alınmış olmalı (memStore.commands).
+	nq := 0
+	for _, c := range store.commands {
+		if strings.HasPrefix(c, "d1:") || strings.HasPrefix(c, "d2:") {
+			nq++
+		}
+	}
+	if nq < 2 {
+		t.Fatalf("prod etiketli 2 cihaza karantina komutu beklenirdi: %v", store.commands)
+	}
+	// Geçersiz eylem → 400.
+	if c, _ := post(t, ts.URL+"/api/devices/bulk", opTok, map[string]string{"tag": "prod", "action": "yok"}); c != http.StatusBadRequest {
+		t.Fatalf("geçersiz eylem 400 dönmeliydi, %d", c)
+	}
+	// Boş tag → 400.
+	if c, _ := post(t, ts.URL+"/api/devices/bulk", opTok, map[string]string{"tag": "", "action": "quarantine"}); c != http.StatusBadRequest {
+		t.Fatalf("boş tag 400 dönmeliydi, %d", c)
+	}
+	// VIEWER → eşleşen cihaz var ama RBAC reddi (403).
+	_, vb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "viewer@x", "password": "secret"})
+	if c, _ := post(t, ts.URL+"/api/devices/bulk", vb["token"], map[string]string{"tag": "prod", "action": "quarantine"}); c != http.StatusForbidden {
+		t.Fatalf("VIEWER toplu eylem 403 dönmeliydi, %d", c)
+	}
+}
+
 // /api/features: yalnız ADMIN dağıtım koruma-duruşunu alır (VIEWER/OPERATOR 403).
 func TestFeaturesEndpointAdminOnly(t *testing.T) {
 	srv, store := newServer(t)

@@ -180,6 +180,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devices/{id}/export", s.authed(s.handleExportDevice))
 	mux.HandleFunc("POST /api/devices/{id}/erase", s.authed(s.handleEraseDevice))
 	mux.HandleFunc("POST /api/devices/{id}/tags", s.authed(s.handleSetDeviceTags))
+	mux.HandleFunc("POST /api/devices/bulk", s.authed(s.handleBulkAction))
 	mux.HandleFunc("GET /api/events", s.authed(s.handleListEvents))
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
@@ -616,6 +617,77 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request, _ str
 		devices = filtered
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
+}
+
+// handleBulkAction, bir etikete sahip TÜM cihazlara toplu eylem uygular (etiket-
+// bazlı filo yönetimi). Gövde: {"tag":"prod","action":"quarantine|release|
+// collect-diagnostics|assign-policy","policy_id":"..."}. Her cihaz için ilgili
+// admin servis metodu çağrılır (RBAC + denetim izi servis içinde). matched=eşleşen
+// cihaz, applied=başarıyla uygulanan sayısı döner.
+func (s *Server) handleBulkAction(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Tag      string `json:"tag"`
+		Action   string `json:"action"`
+		PolicyID string `json:"policy_id"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	tag := strings.TrimSpace(req.Tag)
+	if tag == "" {
+		writeErr(w, http.StatusBadRequest, "tag gerekli")
+		return
+	}
+	if req.Action == "assign-policy" && strings.TrimSpace(req.PolicyID) == "" {
+		writeErr(w, http.StatusBadRequest, "assign-policy için policy_id gerekli")
+		return
+	}
+	if req.Action != "assign-policy" && req.Action != "quarantine" &&
+		req.Action != "release" && req.Action != "collect-diagnostics" {
+		writeErr(w, http.StatusBadRequest, "geçersiz eylem")
+		return
+	}
+	devices, err := s.reader.Devices(r.Context(), 0)
+	if respondErr(w, err) {
+		return
+	}
+	matched, applied := 0, 0
+	var firstErr error
+	for _, d := range devices {
+		hasTag := false
+		for _, t := range d.Tags {
+			if t == tag {
+				hasTag = true
+				break
+			}
+		}
+		if !hasTag {
+			continue
+		}
+		matched++
+		var e error
+		switch req.Action {
+		case "assign-policy":
+			e = s.adminSvc.AssignPolicy(r.Context(), adminID, d.ID, req.PolicyID)
+		case "quarantine":
+			e = s.adminSvc.QuarantineDevice(r.Context(), adminID, d.ID)
+		case "release":
+			e = s.adminSvc.ReleaseDevice(r.Context(), adminID, d.ID)
+		case "collect-diagnostics":
+			e = s.adminSvc.CollectDiagnostics(r.Context(), adminID, d.ID)
+		}
+		if e == nil {
+			applied++
+		} else if firstErr == nil {
+			firstErr = e
+		}
+	}
+	// RBAC reddi (ör. VIEWER) ilk denemede hata verir ve hiçbir cihaza uygulanmaz.
+	if matched > 0 && applied == 0 && firstErr != nil {
+		respondErr(w, firstErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"matched": matched, "applied": applied})
 }
 
 // handleSetDeviceTags, cihazın etiketlerini ayarlar (OPERATOR+, servis içinde
