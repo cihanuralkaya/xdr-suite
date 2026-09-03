@@ -29,6 +29,7 @@ import (
 	"xdr.corp/suite/server/internal/enroll"
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/ioc"
+	"xdr.corp/suite/server/internal/logx"
 	"xdr.corp/suite/server/internal/memstore"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/notify"
@@ -123,8 +124,9 @@ func getenv(k, def string) string {
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
-	log.SetPrefix("[c2] ")
+	// Loglama biçimi: XDR_LOG_FORMAT=json ise yapısal JSON (SIEM/log toplama);
+	// aksi halde "[c2] " prefix'li standart metin.
+	logx.Setup(os.Getenv("XDR_LOG_FORMAT"), "[c2] ")
 
 	if err := run(); err != nil {
 		log.Fatalf("başlatma hatası: %v", err)
