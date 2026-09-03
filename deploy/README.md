@@ -160,6 +160,8 @@ mkclient -os linux -server c2.company.local \
 ```
 On the target (root): `sudo ./xdr-agent-setup.sh` -> enter the enrollment code.
 
+All agent environment variables: `deploy/agent.env.example`.
+
 The `-safe-mode` flag: quarantine makes no real network changes (safe for
 testing / the start of a rollout).
 
