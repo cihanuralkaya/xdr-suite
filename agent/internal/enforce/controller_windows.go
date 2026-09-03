@@ -31,6 +31,7 @@ func (winController) List() ([]Process, error) {
 		pid := entry.ProcessID
 		procs = append(procs, Process{
 			PID:  pid,
+			PPID: entry.ParentProcessID,
 			Name: windows.UTF16ToString(entry.ExeFile[:]),
 			Path: processPath(pid),
 		})

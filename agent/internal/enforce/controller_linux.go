@@ -35,7 +35,8 @@ func (linuxController) List() ([]Process, error) {
 		base := filepath.Join("/proc", e.Name())
 		name := readComm(filepath.Join(base, "comm"))
 		path, _ := os.Readlink(filepath.Join(base, "exe")) // başka kullanıcıda başarısız olabilir
-		procs = append(procs, Process{PID: uint32(pid), Name: name, Path: path})
+		ppid := readPPID(filepath.Join(base, "stat"))
+		procs = append(procs, Process{PID: uint32(pid), PPID: ppid, Name: name, Path: path})
 	}
 	return procs, nil
 }
@@ -51,4 +52,14 @@ func readComm(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// readPPID, /proc/<pid>/stat dosyasından ebeveyn PID'ini okur. Ayrıştırma
+// parsePPIDStat'ta (test edilebilir, platform-bağımsız). Okunamazsa 0.
+func readPPID(statPath string) uint32 {
+	b, err := os.ReadFile(statPath)
+	if err != nil {
+		return 0
+	}
+	return parsePPIDStat(string(b))
 }

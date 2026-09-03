@@ -9,6 +9,8 @@ package enforce
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"xdr.corp/suite/agent/internal/agentclock"
@@ -20,6 +22,7 @@ import (
 // Process, çalışan bir süreçtir.
 type Process struct {
 	PID  uint32
+	PPID uint32 // ebeveyn süreç kimliği (süreç soyağacı zenginleştirmesi)
 	Name string
 	Path string
 }
@@ -78,9 +81,10 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 				if res.Score >= 0.9 {
 					sev = "HIGH"
 				}
+				det := map[string]any{"process": p.Name, "pid": int(p.PID), "score": res.Score}
+				addParentChain(det, procs, p.PID)
 				m.emitCatDetails("SECURITY", sev, now, fmt.Sprintf(
-					"anomali: olağandışı süreç davranışı: %s (pid=%d, skor=%.2f)", p.Name, p.PID, res.Score),
-					map[string]any{"process": p.Name, "pid": int(p.PID), "score": res.Score})
+					"anomali: olağandışı süreç davranışı: %s (pid=%d, skor=%.2f)", p.Name, p.PID, res.Score), det)
 			}
 		}
 
@@ -101,6 +105,7 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 		}
 
 		det := map[string]any{"process": p.Name, "pid": int(p.PID), "rule": dec.RuleID, "reason": dec.Reason}
+		addParentChain(det, procs, p.PID)
 		if err := m.ctrl.Kill(p.PID); err != nil {
 			m.emitCatDetails("POLICY_VIOLATION", "CRITICAL", time.Now(),
 				fmt.Sprintf("yasaklı süreç sonlandırılamadı: %s (pid=%d, kural=%s): %v", p.Name, p.PID, dec.RuleID, err),
@@ -113,6 +118,72 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 		enforced++
 	}
 	return enforced, nil
+}
+
+// parsePPIDStat, Linux /proc/<pid>/stat içeriğinden ebeveyn PID'ini (ppid) çıkarır.
+// stat biçimi "pid (comm) state ppid ...". comm ')' ve boşluk içerebildiğinden
+// ayrıştırma SON ')' sonrasından yapılır (kötü niyetli süreç adına karşı sağlam).
+// Ayrıştırılamazsa 0 döner.
+func parsePPIDStat(s string) uint32 {
+	rp := strings.LastIndexByte(s, ')')
+	if rp < 0 || rp+1 >= len(s) {
+		return 0
+	}
+	fields := strings.Fields(s[rp+1:]) // [state, ppid, pgrp, ...]
+	if len(fields) < 2 {
+		return 0
+	}
+	ppid, err := strconv.Atoi(fields[1])
+	if err != nil || ppid < 0 {
+		return 0
+	}
+	return uint32(ppid)
+}
+
+// maxChainDepth, ebeveyn zinciri yürüyüşünün üst sınırıdır (döngü/aşırı derinlik
+// koruması).
+const maxChainDepth = 16
+
+// parentChain, verilen PID'in ebeveyn süreç zincirini (yakın ebeveyn → kök) süreç
+// adlarıyla döner. Döngü (görülen PID) ve derinlik sınırıyla güvenlidir. Ebeveyn
+// bilinmiyorsa boş döner.
+func parentChain(procs []Process, pid uint32) []string {
+	byPID := make(map[uint32]Process, len(procs))
+	for _, p := range procs {
+		byPID[p.PID] = p
+	}
+	self, ok := byPID[pid]
+	if !ok {
+		return nil
+	}
+	var chain []string
+	seen := map[uint32]bool{pid: true}
+	cur := self.PPID
+	for i := 0; i < maxChainDepth && cur != 0 && !seen[cur]; i++ {
+		seen[cur] = true
+		p, ok := byPID[cur]
+		if !ok {
+			break
+		}
+		name := p.Name
+		if name == "" {
+			name = fmt.Sprintf("pid-%d", cur)
+		}
+		chain = append(chain, name)
+		cur = p.PPID
+	}
+	return chain
+}
+
+// addParentChain, ebeveyn zincirini (varsa) Details'e "parent_chain" olarak ekler.
+func addParentChain(det map[string]any, procs []Process, pid uint32) {
+	if chain := parentChain(procs, pid); len(chain) > 0 {
+		anyChain := make([]any, len(chain))
+		for i, s := range chain {
+			anyChain[i] = s
+		}
+		det["parent_chain"] = anyChain
+	}
 }
 
 func (m *Monitor) emit(severity, message string) {

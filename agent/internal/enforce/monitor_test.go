@@ -84,7 +84,7 @@ func fixedClock(server time.Time) *agentclock.Clock {
 
 func TestEnforceAlwaysBlock(t *testing.T) {
 	ctrl := &fakeCtrl{procs: []Process{
-		{PID: 100, Name: "torrent.exe", Path: "D:\\x\\torrent.exe"},
+		{PID: 100, PPID: 200, Name: "torrent.exe", Path: "D:\\x\\torrent.exe"},
 		{PID: 200, Name: "notepad.exe"},
 		{PID: 42, Name: "agent.exe"}, // self — asla öldürülmemeli
 	}}
@@ -109,6 +109,55 @@ func TestEnforceAlwaysBlock(t *testing.T) {
 	if ev.Details == nil || ev.Details["process"] != "torrent.exe" ||
 		ev.Details["pid"] != 100 || ev.Details["rule"] != "b1" {
 		t.Fatalf("olay Details {process,pid,rule} taşımalıydı: %+v", ev.Details)
+	}
+	// Ebeveyn zinciri de iliştirilmeli (torrent'in ebeveyni notepad).
+	chain, _ := ev.Details["parent_chain"].([]any)
+	if len(chain) != 1 || chain[0] != "notepad.exe" {
+		t.Fatalf("parent_chain [notepad.exe] olmalıydı: %+v", ev.Details["parent_chain"])
+	}
+}
+
+func TestParsePPIDStat(t *testing.T) {
+	// Normal.
+	if got := parsePPIDStat("100 (bash) S 42 100 100 0 -1 4194304"); got != 42 {
+		t.Fatalf("ppid 42 beklenirdi, %d", got)
+	}
+	// comm ')' ve boşluk içeriyor (kötü niyetli süreç adı) → son ')' esas alınır.
+	if got := parsePPIDStat("7 (weird ) name) S 3 7 7"); got != 3 {
+		t.Fatalf("parantezli comm'de ppid 3 beklenirdi, %d", got)
+	}
+	// Bozuk girdi → 0.
+	if got := parsePPIDStat("bozuk"); got != 0 {
+		t.Fatalf("bozuk girdi 0 dönmeliydi, %d", got)
+	}
+}
+
+func TestParentChain(t *testing.T) {
+	// explorer(10) → cmd(20) → torrent(100)
+	procs := []Process{
+		{PID: 10, PPID: 4, Name: "explorer.exe"},
+		{PID: 20, PPID: 10, Name: "cmd.exe"},
+		{PID: 100, PPID: 20, Name: "torrent.exe"},
+		{PID: 4, PPID: 0, Name: "System"},
+	}
+	got := parentChain(procs, 100)
+	want := []string{"cmd.exe", "explorer.exe", "System"}
+	if len(got) != len(want) {
+		t.Fatalf("zincir uzunluğu yanlış: %v (beklenen %v)", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("zincir[%d]=%s beklenen %s (%v)", i, got[i], want[i], got)
+		}
+	}
+	// Bilinmeyen PID → boş.
+	if c := parentChain(procs, 999); c != nil {
+		t.Fatalf("bilinmeyen PID boş dönmeliydi: %v", c)
+	}
+	// Döngü koruması: a↔b birbirini ebeveyn gösterir → sonsuz döngü yok.
+	cyc := []Process{{PID: 1, PPID: 2, Name: "a"}, {PID: 2, PPID: 1, Name: "b"}}
+	if c := parentChain(cyc, 1); len(c) > 2 {
+		t.Fatalf("döngü sınırlanmalıydı: %v", c)
 	}
 }
 
