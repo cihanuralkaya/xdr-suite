@@ -200,7 +200,7 @@ func run() error {
 	// olaylar bir HTTPS webhook'una gönderilir (Slack/Teams/genel). Eşik
 	// XDR_ALERT_MIN_SEVERITY (varsayılan HIGH).
 	if hook := os.Getenv("XDR_ALERT_WEBHOOK_URL"); hook != "" {
-		alerter, err := notify.NewWebhookNotifier(hook, getenv("XDR_ALERT_MIN_SEVERITY", "HIGH"))
+		alerter, err := notify.NewWebhookNotifier(hook, getenv("XDR_ALERT_MIN_SEVERITY", "HIGH"), os.Getenv("XDR_ALERT_FORMAT"))
 		if err != nil {
 			return err
 		}

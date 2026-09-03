@@ -55,6 +55,7 @@ type Notifier interface {
 type WebhookNotifier struct {
 	url    string
 	minSev int
+	format string // "json" (varsayılan) veya "slack" (Slack/Teams incoming webhook)
 	client *http.Client
 	ch     chan Alert
 }
@@ -69,14 +70,18 @@ const (
 // arka plan gönderim işçisini başlatır. minSeverity altındaki uyarılar yok sayılır
 // (ör. "HIGH" → yalnız HIGH ve CRITICAL). URL https değilse hata döner (SEC-012
 // ile aynı gerekçe: uyarı içeriği güven sınırını düz-metin geçmemeli).
-func NewWebhookNotifier(url, minSeverity string) (*WebhookNotifier, error) {
+func NewWebhookNotifier(url, minSeverity, format string) (*WebhookNotifier, error) {
 	u, err := neturl.Parse(url)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return nil, fmt.Errorf("notify: webhook URL https olmalı: %q", url)
 	}
+	if format != "slack" {
+		format = "json"
+	}
 	n := &WebhookNotifier{
 		url:    url,
 		minSev: sevRank(minSeverity),
+		format: format,
 		client: &http.Client{Timeout: httpTimeout},
 		ch:     make(chan Alert, queueSize),
 	}
@@ -107,8 +112,43 @@ func (n *WebhookNotifier) worker() {
 	}
 }
 
+// sevEmoji, önem düzeyi için Slack emoji'si.
+func sevEmoji(sev string) string {
+	switch sev {
+	case "CRITICAL":
+		return ":rotating_light:"
+	case "HIGH":
+		return ":red_circle:"
+	case "MEDIUM":
+		return ":large_orange_diamond:"
+	default:
+		return ":large_blue_circle:"
+	}
+}
+
+// slackText, uyarıyı Slack/Teams incoming webhook için okunabilir metne çevirir.
+func slackText(a Alert) string {
+	s := sevEmoji(a.Severity) + " *[" + a.Severity + "]* " + a.Message
+	s += "\n• Cihaz: `" + a.DeviceID + "`"
+	if a.Category != "" {
+		s += " • Kategori: " + a.Category
+	}
+	if a.TechniqueID != "" {
+		s += " • ATT&CK: " + a.TechniqueID + " " + a.TechniqueName + " (" + a.Tactic + ")"
+	}
+	return s
+}
+
+// payloadBytes, yapılandırılmış biçime göre HTTP gövdesini üretir.
+func (n *WebhookNotifier) payloadBytes(a Alert) ([]byte, error) {
+	if n.format == "slack" {
+		return json.Marshal(map[string]string{"text": slackText(a)})
+	}
+	return json.Marshal(a)
+}
+
 func (n *WebhookNotifier) post(a Alert) {
-	body, err := json.Marshal(a)
+	body, err := n.payloadBytes(a)
 	if err != nil {
 		return
 	}
