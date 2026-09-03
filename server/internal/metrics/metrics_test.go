@@ -11,6 +11,10 @@ func TestWriteExposition(t *testing.T) {
 	IncLoginFailure()
 	IncLoginFailure()
 	AddEventsIngested(5)
+	AddDetections(3)
+	IncAlertRaised()
+	IncAutoQuarantine()
+	IncIocHit()
 
 	var sb strings.Builder
 	Write(&sb, Snapshot{
@@ -28,6 +32,10 @@ func TestWriteExposition(t *testing.T) {
 		"xdr_login_success_total 1",
 		"xdr_login_failure_total 2",
 		"xdr_events_ingested_total 5",
+		"xdr_detections_total 3",
+		"xdr_alerts_raised_total 1",
+		"xdr_auto_quarantine_total 1",
+		"xdr_ioc_hits_total 1",
 		`xdr_devices{state="total"} 10`,
 		`xdr_devices{state="online"} 7`,
 		`xdr_devices{state="quarantined"} 1`,

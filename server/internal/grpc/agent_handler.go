@@ -229,7 +229,9 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 			// yoksa jenerik yol: ham önem düzeyi + MITRE sınıflandırması. Uyarı
 			// best-effort; eşik/filtre notifier içinde. noop notifier'da maliyetsiz.
 			if dets := h.detector.Evaluate(e); len(dets) > 0 {
+				metrics.AddDetections(len(dets))
 				for _, d := range dets {
+					metrics.IncAlertRaised()
 					h.alerter.Notify(notify.Alert{
 						DeviceID:      deviceID,
 						Category:      e.Category,
@@ -252,6 +254,7 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 				if tq, ok := mitre.Classify(e.Category, e.Message); ok {
 					al.TechniqueID, al.TechniqueName, al.Tactic = tq.ID, tq.Name, tq.Tactic
 				}
+				metrics.IncAlertRaised()
 				h.alerter.Notify(al)
 			}
 			// Tehdit istihbaratı (IoC): olayın yapısal Details'i (ip/mac/process) veya
@@ -262,6 +265,8 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 					_ = json.Unmarshal([]byte(e.Details), &dm)
 				}
 				if lbl, ind, ok := h.iocSet.Match(dm, e.Message); ok {
+					metrics.IncIocHit()
+					metrics.IncAlertRaised()
 					h.alerter.Notify(notify.Alert{
 						DeviceID:      deviceID,
 						Category:      e.Category,
@@ -282,6 +287,7 @@ func (h *AgentHandler) ReportEvents(stream xdrv1.AgentService_ReportEventsServer
 			if reason, ok := response.ShouldTrigger(domainEvents); ok {
 				if err := h.responder.AutoQuarantine(stream.Context(), deviceID, reason); err == nil {
 					autoTriggered = true
+					metrics.IncAutoQuarantine()
 					h.admin.PublishDevice(deviceID) // konsol durumu tazelesin
 				}
 			}

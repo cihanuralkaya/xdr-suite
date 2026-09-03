@@ -17,6 +17,10 @@ var (
 	loginSuccess   atomic.Int64
 	loginFailure   atomic.Int64
 	eventsIngested atomic.Int64
+	detections     atomic.Int64
+	alertsRaised   atomic.Int64
+	autoQuarantine atomic.Int64
+	iocHits        atomic.Int64
 )
 
 // buildVersion, xdr_build_info etiketinde raporlanan sürümdür.
@@ -39,6 +43,22 @@ func AddEventsIngested(n int) {
 		eventsIngested.Add(int64(n))
 	}
 }
+
+// AddDetections, kural-eşleşmeli tespit sayacını artırır (sunucu-taraflı motor).
+func AddDetections(n int) {
+	if n > 0 {
+		detections.Add(int64(n))
+	}
+}
+
+// IncAlertRaised, üretilen (SOC'a gönderilmeye aday) uyarı sayacını artırır.
+func IncAlertRaised() { alertsRaised.Add(1) }
+
+// IncAutoQuarantine, otomatik karantina (SOAR) sayacını artırır.
+func IncAutoQuarantine() { autoQuarantine.Add(1) }
+
+// IncIocHit, tehdit istihbaratı (IoC) eşleşme sayacını artırır.
+func IncIocHit() { iocHits.Add(1) }
 
 // Snapshot, /metrics çıktısını üretmek için depodan alınan anlık gauge'lardır.
 // Sayaçlar (login/olay) paket içinden okunur; gauge'lar çağıran tarafından
@@ -69,6 +89,22 @@ func Write(w io.Writer, s Snapshot) {
 	fmt.Fprintf(w, "# HELP xdr_events_ingested_total Kabul edilen telemetri olayları.\n")
 	fmt.Fprintf(w, "# TYPE xdr_events_ingested_total counter\n")
 	fmt.Fprintf(w, "xdr_events_ingested_total %d\n", eventsIngested.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_detections_total Kural-eşleşmeli sunucu-taraflı tespitler.\n")
+	fmt.Fprintf(w, "# TYPE xdr_detections_total counter\n")
+	fmt.Fprintf(w, "xdr_detections_total %d\n", detections.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_alerts_raised_total Üretilen SOC uyarıları.\n")
+	fmt.Fprintf(w, "# TYPE xdr_alerts_raised_total counter\n")
+	fmt.Fprintf(w, "xdr_alerts_raised_total %d\n", alertsRaised.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_auto_quarantine_total Otomatik karantina (SOAR) eylemleri.\n")
+	fmt.Fprintf(w, "# TYPE xdr_auto_quarantine_total counter\n")
+	fmt.Fprintf(w, "xdr_auto_quarantine_total %d\n", autoQuarantine.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_ioc_hits_total Tehdit istihbaratı (IoC) eşleşmeleri.\n")
+	fmt.Fprintf(w, "# TYPE xdr_ioc_hits_total counter\n")
+	fmt.Fprintf(w, "xdr_ioc_hits_total %d\n", iocHits.Load())
 
 	fmt.Fprintf(w, "# HELP xdr_devices Cihaz sayıları (duruma göre).\n")
 	fmt.Fprintf(w, "# TYPE xdr_devices gauge\n")
