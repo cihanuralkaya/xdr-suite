@@ -629,6 +629,14 @@
             <div id="det-empty" class="empty" style="padding:14px">Yükleniyor…</div>
           </div>
         </div>
+
+        <div class="card" data-view="security">
+          <div class="head"><h2>🧭 MITRE Taktik Dağılımı <span class="count" id="tac-count">0</span></h2>
+            <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">son olaylardan</span></div>
+          <div class="body">
+            <div id="tac-grid" style="display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -925,6 +933,40 @@
 
   var SEV_ORDER=["CRITICAL","HIGH","MEDIUM","LOW","INFO"];
   var SEV_COLOR={CRITICAL:"var(--crit)",HIGH:"var(--warn)",MEDIUM:"var(--med)",LOW:"var(--accent)",INFO:"var(--faint)"};
+  // classifyTactic, olayı MITRE ATT&CK taktiğine eşler (sunucu mitre.Classify'ın
+  // client yansıması — olaylar teknik taşımadığından burada sınıflandırılır).
+  function classifyTactic(cat, msg){
+    var m=(msg||"").toLowerCase();
+    if(cat==="NETWORK_DISCOVERY") return "Discovery";
+    if(cat==="POLICY_VIOLATION") return "Execution";
+    if(cat==="SECURITY"){
+      if(m.indexOf("güncelleme")>=0) return "Initial Access";
+      if(m.indexOf("script")>=0) return "Execution";
+      return "Defense Evasion"; // anomali/kurcalama/karantina/diğer
+    }
+    return null; // SYSTEM/AGENT_UPDATE → taktik yok
+  }
+  function renderTactics(){
+    var box=$("tac-grid"); if(!box) return;
+    var counts={};
+    (state.events||[]).forEach(function(e){
+      var t=classifyTactic(e.category, e.message);
+      if(t) counts[t]=(counts[t]||0)+1;
+    });
+    var items=Object.keys(counts).map(function(k){ return [k,counts[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+    var total=items.reduce(function(s,x){ return s+x[1]; },0);
+    $("tac-count").textContent=items.length;
+    box.innerHTML = items.length ? "" : "<div class='empty' style='padding:8px'>Sınıflandırılabilir olay yok.</div>";
+    items.forEach(function(x){
+      var pct=total?Math.round(x[1]*100/total):0;
+      var row=document.createElement("div");
+      row.innerHTML="<div style='display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px'>"+
+        "<span>"+esc(x[0])+"</span><span class='mono' style='color:var(--muted)'>"+x[1]+" (%"+pct+")</span></div>"+
+        "<div style='height:7px;border-radius:4px;background:var(--panel2);overflow:hidden'>"+
+        "<div style='height:100%;width:"+pct+"%;background:var(--warn)'></div></div>";
+      box.appendChild(row);
+    });
+  }
   function renderOSInventory(){
     var box=$("osinv"); if(!box) return;
     var m=(state.summary&&state.summary.devices_by_os)||{};
@@ -1102,7 +1144,7 @@
       state.tokens = (r[4] && r[4].tokens) || [];
       if(r[5] && r[5].admins) state.admins = r[5].admins;
       state.policies = (r[6] && r[6].policies) || [];
-      renderStats(); renderSeverity(); renderOSInventory(); renderDevices(); renderEvents(); renderAudit();
+      renderStats(); renderSeverity(); renderOSInventory(); renderTactics(); renderDevices(); renderEvents(); renderAudit();
       renderTokens(); renderAdmins(); renderPolicies(); setLive(true);
       loadActivity();
       if(state.sel) loadDetail(state.sel);
