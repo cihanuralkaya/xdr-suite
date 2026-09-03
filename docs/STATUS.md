@@ -76,6 +76,7 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Otomatik müdahale/SOAR (kritik olayda oto-karantina) | ✅ opsiyonel | `server/internal/response`, `grpc` | birim |
 | Sunucu-taraflı tespit motoru (Sigma-benzeri kurallar) | ✅ | `server/internal/detect`, `grpc`, `adminapi` | birim + httptest |
 | Cihaz etiketleme/gruplama (filo yönetimi + filtre) | ✅ | `admin`, `db`, `adminapi`, `console` | birim + httptest |
+| Yapısal olay Details (ağ/enforce/anomali → structpb) | ✅ | `agent` (enforce, main) | birim |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar

@@ -104,6 +104,12 @@ func TestEnforceAlwaysBlock(t *testing.T) {
 	if buf.Len() != 1 {
 		t.Fatalf("1 POLICY_VIOLATION olayı beklenirdi, %d", buf.Len())
 	}
+	// Olay yapısal Details taşımalı (konsol detay paneli + sunucu saklama).
+	ev := buf.Pending(1)[0]
+	if ev.Details == nil || ev.Details["process"] != "torrent.exe" ||
+		ev.Details["pid"] != 100 || ev.Details["rule"] != "b1" {
+		t.Fatalf("olay Details {process,pid,rule} taşımalıydı: %+v", ev.Details)
+	}
 }
 
 func TestEnforceTimeBlockWhenSynced(t *testing.T) {

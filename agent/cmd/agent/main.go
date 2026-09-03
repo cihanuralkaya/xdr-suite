@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"xdr.corp/suite/agent/internal/agentclock"
@@ -284,13 +285,21 @@ func flushEvents(ctx context.Context, cli xdrv1.AgentServiceClient, ident *ident
 	}
 	protoEvents := make([]*xdrv1.Event, 0, len(pending))
 	for _, e := range pending {
-		protoEvents = append(protoEvents, &xdrv1.Event{
+		pe := &xdrv1.Event{
 			Sequence:   e.Seq,
 			Category:   protoCategory(e.Category),
 			Severity:   protoSeverity(e.Severity),
 			Message:    e.Message,
 			OccurredAt: timestamppb.New(e.OccurredAt),
-		})
+		}
+		// Yapısal ek veri (varsa) structpb'ye çevrilip iletilir — konsol olay-detay
+		// panelinde gösterilir ve sunucu tarafında event_logs.details'e saklanır.
+		if len(e.Details) > 0 {
+			if ds, err := structpb.NewStruct(e.Details); err == nil {
+				pe.Details = ds
+			}
+		}
+		protoEvents = append(protoEvents, pe)
 	}
 	if err := stream.Send(&xdrv1.EventBatch{
 		Identity: &xdrv1.AgentIdentity{DeviceId: ident.deviceID, AgentVersion: agentVersion, OsPlatform: runtime.GOOS},
@@ -512,6 +521,7 @@ func scanNetwork(src discovery.NeighborSource, tr *discovery.Tracker, buf *colle
 			Severity:   severity,
 			Message:    fmt.Sprintf("yeni cihaz (%s): %s / %s", label, d.Host.IP, d.Host.MAC),
 			OccurredAt: time.Now(),
+			Details:    map[string]any{"ip": d.Host.IP, "mac": d.Host.MAC, "authorized": d.Authorized},
 		})
 	}
 }

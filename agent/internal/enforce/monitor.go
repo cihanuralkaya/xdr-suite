@@ -78,8 +78,9 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 				if res.Score >= 0.9 {
 					sev = "HIGH"
 				}
-				m.emitCat("SECURITY", sev, now, fmt.Sprintf(
-					"anomali: olağandışı süreç davranışı: %s (pid=%d, skor=%.2f)", p.Name, p.PID, res.Score))
+				m.emitCatDetails("SECURITY", sev, now, fmt.Sprintf(
+					"anomali: olağandışı süreç davranışı: %s (pid=%d, skor=%.2f)", p.Name, p.PID, res.Score),
+					map[string]any{"process": p.Name, "pid": int(p.PID), "score": res.Score})
 			}
 		}
 
@@ -99,13 +100,16 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 			continue
 		}
 
+		det := map[string]any{"process": p.Name, "pid": int(p.PID), "rule": dec.RuleID, "reason": dec.Reason}
 		if err := m.ctrl.Kill(p.PID); err != nil {
-			m.emit("CRITICAL", fmt.Sprintf("yasaklı süreç sonlandırılamadı: %s (pid=%d, kural=%s): %v",
-				p.Name, p.PID, dec.RuleID, err))
+			m.emitCatDetails("POLICY_VIOLATION", "CRITICAL", time.Now(),
+				fmt.Sprintf("yasaklı süreç sonlandırılamadı: %s (pid=%d, kural=%s): %v", p.Name, p.PID, dec.RuleID, err),
+				det)
 			continue
 		}
-		m.emit("HIGH", fmt.Sprintf("yasaklı süreç sonlandırıldı: %s (pid=%d, kural=%s, sebep=%s)",
-			p.Name, p.PID, dec.RuleID, dec.Reason))
+		m.emitCatDetails("POLICY_VIOLATION", "HIGH", time.Now(),
+			fmt.Sprintf("yasaklı süreç sonlandırıldı: %s (pid=%d, kural=%s, sebep=%s)", p.Name, p.PID, dec.RuleID, dec.Reason),
+			det)
 		enforced++
 	}
 	return enforced, nil
@@ -116,10 +120,17 @@ func (m *Monitor) emit(severity, message string) {
 }
 
 func (m *Monitor) emitCat(category, severity string, at time.Time, message string) {
+	m.emitCatDetails(category, severity, at, message, nil)
+}
+
+// emitCatDetails, yapısal ek veriyle (süreç/pid/kural…) olay üretir. Details,
+// konsol olay-detay panelinde gösterilir ve sunucuda saklanır.
+func (m *Monitor) emitCatDetails(category, severity string, at time.Time, message string, details map[string]any) {
 	m.buf.Add(collector.Event{
 		Category:   category,
 		Severity:   severity,
 		Message:    message,
 		OccurredAt: at,
+		Details:    details,
 	})
 }
