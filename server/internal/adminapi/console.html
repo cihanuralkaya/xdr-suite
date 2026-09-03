@@ -803,7 +803,7 @@
   }
   // ================= /TEMA & GÖRÜNÜM =================
 
-  var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", auto:true, timer:null,
+  var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", catFilter:"", auto:true, timer:null,
     evtOpen:{}, tokens:[], admins:[], policies:[], devSearch:"",
     streamOn:false, streamCtrl:null, streamRetry:null, polOpen:{}, polRules:{}, audSearch:"" };
 
@@ -1052,11 +1052,12 @@
   function renderEvents(){
     var body=$("evt-body"); body.innerHTML="";
     var list=state.events.filter(function(e){
+      if(state.catFilter && e.category!==state.catFilter) return false;
       if(!state.sevFilter) return true;
       if(state.sevFilter==="CRITICAL") return e.severity==="CRITICAL";
       return e.severity==="CRITICAL"||e.severity==="HIGH";
     });
-    $("evt-count").textContent=list.length;
+    $("evt-count").textContent=list.length + (state.catFilter?(" · "+state.catFilter):"");
     $("evt-empty").style.display = list.length ? "none" : "block";
     list.forEach(function(e){
       var hasDet = e.details != null && JSON.stringify(e.details) !== "null" && JSON.stringify(e.details) !== "{}";
@@ -1064,7 +1065,11 @@
       if(hasDet){ tr.className="click"; tr.title="Ayrıntı için tıklayın"; }
       tr.appendChild(cell(relTime(e.created_at)));
       var c=document.createElement("td"); var chip=document.createElement("span");
-      chip.className="chip"; chip.textContent=e.category||"-"; c.appendChild(chip); tr.appendChild(c);
+      chip.className="chip"; chip.textContent=e.category||"-";
+      chip.style.cursor="pointer"; chip.title="Bu kategoriye göre süz";
+      if(state.catFilter===e.category){ chip.style.background="var(--accent-dim)"; chip.style.color="var(--accent)"; }
+      chip.onclick=function(ev){ ev.stopPropagation(); state.catFilter=(state.catFilter===e.category?"":e.category); renderEvents(); };
+      c.appendChild(chip); tr.appendChild(c);
       var sv=document.createElement("td"); var s=document.createElement("span");
       s.className="sev "+(e.severity||""); s.textContent=e.severity||"-"; sv.appendChild(s); tr.appendChild(sv);
       var msg=cell((hasDet?"▸ ":"")+(e.message||"-")); msg.style.whiteSpace="normal"; tr.appendChild(msg);
