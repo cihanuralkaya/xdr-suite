@@ -1,4 +1,7 @@
 # Mimari
+# Architecture
+
+**Türkçe** · [English](#english)
 
 ## Genel akış
 
@@ -151,3 +154,153 @@ ileride sürücü) platform-spesifik dosyalarda soyutlanır.
 - **KVKK saklama otomasyonu (tamam):** `server/internal/retention` — saf plan
   (düşürülecek/oluşturulacak aylık partition'lar) + DB yürütücü; C2'de günlük
   çalışır (`XDR_RETENTION_DAYS`, varsayılan 90). Plan mantığı sahte store ile test edildi.
+
+---
+
+# English
+
+## Overall flow
+
+```
+                 mTLS + gRPC
+  +----------+  <-------------->  +--------------------+
+  |  Agent   |                    |   C2 Server        |
+  | (agent)  |   enrollment       |  - AgentService    |
+  |          |  ----(1-way TLS)-->|  - EnrollmentSvc   |
+  | Watchdog |                    |  - OTA / Policy    |
+  +----------+                    +---------+----------+
+                                            |
+                                   +--------v---------+
+                                   |   PostgreSQL     |
+                                   | (at-rest crypto) |
+                                   +------------------+
+```
+
+## Technology decisions
+
+- **Single language: Go** — C2 and the agent share common protobuf types, so
+  maintenance stays in one ecosystem. The kernel driver (later) is necessarily C/C++.
+- **gRPC + mTLS** — mutual certificate verification; the `device_id` in the agent body
+  is not trusted, identity is taken from the client certificate.
+- **PostgreSQL** — sensitive free-text fields are encrypted with `pgcrypto`; the
+  high-volume `event_logs` stays queryable and its confidentiality is protected by
+  at-rest (disk/tablespace) encryption.
+
+## Installation and packaging
+
+### Server (C2)
+A single-file installer (Windows MSI / Linux deb-rpm) installs the C2 service and the
+PostgreSQL connection configuration. The master encryption key is set at installation
+and held in the service's RAM; it is not stored in plaintext on disk.
+
+### Client (agent) — unique installation
+Installation is bootstrapped with an **enrollment token**:
+
+1. IT generates a single-use, time-limited token for a device from the admin panel
+   (DB: `enrollment_tokens`, the raw token is not stored — its HMAC is kept).
+2. The token reaches the agent in one of two modes (**decision: both are supported**):
+   - **Embedded mode:** a unique per-device installer with the token stamped in → the
+     user installs with a double-click, zero configuration. A package is produced per
+     deployment.
+   - **Code-entry mode:** a single shared installer; a single-use code provided by IT
+     is entered during installation. Simple to distribute.
+   The core agent is identical in both modes; the difference is only at the packaging
+   layer.
+3. On first launch the agent generates a local key pair, creates a CSR, and calls
+   `EnrollmentService.Enroll(token, csr)`.
+4. The server verifies the token, signs the CSR, and returns a short-lived client
+   certificate.
+5. All subsequent communication is over mTLS. The token is single-use and consumed.
+
+### Target platforms
+**Decision: both server and client on Linux + Windows.** Produced from a single source
+via Go cross-compilation; installer targets: Windows **MSI**, Linux **deb/rpm**.
+OS-specific parts (service registration, process termination, firewall/iptables, and a
+driver later) are abstracted in platform-specific files.
+
+## Phases (roadmap)
+
+- **Phase 1 — Skeleton (done):** structure, proto contracts, corrected DB schema.
+- **Phase 2a — Enrollment/PKI core (done):** security primitives (HMAC blind index,
+  AES-256-GCM field encryption, CA/CSR signing, KDF), config, a transport-independent
+  enrollment domain service + unit tests; pgx `Store` and gRPC handler adapters.
+- **Policy instant push (done):** `server/internal/policypush` per-device pub/sub;
+  `StreamPolicies` is now long-lived — it sends the first bundle, then instantly pushes
+  new bundles on admin assignment (`AssignPolicy`→`Publish`). The agent keeps a
+  persistent subscription and hot-swaps the engine via `atomic.Pointer`. Push verified
+  by e2e.
+- **Phase 2b — Routine flow (done, compiling):** agent-domain (policy engine,
+  server-clock anchor, event buffer) + server `AgentService` (Heartbeat + ReportEvents,
+  identity from the mTLS peer certificate) + two gRPC servers coming up with mTLS/TLS +
+  the agent main loop (enroll → heartbeat → event flush).
+- **Phase 2c — Policy distribution + live proof (done):** `StreamPolicies` wired
+  end-to-end; a dev certificate tool (`tools/gencerts`); `server/internal/e2e` verifies
+  the enroll→heartbeat→event→**policy**→token flow with real mTLS gRPC.
+  `RenewCertificate` wired: an enrolled agent renews its certificate over mTLS (without
+  a token). The agent now renews PROACTIVELY: `agent/internal/certrenew` renews in the
+  last 1/3 of the lifetime, using `transport.CertHolder` (dynamic cert via
+  GetClientCertificate) without re-establishing the live connection.
+- **Certificate revocation (done):** `server/internal/revocation` — an in-memory
+  revocation set (SHA-256 fingerprint), periodic refresh from the DB, an mTLS
+  `VerifyPeerCertificate` gate; admin `RevokeDevice` (OPERATOR+, audit) +
+  `/api/devices/revoke` + a console button. e2e: a new connection with a revoked
+  certificate is rejected.
+- **Phase 3 — Policy enforcement (partially done):** process monitoring + termination
+  (`agent/internal/enforce`), server-clock-anchored evaluation, fail-safe when the
+  clock is unsynced (block-always rules only), a `POLICY_VIOLATION` event. The Windows
+  controller (Toolhelp/TerminateProcess) verified with real processes; the Linux
+  controller (`/proc` scan + SIGKILL) cross-compiled, with an unsupported stub for
+  macOS.
+- **Phase 4 — OTA signature verification (partially done):** an Ed25519-signed manifest
+  (`otawire` canonical encoding, `server/internal/ota` signer, `agent/internal/update`
+  verifier), `CheckUpdate` wired end-to-end and verified by e2e (valid accepted,
+  tampered rejected), `tools/otasign` (key generation + release signing + SQL).
+- **Phase 4b — OTA download + staging (partially done):** `agent/internal/update` — a
+  size-limited downloader, the `Prepare` pipeline (signature → download → SHA-256 →
+  atomic staging + version pointer); not applied if signature/hash fails. Verified with
+  `httptest`.
+- **Staged rollout / canary (done):** `server/internal/rollout` — a deterministic
+  cohort based on the device+version hash; `CheckUpdate` offers no update if the device
+  is not in the `rollout_percent` cohort. Monotonic (the cohort grows as the percentage
+  increases), distribution/boundary-tested; the 0% gate verified by e2e.
+- **Signed script execution (done, limited):** `scriptwire` + `agent/internal/script` —
+  Ed25519 signature verification (rejected if a single byte changes) + constrained
+  execution (timeout, output limit, minimal env); the `RUN_SIGNED_SCRIPT` command wired
+  in the agent, `tools/scriptsign` signs. **Boundary (#7):** NOT a real isolation
+  boundary; process-tree termination and a sandbox (Job Object / AppContainer /
+  container) are a later phase.
+- **Watchdog (done):** `agent/internal/watchdog` — process supervision + backoff
+  restart (Supervisor, tested with a fake runner), staged swap + backup + **rollback on
+  a crash within the trial window** (FileSwapper, tested with a temp dir), a real
+  `os/exec` runner. Closes the OTA loop (Prepare→swap→rollback).
+- **Dual-process mutual supervision (done):** `agent/internal/liveness` — file beacons;
+  the watchdog restarts the agent on process exit, the agent restarts the watchdog on
+  beacon staleness (`PeerGuard`). Beacon + guard logic tested with a fake clock.
+- **Phase 5a — Network discovery (done):** `agent/internal/discovery` — neighbor/ARP
+  table (read-only) scanning, an ARP parser (Windows `arp -a`, Linux `/proc/net/arp`),
+  new-device tracking + an authorized/unauthorized allowlist, `NETWORK_DISCOVERY`
+  events. Verified on a real network on Windows (7 devices found).
+- **Phase 5b — Quarantine (partially done):** `agent/internal/quarantine` — an
+  idempotent state manager (Apply/Release, a SECURITY event on transitions) tested with
+  a fake isolator; Windows (`netsh`, default-block policy + C2 allow) and Linux
+  (`iptables` custom chain) isolators compiled/cross-compiled. The agent applies
+  QUARANTINE/UNQUARANTINE from the heartbeat `pending_commands`.
+- **Phase 6 — Local ML:** ONNX Isolation Forest, baseline, human-in-the-loop.
+- **Phase 7 — Tamper (high cost):** MiniFilter driver, PPL/ELAM, code signing.
+- **Phase 8 — Packaging:** server + unique client installers.
+- **Admin core (done):** `server/internal/admin` — RBAC (VIEWER/OPERATOR/ADMIN)
+  operations: enrollment token generation (HMAC-indexed), quarantine/release commands,
+  policy creation/assignment; every sensitive operation is written to `audit_log`. The
+  command queue (`device_commands`) + heartbeat delivery (at-most-once) verified by e2e.
+- **Admin HTTP API (done):** `server/internal/adminapi` — Argon2id password
+  verification, an HMAC-signed stateless session token, Bearer-protected REST endpoints;
+  verified end-to-end with `httptest` (login→command, RBAC 403, wrong password 401).
+- **Web admin console (done):** `server/internal/adminapi/console.html` — a same-origin
+  embedded (Go embed) single-page console served from the C2 admin server via `GET /`;
+  verified with `httptest`.
+- **Read API + visibility (done):** `server/internal/adminread` — the device list
+  (encrypted hostname/mac decrypted on the server) and event logs; `GET /api/devices`,
+  `GET /api/events`. Live **Devices** and **Events** tables in the console.
+- **Data-protection retention automation (done):** `server/internal/retention` — a pure
+  plan (monthly partitions to drop/create) + a DB executor; runs daily in C2
+  (`XDR_RETENTION_DAYS`, default 90). Plan logic tested with a fake store.

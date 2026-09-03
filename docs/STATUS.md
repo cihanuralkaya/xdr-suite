@@ -1,4 +1,7 @@
 # Durum Raporu — XDR/MDM
+# Status Report — XDR/MDM
+
+**Türkçe** · [English](#english)
 
 Bu belge, kod tabanının mevcut durumunu, neyin nasıl doğrulandığını ve bilinçli
 olarak kapsam dışı bırakılanları özetler. Devir/gözden geçirme için referanstır.
@@ -155,3 +158,153 @@ go run ./tools/adminseed -email a@x -password '...' -role ADMIN
   (benzersiz) veya kod girişli (paylaşımlı); ajan+CA gömülü; servis kurar.
 - Ayrıntı: `deploy/README.md`. **Canlı doğrulandı:** üretilen benzersiz Windows
   installer'ın gömülü yükü çalıştırıldığında cihaz başarıyla kaydoldu.
+
+---
+
+# English
+
+This document summarizes the current state of the codebase, what was verified and
+how, and what is deliberately out of scope. It is a handover/review reference.
+
+## Summary
+
+**Nearly all of the software-side capabilities** from the architecture doc are
+implemented and tested. Security-critical flows are **proven end-to-end** with real
+mTLS gRPC and real cryptography (`server/internal/e2e`). Kernel-level tamper
+protection is deliberately out of scope (see below).
+
+- Language: **Go** (single language), communication over **gRPC + mTLS**, TLS 1.3.
+- ~8,100 lines of production Go + comprehensive tests.
+- **189 test functions / 36 test packages**, all passing (`go test ./...`).
+- Cross-compilation verified: Windows (native), Linux, macOS.
+- **In-memory demo mode** run live (`XDR_DATABASE_URL` empty): real enrollment, real
+  network discovery, all admin/console flows exercised end-to-end.
+
+## End-to-end proven chain (e2e)
+
+`enroll (PKI) -> mTLS -> heartbeat (server-clock) -> policy distribution (push) ->
+OTA signature + rollout gate -> command delivery (quarantine) -> single-use token`
+- all in one integration test, with real TCP + mTLS gRPC + real signatures/hashes.
+
+**Smoke/acceptance test** (`scripts/smoke-test.sh`, `make smoke`): brings up real c2
++ real agent processes on isolated ports and verifies the enroll -> CSR signing ->
+heartbeat -> event -> admin action (diagnostics) -> audit log -> summary/policy read
+-> **live SSE stream** chain with 11 assertions. **CI** (`.github/workflows/ci.yml`):
+proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
+
+## Capability matrix
+
+| Capability | Status | Package | Verification |
+|---|---|---|---|
+| Enrollment / PKI bootstrap | done | `server/internal/enroll` | e2e + unit |
+| Cryptography (HMAC blind index, AES-GCM, CA/CSR) | done | `server/internal/security` | unit |
+| mTLS gRPC (2 servers) | done | `server/internal/grpc` | e2e |
+| Heartbeat + server-clock anchor | done | `grpc` + `agent/internal/agentclock` | e2e + unit |
+| Policy engine (after-hours, overnight) | done | `agent/internal/policy` | unit |
+| Policy distribution - instant push | done | `server/internal/policypush` | e2e + unit |
+| Process enforcement (watch + terminate) | Win real / Linux compiled | `agent/internal/enforce` | unit + real list (Win) |
+| Store-and-forward event buffer | done | `agent/internal/collector` | unit |
+| OTA signature verification (Ed25519) | done | `server/internal/ota`, `agent/internal/update`, `otawire` | e2e + unit |
+| OTA download + staging | done | `agent/internal/update` | unit (httptest) |
+| Staged rollout (canary) | done | `server/internal/rollout` | e2e + unit |
+| Watchdog (supervision + swap + rollback) | done | `agent/internal/watchdog` | unit |
+| Dual-process mutual supervision | done | `agent/internal/liveness` | unit |
+| Network discovery (ARP/neighbor) | Win real / Linux compiled | `agent/internal/discovery` | unit + real scan (Win) |
+| Quarantine (network isolation) | logic / OS compiled | `agent/internal/quarantine` | unit (fake isolator) |
+| Command queue (quarantine delivery) | done | `server/internal/db` + `grpc` | e2e |
+| Admin service (RBAC + audit log) | done | `server/internal/admin` | unit |
+| Admin HTTP API + Argon2 + session | done | `server/internal/adminapi` | unit (httptest) |
+| Login brute-force protection (per-IP lockout) | done | `adminapi/ratelimit.go` | unit + httptest |
+| Admin management (create/role/deactivate) | done | `admin/adminusers.go`, `db/admins.go` | unit + live demo |
+| Enrollment token management (list/revoke) | done | `db/tokens.go`, `adminread` | unit + live demo |
+| Policy listing (rule + device counts) | done | `adminread.ListPolicies`, `db/policy.go` | unit + live demo |
+| Console: severity chart, device search, CSV export | done | `adminapi/console.html` | live demo |
+| Device-detail event stream (device-scoped) | done | `adminapi/console.html` + `adminread` | live demo |
+| Collect-diagnostics command | done | `admin.CollectDiagnostics` | unit + live demo |
+| Live SSE push (event/heartbeat -> console) | done | `eventbus`, `grpc.AdminNotifier`, `/api/stream` | unit + integration + live demo |
+| Data-subject rights (access/export + erasure) | done | `admin.EraseDevice/AuthorizeExport`, `adminread.ExportDevice` | unit + live demo |
+| Health/readiness endpoints (`/healthz`, `/readyz`) | done | `adminapi` + `Store.Ping` | unit + smoke |
+| Event detail (structured JSON) + server-side filtering | done | `adminread`, `grpc` | unit + live demo |
+| Device OFFLINE automation (stale heartbeat) | done | `db/status.go`, `memstore` | unit |
+| Web admin console (SOC dashboard, live refresh) | done | `adminapi/console.html` (embed) | httptest + live demo |
+| Read API + visibility | done | `server/internal/adminread` | unit |
+| Retention automation | logic / DB compiled | `server/internal/retention` | unit |
+| Behavioral anomaly detection + trained-model inference | Phase 1-3 | `agent/internal/anomaly` + `enforce` | unit |
+| Tamper-evident audit log (hash-chain, SEC C-1) | done | `security.AuditChainHash`, memstore+db | unit |
+| Admin 2FA/MFA (TOTP, RFC 6238) + at-rest encrypted secret | done | `security.totp`, `admin`, `db/mfa.go` | unit (RFC vectors) + httptest |
+| Prometheus `/metrics` (token-gated, dependency-free) | done | `server/internal/metrics`, `adminapi` | unit + httptest |
+| SOC real-time alerting (HTTPS webhook, severity threshold) | done | `server/internal/notify`, `grpc` | unit (TLS httptest) |
+| MITRE ATT&CK technique mapping + coverage endpoint | done | `server/internal/mitre`, `grpc`, `adminapi` | unit + httptest |
+| mTLS server SPKI pinning (optional, rotation) | done | `agent/internal/transport/pin.go` | unit + openssl cross-check |
+| Auto-response/SOAR (auto-quarantine on critical event) | optional | `server/internal/response`, `grpc` | unit |
+| Server-side detection engine (Sigma-like rules) | done | `server/internal/detect`, `grpc`, `adminapi` | unit + httptest |
+| Device tagging/grouping (fleet management + filter) | done | `admin`, `db`, `adminapi`, `console` | unit + httptest |
+| Structured event Details (network/enforce/anomaly -> structpb) | done | `agent` (enforce, main) | unit |
+| Threat intelligence (IoC) matching (IP/MAC/domain/hash) | optional | `server/internal/ioc`, `grpc` | unit |
+| Process lineage enrichment (parent chain) | Win/Linux | `agent/internal/enforce` | unit (chain + stat parsing) |
+| Disk-encryption compliance report (BitLocker/LUKS) | logic/OS-compiled | `agent/internal/compliance` | unit (parsers) |
+| Encrypted PostgreSQL schema | done | `db/schema.sql` | - |
+
+## Initial review findings - responses
+
+See `docs/threat-model.md`. Summary: broken schema fixed, at-rest + partitioning
+instead of encrypted-log; **HMAC blind index** instead of plain hash; **server-clock
+anchor** instead of local time; **signature** instead of hash for OTA; enrollment/PKI
+added; RBAC + immutable audit log.
+
+**Findings caught in the agent security audit (fixed):** An adversarial security
+review found two HIGH issues: **SEC-001** console XSS (`esc()` did not HTML-escape)
+and **SEC-002** certificate-revocation bypass (`Renew` did not check revocation).
+Both fixed + regression tests. Remaining medium/low recommendations (SPKI pinning;
+session revocation/MFA/audit-log & anomaly-model signing) are now implemented.
+
+**Finding caught in CI (Linux) (fixed):** `policy.matchesTarget` used
+`filepath.Base` - on Linux the `\` separator is not split, so Windows-path processes
+did not match by filename on Linux and tests failed only in CI. Fixed with an
+OS-independent `baseName`; regression test `TestMatchesTargetSeparatorAgnostic`.
+
+**Finding caught during the live demo (fixed):** the in-memory `LookupAdmin` did not
+filter by `is_active` -> a deactivated admin could still log in. Memstore was aligned
+to the (already-correct) PostgreSQL path + regression test.
+
+## Deliberately out of scope / not live-verified
+
+- **Kernel-level tamper protection** (MiniFilter driver + PPL/ELAM): C/C++, EV
+  certificate, WHQL/attestation signing, BSOD risk - a very high-cost **separate
+  project**. Watchdog + liveness are only a **first line of defense**.
+- **Not run live** (logic tested, not executed in this environment):
+  - Real firewall isolation (`netsh`/`iptables`) - cuts the network, risky.
+  - Real process **termination** - fake controller in tests.
+  - Linux `/proc`+SIGKILL and OS isolators - cross-compile only.
+  - `go test -race` - no C compiler (gcc); concurrency correct-by-construction.
+  - Note: the PostgreSQL path IS live-verified in CI against the `postgres:16` service.
+- **ML anomaly pipeline:** Phase 1-3 DONE (pure-Go statistical + JSON-trained-model
+  inference). Real `.onnx` loading (onnxruntime CGo) is interface-ready but does not
+  compile here (a C dependency would break the pure-Go CI).
+
+## Running
+
+```bash
+make proto && go mod tidy && go test ./...   # generate + test
+make dev-certs                                # dev certificates + env suggestion
+go run ./tools/otasign -genkey -out ./ota-keys
+go run ./tools/adminseed -email a@x -password '...' -role ADMIN
+# load db/schema.sql, set XDR_* env, run bin/c2 and bin/agent
+# admin console: https://localhost:8445/
+```
+
+## Tools
+
+- `tools/gencerts` - dev/prod CA + server certificate.
+- `tools/otasign` - OTA signing key generation + release signing (+ SQL).
+- `tools/adminseed` - admin password (Argon2id) + INSERT SQL.
+- `tools/anomalytrain` - trains a logistic anomaly model from a labeled CSV.
+- `tools/mkclient` - SINGLE-FILE client installer generator (Win/Linux).
+
+## Deployment / packaging - done
+
+- `scripts/build-release.sh` - cross-compilation of c2/agent/watchdog/gencerts.
+- **Server install:** `deploy/server/install-linux.sh` (systemd),
+  `install-windows.ps1` (scheduled task) - PKI + master key + config + service.
+- **Client install:** the single-file installer produced by `mkclient`.
+- Details: `deploy/README.md`.

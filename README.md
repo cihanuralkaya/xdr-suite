@@ -1,6 +1,11 @@
 # XDR / MDM — Kurumsal Uç Nokta Güvenliği ve Ajan Yönetim Sistemi
+# XDR / MDM — Corporate Endpoint Security & Agent Management System
 
 [![CI](https://github.com/cihanuralkaya/xdr-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/cihanuralkaya/xdr-suite/actions/workflows/ci.yml)
+
+**Türkçe** · [English](#english)
+
+---
 
 Yetkili kurumsal ortam için (şirkete ait cihazlar, bildirilmiş kullanım
 politikası, IT yönetimi) tasarlanmış uç nokta güvenlik ve yönetim platformu.
@@ -9,20 +14,24 @@ Tek dil: **Go**. Ajan ↔ C2 iletişimi **gRPC + mTLS** (TLS 1.3).
 > **Durum: özellik-tam, CI yeşil, dağıtıma hazır.** Ayrıntılı yetenek matrisi ve
 > ne-nasıl-doğrulandı için **[docs/STATUS.md](docs/STATUS.md)**.
 >
-> - **134 test / 26 paket** geçiyor; **CI** (`.github/workflows/ci.yml`) her push'ta
+> - **189 test / 36 paket** geçiyor; **CI** (`.github/workflows/ci.yml`) her push'ta
 >   `go vet` + test + **uçtan uca smoke** + **gerçek PostgreSQL'e karşı DB testi** +
 >   çapraz derleme çalıştırır — hepsi yeşil.
 > - Uçtan uca kanıtlı zincir: enroll (PKI) → mTLS heartbeat (sunucu-saati) → olay →
 >   politika push → OTA imza + rollout → komut teslimi → tek-kullanımlık token
 >   (`server/internal/e2e`, `make e2e`).
 > - **Güvenlik:** HMAC blind index, AES-256-GCM alan şifreleme, Argon2id parola,
->   Ed25519 OTA/script imzası, RBAC + değişmez denetim izi, giriş kaba-kuvvet
->   koruması, sıkılaştırılmış güvenlik başlıkları (HSTS/CSP).
+>   Ed25519 OTA/script imzası, RBAC + değişmez (hash-zincirli) denetim izi, giriş
+>   kaba-kuvvet koruması, admin 2FA (TOTP), mTLS sunucu SPKI pinning, sıkılaştırılmış
+>   güvenlik başlıkları (HSTS/CSP nonce).
+> - **Tespit & müdahale:** MITRE ATT&CK eşleme, sunucu-taraflı tespit kuralları
+>   (Sigma-benzeri), IoC tehdit istihbaratı, davranışsal anomali, SOAR
+>   otomatik-karantina, SOC webhook uyarı, Prometheus `/metrics`.
 > - **KVKK:** at-rest şifreleme + partition-bazlı saklama; **veri sahibi hakları**
 >   (erişim/dışa aktarma + silme, denetim korunur).
 > - **Konsol:** gömülü tek-sayfa SOC paneli — cihazlar/olaylar/politikalar/yöneticiler,
->   **canlı SSE push**, önem grafiği, arama, CSV dışa aktarma, sağlık uçları
->   (`/healthz`, `/readyz`).
+>   cihaz etiketleme, **canlı SSE push**, önem grafiği, arama, CSV dışa aktarma,
+>   sağlık uçları (`/healthz`, `/readyz`).
 > - **Dağıtım:** çapraz derleme + tek-dosya istemci installer üreteci (token gömülü
 >   veya kod girişli, Win/Linux) + sunucu kurulum betikleri — bkz.
 >   **[deploy/README.md](deploy/README.md)**.
@@ -81,3 +90,90 @@ Tam akış: **[deploy/README.md](deploy/README.md)**.
 Bkz. [docs/architecture.md](docs/architecture.md) — fazlara bölünmüş plan.
 İnceleme bulguları ve karşılığında alınan kararlar [docs/threat-model.md](docs/threat-model.md)
 içinde.
+
+---
+
+# English
+
+Endpoint security and management platform designed for authorized corporate
+environments (company-owned devices, a notified usage policy, IT management).
+Single language: **Go**. Agent ↔ C2 communication over **gRPC + mTLS** (TLS 1.3).
+
+> **Status: feature-complete, CI green, deployment-ready.** For the detailed
+> capability matrix and what-was-verified-how, see **[docs/STATUS.md](docs/STATUS.md)**.
+>
+> - **189 tests / 36 packages** pass; **CI** (`.github/workflows/ci.yml`) runs
+>   `go vet` + tests + **end-to-end smoke** + **DB test against a real PostgreSQL** +
+>   cross-compilation on every push — all green.
+> - End-to-end proven chain: enroll (PKI) → mTLS heartbeat (server-clock) → event →
+>   policy push → OTA signature + rollout → command delivery → single-use token
+>   (`server/internal/e2e`, `make e2e`).
+> - **Security:** HMAC blind index, AES-256-GCM field encryption, Argon2id passwords,
+>   Ed25519 OTA/script signing, RBAC + immutable (hash-chained) audit log, login
+>   brute-force protection, admin 2FA (TOTP), mTLS server SPKI pinning, hardened
+>   security headers (HSTS/CSP nonce).
+> - **Detection & response:** MITRE ATT&CK mapping, server-side detection rules
+>   (Sigma-like), IoC threat intelligence, behavioral anomaly detection, SOAR
+>   auto-quarantine, SOC webhook alerting, Prometheus `/metrics`.
+> - **Data protection (KVKK/GDPR-style):** at-rest encryption + partition-based
+>   retention; **data-subject rights** (access/export + erasure, audit preserved).
+> - **Console:** embedded single-page SOC dashboard — devices/events/policies/admins,
+>   device tagging, **live SSE push**, severity chart, search, CSV export, health
+>   endpoints (`/healthz`, `/readyz`).
+> - **Deployment:** cross-compilation + single-file client installer generator (token
+>   embedded or code-entry, Win/Linux) + server install scripts — see
+>   **[deploy/README.md](deploy/README.md)**.
+> - Third-party licenses (copyright compliance): **[docs/THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md)**
+>   (all permissive; no copyleft).
+
+## Components
+
+| Component | Directory | Role |
+|---|---|---|
+| C2 server | `server/` | Log collection, policy distribution, OTA, enrollment/PKI |
+| Endpoint agent | `agent/` | Policy enforcement, event collection, network discovery |
+| Watchdog | `agent/cmd/watchdog` + `internal/watchdog` | Keeps the agent alive + OTA swap/rollback (first line of defense) |
+| Proto contracts | `proto/xdr/v1` | gRPC service + message definitions |
+| Database | `db/` | Corrected PostgreSQL schema + migrations |
+| Documentation | `docs/` | Architecture, threat model, data-protection notes |
+
+## Requirements (development)
+
+- Go 1.23+
+- [buf](https://buf.build) (proto generation) or protoc + plugins
+- PostgreSQL 14+ (`uuid-ossp`, `pgcrypto` extensions)
+
+## Quick start
+
+```bash
+# 1) Generate proto code
+make proto
+
+# 2) Tidy dependencies
+make tidy
+
+# 3) Build the binaries
+make build        # bin/c2, bin/agent, bin/watchdog
+
+# 4) Install the database schema
+psql -U postgres -d xdr -f db/schema.sql
+```
+
+## Installation & deployment ✅
+
+Full flow: **[deploy/README.md](deploy/README.md)**.
+
+- **Release:** `scripts/build-release.sh 1.0.0` — c2/agent/watchdog/gencerts
+  cross-compiled for Windows+Linux (`dist/`).
+- **Server (C2):** `deploy/server/install-linux.sh` (systemd) /
+  `install-windows.ps1` (scheduled task) — PKI + master key + config + service
+  set up automatically.
+- **Client (agent):** `tools/mkclient` produces a **single-file** installer per
+  device — **unique** (enrollment token embedded, auto-enrolls) or **shared**
+  (code-entry); the agent binary is base64-embedded and installs the service.
+  Windows (`.ps1`) + Linux (`.sh`).
+
+## Roadmap
+
+See [docs/architecture.md](docs/architecture.md) — a phased plan. Review findings
+and the decisions taken in response are in [docs/threat-model.md](docs/threat-model.md).
