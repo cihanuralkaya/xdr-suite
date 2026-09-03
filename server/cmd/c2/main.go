@@ -20,6 +20,7 @@ import (
 
 	xgrpc "xdr.corp/suite/server/internal/grpc"
 
+	"xdr.corp/suite/logx"
 	"xdr.corp/suite/server/internal/admin"
 	"xdr.corp/suite/server/internal/adminapi"
 	"xdr.corp/suite/server/internal/adminread"
@@ -29,7 +30,6 @@ import (
 	"xdr.corp/suite/server/internal/enroll"
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/ioc"
-	"xdr.corp/suite/server/internal/logx"
 	"xdr.corp/suite/server/internal/memstore"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/notify"

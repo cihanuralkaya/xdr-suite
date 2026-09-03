@@ -43,6 +43,7 @@ import (
 	"xdr.corp/suite/agent/internal/transport"
 	"xdr.corp/suite/agent/internal/update"
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
+	"xdr.corp/suite/logx"
 	"xdr.corp/suite/otawire"
 	"xdr.corp/suite/scriptwire"
 )
@@ -91,8 +92,8 @@ func splitCSV(s string) []string {
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
-	log.SetPrefix("[agent] ")
+	// XDR_LOG_FORMAT=json → yapısal JSON loglama (SIEM); aksi halde "[agent] " metin.
+	logx.Setup(os.Getenv("XDR_LOG_FORMAT"), "[agent] ")
 	if err := run(); err != nil {
 		log.Fatalf("hata: %v", err)
 	}
