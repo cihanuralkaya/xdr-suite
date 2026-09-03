@@ -116,15 +116,33 @@
   .err { color:var(--crit); font-size:12.5px; margin-top:12px; min-height:16px; }
 
   /* ---------- APP SHELL ---------- */
-  #app { display:none; min-height:100%; grid-template-rows:auto 1fr; }
+  #app { display:none; height:100vh; grid-template-columns:216px 1fr; grid-template-rows:auto 1fr; overflow:hidden; }
+  @media (max-width:860px){ #app { grid-template-columns:58px 1fr; } }
   header.top {
-    display:flex; align-items:center; gap:12px 16px; flex-wrap:wrap; padding:12px 20px;
+    grid-column:1 / -1;
+    display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap; padding:11px 20px;
     background:linear-gradient(var(--panel),var(--panel2)); border-bottom:1px solid var(--line);
-    position:sticky; top:0; z-index:20;
+    position:relative; z-index:30;
   }
   body { overflow-x:hidden; }
   header.top .brand { font-size:15px; }
   header.top .sp { flex:1; }
+  .page-title { font-size:14px; font-weight:650; letter-spacing:.01em; color:var(--ink);
+    margin-left:4px; padding-left:14px; border-left:1px solid var(--line2); }
+  /* ---------- SIDEBAR NAV ---------- */
+  .sidebar { grid-row:2; grid-column:1; background:var(--panel2); border-right:1px solid var(--line);
+    padding:14px 10px; display:flex; flex-direction:column; gap:3px; overflow-y:auto; }
+  .nav-item { display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:9px;
+    color:var(--muted); font-size:13.5px; font-weight:550; cursor:pointer; border:1px solid transparent;
+    background:transparent; text-align:left; width:100%; font-family:inherit;
+    transition:background .15s ease,color .15s ease; }
+  .nav-item .ic { font-size:15px; width:20px; text-align:center; flex:none; }
+  .nav-item:hover { background:var(--panel); color:var(--ink); }
+  .nav-item.active { background:var(--accent-dim); color:var(--accent); border-color:var(--line2); }
+  .nav-item:focus-visible { outline:2px solid var(--accent-glow,var(--accent)); outline-offset:1px; }
+  .nav-sep { height:1px; background:var(--line); margin:8px 6px; }
+  @media (max-width:860px){ .nav-item .lbl { display:none; } .nav-item{ justify-content:center; padding:11px 0; }
+    .sidebar{ padding:12px 5px; } .nav-sep{ margin:8px 4px; } }
   .live { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--muted);
     font-family:var(--mono); }
   .live .dot { width:8px; height:8px; border-radius:50%; background:var(--ok);
@@ -135,7 +153,8 @@
   .whoami { font-size:12.5px; color:var(--muted); }
   .whoami b { color:var(--ink); font-weight:600; }
 
-  main { padding:20px; display:flex; flex-direction:column; gap:18px; max-width:1400px; margin:0 auto; width:100%; }
+  main { grid-row:2; grid-column:2; padding:22px 24px; display:flex; flex-direction:column; gap:18px;
+    overflow-y:auto; width:100%; }
 
   /* ---------- STAT TILES ---------- */
   .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; }
@@ -148,10 +167,17 @@
     line-height:1.1; margin-top:6px; }
   .stat .v small { font-size:13px; color:var(--faint); font-weight:500; }
 
-  /* ---------- GRID ---------- */
-  .grid { display:grid; grid-template-columns:2fr 1fr; gap:18px; align-items:start; }
-  @media (max-width:960px){ .grid{ grid-template-columns:1fr; } }
-  .col { display:flex; flex-direction:column; gap:18px; }
+  /* ---------- CARD GRID ---------- */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px; align-items:start; }
+  .col { display:contents; }
+  .card[data-span="2"] { grid-column:span 2; }
+  @media (max-width:820px){ .card[data-span="2"]{ grid-column:auto; } }
+  /* View (section) show/hide — sidebar navigation switches the active view. */
+  main[data-active="overview"] [data-view]:not([data-view~="overview"]),
+  main[data-active="devices"]  [data-view]:not([data-view~="devices"]),
+  main[data-active="policies"] [data-view]:not([data-view~="policies"]),
+  main[data-active="security"] [data-view]:not([data-view~="security"]),
+  main[data-active="admin"]    [data-view]:not([data-view~="admin"]) { display:none !important; }
 
   .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
   .card > .head { display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid var(--line); }
@@ -295,6 +321,7 @@
 <div id="app">
   <header class="top">
     <div class="brand"><span class="logo">🛡️</span> XDR Komuta Merkezi</div>
+    <span id="page-title" class="page-title">Genel Bakış</span>
     <span class="sp"></span>
     <span id="live" class="live"><span class="dot"></span><span id="live-txt">bağlanıyor…</span></span>
     <div class="seg" title="Otomatik yenileme">
@@ -329,10 +356,19 @@
     <button id="logout" class="btn ghost sm">Çıkış</button>
   </header>
 
-  <main>
-    <section class="stats" id="stats"></section>
+  <aside class="sidebar" id="sidebar">
+    <button class="nav-item active" data-nav="overview" type="button"><span class="ic">📊</span><span class="lbl">Genel Bakış</span></button>
+    <button class="nav-item" data-nav="devices" type="button"><span class="ic">💻</span><span class="lbl">Cihazlar</span></button>
+    <button class="nav-item" data-nav="policies" type="button"><span class="ic">🎫</span><span class="lbl">Politika &amp; Kayıt</span></button>
+    <div class="nav-sep"></div>
+    <button class="nav-item" data-nav="security" type="button"><span class="ic">🛡️</span><span class="lbl">Güvenlik</span></button>
+    <button class="nav-item" data-nav="admin" type="button"><span class="ic">👥</span><span class="lbl">Yönetim</span></button>
+  </aside>
 
-    <div class="card" id="sevcard" style="display:none">
+  <main data-active="overview">
+    <section class="stats" id="stats" data-view="overview"></section>
+
+    <div class="card" id="sevcard" data-view="overview" style="display:none">
       <div class="head"><h2>📊 Önem Dağılımı <span class="count" id="sev-total">0</span></h2>
         <span class="sp"></span><span class="mono" id="sev-window" style="color:var(--faint);font-size:11px"></span></div>
       <div class="body">
@@ -344,7 +380,7 @@
     <div class="grid">
       <div class="col">
         <!-- DEVICES -->
-        <div class="card">
+        <div class="card" data-view="devices" data-span="2">
           <div class="head">
             <h2>💻 Cihazlar <span id="dev-count" class="count">0</span></h2>
             <span class="sp"></span>
@@ -361,7 +397,7 @@
         </div>
 
         <!-- EVENTS -->
-        <div class="card">
+        <div class="card" data-view="devices" data-span="2">
           <div class="head">
             <h2>📡 Olaylar <span id="evt-count" class="count">0</span></h2>
             <span class="sp"></span>
@@ -383,7 +419,7 @@
         </div>
 
         <!-- AUDIT -->
-        <div class="card">
+        <div class="card" data-view="admin" data-span="2">
           <div class="head"><h2>📝 Denetim İzi <span id="aud-count" class="count">0</span></h2>
             <span class="sp"></span>
             <input id="aud-search" placeholder="🔍 yönetici / eylem / hedef" style="width:auto;padding:5px 10px;font-size:12px">
@@ -399,7 +435,7 @@
 
       <!-- ACTIONS -->
       <div class="col">
-        <div class="card">
+        <div class="card" data-view="devices">
           <div class="head"><h2>⚡ Cihaz Eylemleri</h2></div>
           <div class="body">
             <div id="sel-head" class="sel-head sel-none">Bir cihaz seçmek için tablodan satıra tıklayın.</div>
@@ -428,7 +464,7 @@
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" data-view="policies">
           <div class="head"><h2>🎫 Kayıt & Politika</h2></div>
           <div class="body">
             <div class="lbl">Yeni cihaz kaydı</div>
@@ -468,7 +504,7 @@
         </div>
 
         <!-- POLICIES -->
-        <div class="card">
+        <div class="card" data-view="policies" data-span="2">
           <div class="head"><h2>📋 Politikalar <span id="pol-count" class="count">0</span></h2>
             <span class="sp"></span><button class="btn ghost sm" data-act="loadPolicies">↻</button></div>
           <div class="tbl-wrap">
@@ -479,7 +515,7 @@
         </div>
 
         <!-- ADMINS -->
-        <div class="card">
+        <div class="card" data-view="admin">
           <div class="head"><h2>👥 Yöneticiler <span id="adm-count" class="count">0</span></h2>
             <span class="sp"></span><button class="btn ghost sm" data-act="loadAdmins">↻</button></div>
           <div class="body">
@@ -501,7 +537,7 @@
             <div id="o-adm" class="out"></div>
           </div>
         </div>
-        <div class="card">
+        <div class="card" data-view="admin">
           <div class="head"><h2>🔐 İki Adımlı Doğrulama (2FA)</h2>
             <span class="sp"></span><span id="mfa-status" class="count">—</span></div>
           <div class="body">
@@ -524,7 +560,7 @@
             <div id="o-mfa" class="out"></div>
           </div>
         </div>
-        <div class="card">
+        <div class="card" data-view="security" data-span="2">
           <div class="head"><h2>🎯 MITRE ATT&amp;CK Kapsamı</h2>
             <span class="sp"></span><span id="mitre-count" class="count">0</span></div>
           <div class="body">
@@ -536,7 +572,7 @@
             <div id="mitre-empty" class="empty" style="padding:14px">Yükleniyor…</div>
           </div>
         </div>
-        <div class="card">
+        <div class="card" data-view="security" data-span="2">
           <div class="head"><h2>🛰️ Tespit Kuralları</h2>
             <span class="sp"></span><span id="det-count" class="count">0</span></div>
           <div class="body">
@@ -1388,6 +1424,20 @@
     loadDetections();
     refresh().then(function(){ startAuto(); startStream(); });
   }
+
+  // ---------- sidebar navigation (görünüm geçişi) ----------
+  var NAV_TITLES={ overview:"Genel Bakış", devices:"Cihazlar", policies:"Politika & Kayıt", security:"Güvenlik", admin:"Yönetim" };
+  function setView(v){
+    if(!NAV_TITLES[v]) v="overview";
+    var m=document.querySelector("main"); if(m) m.setAttribute("data-active",v);
+    var pt=$("page-title"); if(pt) pt.textContent=NAV_TITLES[v];
+    document.querySelectorAll(".nav-item[data-nav]").forEach(function(b){ b.classList.toggle("active", b.dataset.nav===v); });
+    try{ localStorage.setItem("xdr_view",v); }catch(e){}
+  }
+  document.querySelectorAll(".nav-item[data-nav]").forEach(function(b){
+    b.addEventListener("click",function(){ setView(b.dataset.nav); });
+  });
+  (function(){ var v="overview"; try{ v=localStorage.getItem("xdr_view")||"overview"; }catch(e){} setView(v); })();
 
   // ---------- wire ----------
   $("l-btn").onclick=doLogin;
