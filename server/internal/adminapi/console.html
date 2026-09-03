@@ -400,6 +400,7 @@
             <h2>💻 Cihazlar <span id="dev-count" class="count">0</span></h2>
             <span class="sp"></span>
             <input id="dev-search" placeholder="🔍 hostname / MAC / OS / etiket" style="width:auto;padding:5px 10px;font-size:12px">
+            <button class="btn ghost sm" id="dev-csv" title="Görünen cihazları CSV indir">↓ CSV</button>
             <button class="btn ghost sm" id="dev-refresh">↻ Yenile</button>
           </div>
           <div class="tbl-wrap">
@@ -843,6 +844,19 @@
     a.href=url; a.download=filename; document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },0);
     toast("CSV indirildi",filename+" · "+rows.length+" satır","ok");
+  }
+  function exportDevices(){
+    var q=(state.devSearch||"").trim().toLowerCase();
+    var list=(state.devices||[]).filter(function(d){
+      if(!q) return true;
+      return (d.hostname||"").toLowerCase().indexOf(q)>=0 || (d.mac||"").toLowerCase().indexOf(q)>=0 ||
+             (d.os_version||"").toLowerCase().indexOf(q)>=0 || (d.os_platform||"").toLowerCase().indexOf(q)>=0 ||
+             (d.tags||[]).some(function(t){ return t.toLowerCase().indexOf(q)>=0; });
+    });
+    downloadCSV("cihazlar-"+new Date().toISOString().slice(0,10)+".csv",
+      ["hostname","mac","durum","os","os_platform","ajan_surumu","etiketler","son_gorulme"],
+      list.map(function(d){ return [d.hostname||"", d.mac||"", d.status||"", d.os_version||"",
+        d.os_platform||"", d.agent_version||"", (d.tags||[]).join("|"), d.last_seen||""]; }));
   }
   function exportEvents(){
     var list=state.events.filter(function(e){
@@ -1563,6 +1577,7 @@
     $("app").style.display="none"; $("login").style.display="grid"; $("l-pass").value="";
     $("l-code").value=""; $("l-mfa-row").style.display="none"; };
   $("dev-refresh").onclick=refresh; $("evt-refresh").onclick=refresh;
+  $("dev-csv").onclick=exportDevices;
   $("dev-search").addEventListener("input",function(){ state.devSearch=this.value; renderDevices(); });
   $("evt-csv").onclick=exportEvents; $("aud-csv").onclick=exportAudit;
   $("feat-refresh").onclick=loadFeatures;
