@@ -42,6 +42,9 @@ func TestWriteExposition(t *testing.T) {
 		`xdr_events_by_severity{severity="HIGH"} 4`,
 		`xdr_events_by_severity{severity="INFO"} 20`,
 		"xdr_sse_connections 2",
+		"xdr_uptime_seconds ",
+		"xdr_goroutines ",
+		"xdr_memory_alloc_bytes ",
 		"# TYPE xdr_login_failure_total counter",
 	}
 	for _, w := range wants {

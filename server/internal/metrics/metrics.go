@@ -8,9 +8,14 @@ package metrics
 import (
 	"fmt"
 	"io"
+	"runtime"
 	"sort"
 	"sync/atomic"
+	"time"
 )
+
+// startTime, süreç başlangıcı (uptime metriği için).
+var startTime = time.Now()
 
 // Süreç ömrü boyunca artan sayaçlar (atomik).
 var (
@@ -127,4 +132,17 @@ func Write(w io.Writer, s Snapshot) {
 	fmt.Fprintf(w, "# HELP xdr_sse_connections Aktif konsol SSE akış bağlantıları.\n")
 	fmt.Fprintf(w, "# TYPE xdr_sse_connections gauge\n")
 	fmt.Fprintf(w, "xdr_sse_connections %d\n", s.SSEConnections)
+
+	// Çalışma-zamanı (ops) — bağımlılıksız Go runtime metrikleri.
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	fmt.Fprintf(w, "# HELP xdr_uptime_seconds Süreç çalışma süresi (saniye).\n")
+	fmt.Fprintf(w, "# TYPE xdr_uptime_seconds gauge\n")
+	fmt.Fprintf(w, "xdr_uptime_seconds %d\n", int64(time.Since(startTime).Seconds()))
+	fmt.Fprintf(w, "# HELP xdr_goroutines Aktif goroutine sayısı.\n")
+	fmt.Fprintf(w, "# TYPE xdr_goroutines gauge\n")
+	fmt.Fprintf(w, "xdr_goroutines %d\n", runtime.NumGoroutine())
+	fmt.Fprintf(w, "# HELP xdr_memory_alloc_bytes Ayrılmış heap belleği (bayt).\n")
+	fmt.Fprintf(w, "# TYPE xdr_memory_alloc_bytes gauge\n")
+	fmt.Fprintf(w, "xdr_memory_alloc_bytes %d\n", ms.Alloc)
 }
