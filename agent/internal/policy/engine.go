@@ -16,10 +16,10 @@ import (
 type RuleType int
 
 const (
-	RuleUnspecified RuleType = iota
-	RuleAppTimeBlock          // belirli saat penceresinde uygulama yasağı
-	RuleAppBlockAlways        // her zaman yasak
-	RuleNetwork               // ağ kuralı (bu fazda değerlendirilmez)
+	RuleUnspecified    RuleType = iota
+	RuleAppTimeBlock            // belirli saat penceresinde uygulama yasağı
+	RuleAppBlockAlways          // her zaman yasak
+	RuleNetwork                 // ağ kuralı (bu fazda değerlendirilmez)
 )
 
 // TimeOfDay, gün içi bir anı dakika cinsinden (0..1439) temsil eder.
@@ -40,9 +40,9 @@ func minutesOf(t time.Time) TimeOfDay { return TimeOfDay(t.Hour()*60 + t.Minute(
 type Rule struct {
 	ID         string
 	Type       RuleType
-	Target     string      // uygulama adı / yol / hash (küçük harfe normalize edilir)
-	Start, End TimeOfDay   // yalnız RuleAppTimeBlock için
-	ActiveDays [7]bool     // index = time.Weekday (Sunday=0)
+	Target     string    // uygulama adı / yol / hash (küçük harfe normalize edilir)
+	Start, End TimeOfDay // yalnız RuleAppTimeBlock için
+	ActiveDays [7]bool   // index = time.Weekday (Sunday=0)
 }
 
 // Bundle, sürümlü bir politika paketidir.

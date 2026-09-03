@@ -71,7 +71,7 @@ func (s *StatScorer) Score(f Features) float64 {
 		x := float64(f.Values[i])
 		d := x - s.mean[i]
 		s.mean[i] += s.alpha * d
-		s.varc[i] = (1-s.alpha)*(s.varc[i] + s.alpha*d*d)
+		s.varc[i] = (1 - s.alpha) * (s.varc[i] + s.alpha*d*d)
 	}
 	s.seen++
 	if s.seen <= s.warmup {

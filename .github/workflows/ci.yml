@@ -32,6 +32,13 @@ jobs:
       - name: Proto üret
         run: make proto
 
+      - name: gofmt kontrolü
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Biçimsiz dosyalar (gofmt -w ile düzeltin):"; echo "$unformatted"; exit 1
+          fi
+
       - name: go vet
         run: go vet ./...
 

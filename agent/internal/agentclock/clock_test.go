@@ -8,7 +8,7 @@ import (
 // fakeLocal, kontrollü ilerleyen bir yerel saat kaynağıdır.
 type fakeLocal struct{ t time.Time }
 
-func (f *fakeLocal) now() time.Time { return f.t }
+func (f *fakeLocal) now() time.Time          { return f.t }
 func (f *fakeLocal) advance(d time.Duration) { f.t = f.t.Add(d) }
 
 func TestUnsyncedReturnsFalse(t *testing.T) {

@@ -10,12 +10,12 @@ import (
 // Bellek-içidir (süreç başına); çok örnekli dağıtımda ortak bir depo (ör. Redis)
 // gerekir — bu, tek örnek için makul bir taban savunmadır.
 type loginLimiter struct {
-	mu       sync.Mutex
-	recs     map[string]*attemptRec
-	max      int           // kilit öncesi izin verilen başarısız deneme
-	window   time.Duration // sayaç penceresi + kilit süresi
-	now      func() time.Time
-	lastGC   time.Time
+	mu     sync.Mutex
+	recs   map[string]*attemptRec
+	max    int           // kilit öncesi izin verilen başarısız deneme
+	window time.Duration // sayaç penceresi + kilit süresi
+	now    func() time.Time
+	lastGC time.Time
 }
 
 type attemptRec struct {

@@ -14,7 +14,7 @@ func TestShippedExampleModelValid(t *testing.T) {
 		t.Fatalf("örnek model yüklenemedi: %v", err)
 	}
 	anom := m.Score(Features{Values: []float32{1.0, 3, 60, 6}}) // yeni süreç, gece, çok bağlantı
-	norm := m.Score(Features{Values: []float32{0.1, 13, 5, 4}})  // normal
+	norm := m.Score(Features{Values: []float32{0.1, 13, 5, 4}}) // normal
 	if !(anom > norm) {
 		t.Fatalf("örnek model anomaliyi normalden yüksek skorlamalıydı (anom=%.3f norm=%.3f)", anom, norm)
 	}
@@ -74,10 +74,10 @@ func TestModelScorerMLPForwardPass(t *testing.T) {
 
 func TestLoadModelValidation(t *testing.T) {
 	bad := []string{
-		`{"feature_mean":[1],"feature_std":[1,1],"layers":[{"weights":[[1]],"bias":[0]}]}`, // mean/std uyumsuz
-		`{"feature_mean":[1],"feature_std":[1],"layers":[]}`,                                // katman yok
-		`{"feature_mean":[1,1],"feature_std":[1,1],"layers":[{"weights":[[1]],"bias":[0]}]}`, // giriş boyutu uyumsuz
-		`{"feature_mean":[1],"feature_std":[1],"layers":[{"weights":[[1],[1]],"bias":[0,0]}]}`, // son katman 2 çıkış
+		`{"feature_mean":[1],"feature_std":[1,1],"layers":[{"weights":[[1]],"bias":[0]}]}`,                   // mean/std uyumsuz
+		`{"feature_mean":[1],"feature_std":[1],"layers":[]}`,                                                 // katman yok
+		`{"feature_mean":[1,1],"feature_std":[1,1],"layers":[{"weights":[[1]],"bias":[0]}]}`,                 // giriş boyutu uyumsuz
+		`{"feature_mean":[1],"feature_std":[1],"layers":[{"weights":[[1],[1]],"bias":[0,0]}]}`,               // son katman 2 çıkış
 		`{"feature_mean":[1],"feature_std":[1],"layers":[{"weights":[[1]],"bias":[0],"activation":"tanh"}]}`, // bilinmeyen aktivasyon
 	}
 	for i, js := range bad {
