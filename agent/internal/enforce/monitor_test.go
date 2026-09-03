@@ -132,6 +132,62 @@ func TestParsePPIDStat(t *testing.T) {
 	}
 }
 
+func TestDescendants(t *testing.T) {
+	// bad(100) → child(200) → grandchild(300); ayrıca ilgisiz(400).
+	procs := []Process{
+		{PID: 100, PPID: 10, Name: "bad.exe"},
+		{PID: 200, PPID: 100, Name: "child.exe"},
+		{PID: 300, PPID: 200, Name: "grandchild.exe"},
+		{PID: 400, PPID: 10, Name: "other.exe"},
+	}
+	got := descendants(procs, 100)
+	set := map[uint32]bool{}
+	for _, p := range got {
+		set[p] = true
+	}
+	if len(got) != 2 || !set[200] || !set[300] {
+		t.Fatalf("torunlar {200,300} beklenirdi: %v", got)
+	}
+	// Yaprak süreç → boş.
+	if d := descendants(procs, 300); len(d) != 0 {
+		t.Fatalf("yaprak süreç boş dönmeliydi: %v", d)
+	}
+	// Döngü koruması (a↔b).
+	cyc := []Process{{PID: 1, PPID: 2}, {PID: 2, PPID: 1}}
+	if d := descendants(cyc, 1); len(d) > 1 {
+		t.Fatalf("döngü sınırlanmalıydı: %v", d)
+	}
+}
+
+func TestKillTreeTerminatesChildren(t *testing.T) {
+	// torrent(100) → helper(200); torrent yasaklı → ikisi de öldürülmeli.
+	ctrl := &fakeCtrl{procs: []Process{
+		{PID: 100, PPID: 5, Name: "torrent.exe"},
+		{PID: 200, PPID: 100, Name: "torrent-helper.exe"},
+		{PID: 42, Name: "agent.exe"},
+	}}
+	buf := collector.NewBuffer(10)
+	mon := NewMonitor(ctrl, fixedClock(time.Now()), buf, 42)
+	engine := policy.New(policy.Bundle{Rules: []policy.Rule{
+		{ID: "b1", Type: policy.RuleAppBlockAlways, Target: "torrent.exe"},
+	}})
+	if _, err := mon.Tick(engine); err != nil {
+		t.Fatal(err)
+	}
+	killed := map[uint32]bool{}
+	for _, k := range ctrl.killed {
+		killed[k] = true
+	}
+	if !killed[100] || !killed[200] {
+		t.Fatalf("ana süreç + alt süreç öldürülmeliydi: %v", ctrl.killed)
+	}
+	// Olay Details killed_children sayısını taşımalı.
+	ev := buf.Pending(1)[0]
+	if ev.Details["killed_children"] != 1 {
+		t.Fatalf("killed_children=1 beklenirdi: %+v", ev.Details)
+	}
+}
+
 func TestParentChain(t *testing.T) {
 	// explorer(10) → cmd(20) → torrent(100)
 	procs := []Process{

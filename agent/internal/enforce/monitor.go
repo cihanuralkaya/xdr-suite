@@ -104,7 +104,14 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 			continue
 		}
 
-		det := map[string]any{"process": p.Name, "pid": int(p.PID), "rule": dec.RuleID, "reason": dec.Reason}
+		// Süreç-AĞACI sonlandırma: yasaklı süreci çocuklarıyla birlikte öldür (önce
+		// alt süreçler → yeniden-ebeveynlenerek/çocuk-doğurarak kaçışı önle).
+		kids := descendants(procs, p.PID)
+		for _, k := range kids {
+			_ = m.ctrl.Kill(k) // best-effort; ana hedef aşağıda
+		}
+		det := map[string]any{"process": p.Name, "pid": int(p.PID), "rule": dec.RuleID,
+			"reason": dec.Reason, "killed_children": len(kids)}
 		addParentChain(det, procs, p.PID)
 		if err := m.ctrl.Kill(p.PID); err != nil {
 			m.emitCatDetails("POLICY_VIOLATION", "CRITICAL", time.Now(),
@@ -112,8 +119,12 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 				det)
 			continue
 		}
+		suffix := ""
+		if len(kids) > 0 {
+			suffix = fmt.Sprintf(" (+%d alt süreç)", len(kids))
+		}
 		m.emitCatDetails("POLICY_VIOLATION", "HIGH", time.Now(),
-			fmt.Sprintf("yasaklı süreç sonlandırıldı: %s (pid=%d, kural=%s, sebep=%s)", p.Name, p.PID, dec.RuleID, dec.Reason),
+			fmt.Sprintf("yasaklı süreç sonlandırıldı: %s (pid=%d, kural=%s, sebep=%s)%s", p.Name, p.PID, dec.RuleID, dec.Reason, suffix),
 			det)
 		enforced++
 	}
@@ -173,6 +184,33 @@ func parentChain(procs []Process, pid uint32) []string {
 		cur = p.PPID
 	}
 	return chain
+}
+
+// descendants, verilen PID'in tüm alt süreçlerini (çocuk, torun…) döner. Süreç
+// listesinden PPID ile ağaç kurulur; genişlik-öncelikli gezilir (döngü koruması).
+// Süreç-ağacı sonlandırmada kullanılır (yasaklı süreci çocuklarıyla öldür).
+func descendants(procs []Process, pid uint32) []uint32 {
+	childrenOf := make(map[uint32][]uint32, len(procs))
+	for _, p := range procs {
+		if p.PPID != 0 {
+			childrenOf[p.PPID] = append(childrenOf[p.PPID], p.PID)
+		}
+	}
+	var out []uint32
+	seen := map[uint32]bool{pid: true}
+	queue := []uint32{pid}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, c := range childrenOf[cur] {
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, c)
+				queue = append(queue, c)
+			}
+		}
+	}
+	return out
 }
 
 // addParentChain, ebeveyn zincirini (varsa) Details'e "parent_chain" olarak ekler.
