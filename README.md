@@ -5,6 +5,15 @@
 
 **Türkçe** · [English](#english)
 
+> **🇬🇧 EN —** Endpoint security & management platform (EDR/XDR + MDM) for authorized
+> corporate environments. Single language **Go**; agent ↔ C2 over **gRPC + mTLS**
+> (TLS 1.3). Feature-complete, CI green, deployment-ready. **Full English docs
+> below → [English](#english).**
+>
+> **🇹🇷 TR —** Yetkili kurumsal ortamlar için uç nokta güvenlik ve yönetim platformu
+> (EDR/XDR + MDM). Tek dil **Go**; ajan ↔ C2 **gRPC + mTLS** (TLS 1.3). Özellik-tam,
+> CI yeşil, dağıtıma hazır.
+
 ---
 
 Yetkili kurumsal ortam için (şirkete ait cihazlar, bildirilmiş kullanım
