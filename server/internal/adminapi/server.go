@@ -179,6 +179,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
 	mux.HandleFunc("GET /api/detections/rules", s.authed(s.handleDetectionRules))
+	mux.HandleFunc("GET /api/activity", s.authed(s.handleActivity))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
 	mux.HandleFunc("GET /api/audit/verify", s.authed(s.handleVerifyAudit))
 	mux.HandleFunc("GET /api/stream", s.authed(s.handleStream))
@@ -718,6 +719,15 @@ func (s *Server) handleMitreCoverage(w http.ResponseWriter, _ *http.Request, _ s
 // döner. Konsol bunu "hangi tespitler etkin" görünümünde kullanır.
 func (s *Server) handleDetectionRules(w http.ResponseWriter, _ *http.Request, _ string) {
 	writeJSON(w, http.StatusOK, map[string]any{"rules": s.detector.Rules()})
+}
+
+// handleActivity, süreç-içi tehdit/etkinlik sayaçlarını döner (konsol Genel Bakış
+// etkinlik kartı). Süreç başından beri kümülatiftir (/metrics ile aynı kaynak).
+func (s *Server) handleActivity(w http.ResponseWriter, _ *http.Request, _ string) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"counters":       metrics.Counters(),
+		"uptime_seconds": metrics.UptimeSeconds(),
+	})
 }
 
 // handleStream, Server-Sent Events (SSE) ile canlı değişiklik bildirimleri iletir.

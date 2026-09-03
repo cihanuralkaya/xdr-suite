@@ -41,6 +41,20 @@ func SetBuildVersion(v string) {
 // Version, raporlanan build sürümünü döner (sağlık ucu vb.).
 func Version() string { return buildVersion }
 
+// Counters, süreç-içi sayaçların anlık değerlerini döner (konsol etkinlik kartı
+// gibi kimlik-doğrulanmış görünümler için; /metrics ile aynı kaynak).
+func Counters() map[string]int64 {
+	return map[string]int64{
+		"login_success":   loginSuccess.Load(),
+		"login_failure":   loginFailure.Load(),
+		"events_ingested": eventsIngested.Load(),
+		"detections":      detections.Load(),
+		"alerts_raised":   alertsRaised.Load(),
+		"auto_quarantine": autoQuarantine.Load(),
+		"ioc_hits":        iocHits.Load(),
+	}
+}
+
 // UptimeSeconds, süreç çalışma süresini saniye olarak döner.
 func UptimeSeconds() int64 { return int64(time.Since(startTime).Seconds()) }
 

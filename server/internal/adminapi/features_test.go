@@ -151,6 +151,30 @@ func TestDetectionRulesEndpoint(t *testing.T) {
 	}
 }
 
+// /api/activity: kimlik doğrulanmış admin süreç-içi tehdit sayaçlarını alır.
+func TestActivityEndpoint(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "v1", "viewer@x", "secret", admin.RoleViewer)
+	if r, _ := authedGET(t, ts.URL+"/api/activity", ""); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("kimliksiz 401 dönmeliydi, %d", r.StatusCode)
+	}
+	_, body := post(t, ts.URL+"/api/login", "", map[string]string{"email": "viewer@x", "password": "secret"})
+	r, err := authedGET(t, ts.URL+"/api/activity", body["token"])
+	if err != nil || r.StatusCode != http.StatusOK {
+		t.Fatalf("activity 200 dönmeliydi, %d %v", r.StatusCode, err)
+	}
+	var out struct {
+		Counters map[string]int64 `json:"counters"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := out.Counters["detections"]; !ok {
+		t.Fatalf("counters detections içermeliydi: %+v", out.Counters)
+	}
+}
+
 // /healthz: durum + sürüm + uptime döner (kimlik gerekmez).
 func TestHealthzEnriched(t *testing.T) {
 	ts, _ := setup(t)
