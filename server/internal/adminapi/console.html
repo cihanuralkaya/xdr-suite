@@ -10,11 +10,63 @@
     --bg:#0a0d12; --bg2:#0e131a; --panel:#121924; --panel2:#0f1620;
     --line:#1f2a37; --line2:#2a3746;
     --ink:#e6edf3; --muted:#8b98a8; --faint:#5f6d7e;
-    --accent:#38bdf8; --accent2:#0ea5e9; --accent-dim:#0b3a52;
+    --accent:#38bdf8; --accent2:#0ea5e9; --accent-dim:#0b3a52; --accent-glow:rgba(56,189,248,.15);
     --ok:#22c55e; --ok-dim:#0f2e1c; --warn:#f59e0b; --warn-dim:#332208;
     --crit:#ef4444; --crit-dim:#3a1414; --med:#fb923c;
     --radius:12px; --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+
+  /* ---------- AÇIK TEMA (LIGHT) ----------
+     Aynı değişkenleri override eder; tüm bileşen CSS'i zaten bu token'ları okur.
+     • Kullanıcı "Açık" seçtiyse:  :root[data-theme="light"]
+     • Kullanıcı bir şey seçmediyse ve OS açık tercih ediyorsa (koyu'yu zorlamadıysa):
+       @media (prefers-color-scheme:light) + :root:not([data-theme="dark"])
+     Böylece açık bir explicit seçim OS tercihini her yönde ezer. */
+  :root[data-theme="light"] {
+    --bg:#eef1f6; --bg2:#e6eaf0; --panel:#ffffff; --panel2:#f2f5f9;
+    --line:#dce2ea; --line2:#c5cede;
+    --ink:#101a26; --muted:#526074; --faint:#78859a;
+    --accent:#0284c7; --accent2:#0369a1; --accent-dim:rgba(2,132,199,.13); --accent-glow:rgba(2,132,199,.20);
+    --ok:#15803d; --ok-dim:#dcfce7; --warn:#b45309; --warn-dim:#fdf1d6;
+    --crit:#dc2626; --crit-dim:#fde3e3; --med:#c2410c;
+  }
+  @media (prefers-color-scheme:light) {
+    :root:not([data-theme="dark"]) {
+      --bg:#eef1f6; --bg2:#e6eaf0; --panel:#ffffff; --panel2:#f2f5f9;
+      --line:#dce2ea; --line2:#c5cede;
+      --ink:#101a26; --muted:#526074; --faint:#78859a;
+      --accent:#0284c7; --accent2:#0369a1; --accent-dim:rgba(2,132,199,.13); --accent-glow:rgba(2,132,199,.20);
+      --ok:#15803d; --ok-dim:#dcfce7; --warn:#b45309; --warn-dim:#fdf1d6;
+      --crit:#dc2626; --crit-dim:#fde3e3; --med:#c2410c;
+    }
+  }
+  /* Açık temada bazı sabit-boyalı yerleri düzelt (kontrast/uyum). */
+  :root[data-theme="light"] body {
+    background:radial-gradient(1200px 600px at 80% -10%, #d9ecfb 0%, transparent 55%), var(--bg);
+  }
+  :root[data-theme="light"] .pill.offl { background:#e7ecf2; }
+  :root[data-theme="light"] .btn.warn { color:#fff; }
+  :root[data-theme="light"] .login-card,
+  :root[data-theme="light"] .toast { box-shadow:0 14px 34px rgba(15,26,38,.14); }
+  :root[data-theme="light"] .popover { box-shadow:0 16px 40px rgba(15,26,38,.16); }
+  @media (prefers-color-scheme:light) {
+    :root:not([data-theme="dark"]) body {
+      background:radial-gradient(1200px 600px at 80% -10%, #d9ecfb 0%, transparent 55%), var(--bg);
+    }
+    :root:not([data-theme="dark"]) .pill.offl { background:#e7ecf2; }
+    :root:not([data-theme="dark"]) .btn.warn { color:#fff; }
+    :root:not([data-theme="dark"]) .login-card,
+    :root:not([data-theme="dark"]) .toast { box-shadow:0 14px 34px rgba(15,26,38,.14); }
+    :root:not([data-theme="dark"]) .popover { box-shadow:0 16px 40px rgba(15,26,38,.16); }
+  }
+  /* Tema geçişini yumuşat (hareket azaltma tercihine saygılı). */
+  @media (prefers-reduced-motion:no-preference) {
+    body, header.top, .card, .stat, .login-card, input, select, textarea,
+    table td, thead th, .pill, .chip, .toast, .seg, .seg button, .icon-btn,
+    .popover, .theme-seg button, .swatch {
+      transition: background-color .25s ease, border-color .25s ease, color .25s ease, box-shadow .2s ease;
+    }
   }
   * { box-sizing:border-box; }
   html,body { height:100%; }
@@ -46,11 +98,11 @@
     border:1px solid var(--line2); border-radius:9px; font-size:14px; outline:none;
     transition:border-color .15s, box-shadow .15s;
   }
-  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(56,189,248,.15); }
+  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
   .btn {
     display:inline-flex; align-items:center; justify-content:center; gap:7px;
     padding:9px 14px; border-radius:9px; border:1px solid transparent; font-size:13px; font-weight:600;
-    background:var(--accent); color:#04121c; transition:filter .15s, transform .05s;
+    background:var(--accent); color:var(--accent-ink,#04121c); transition:filter .15s, transform .05s;
   }
   .btn:hover { filter:brightness(1.08); }
   .btn:active { transform:translateY(1px); }
@@ -171,6 +223,47 @@
   .seg { display:inline-flex; border:1px solid var(--line2); border-radius:8px; overflow:hidden; }
   .seg button { background:var(--panel2); color:var(--muted); border:0; padding:5px 10px; font-size:12px; }
   .seg button.on { background:var(--accent-dim); color:var(--accent); }
+
+  /* ---------- TEMA / GÖRÜNÜM KONTROLLERİ ---------- */
+  .icon-btn {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:32px; height:32px; padding:0; border-radius:8px; line-height:1; font-size:15px;
+    background:var(--panel2); color:var(--ink); border:1px solid var(--line2);
+    transition:border-color .15s, color .15s, background .15s;
+  }
+  .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .icon-btn:focus-visible { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
+  .settings-wrap { position:relative; display:inline-flex; }
+  .popover {
+    position:absolute; top:calc(100% + 10px); right:0; z-index:50; width:250px;
+    background:var(--panel); border:1px solid var(--line2); border-radius:12px;
+    box-shadow:0 18px 44px rgba(0,0,0,.5); padding:14px; display:none;
+  }
+  .popover.show { display:block; }
+  .popover h3 { margin:0 0 9px; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--faint); font-weight:600; }
+  .popover .grp { margin-bottom:15px; }
+  .popover .grp:last-child { margin-bottom:0; }
+  .theme-seg { display:flex; border:1px solid var(--line2); border-radius:8px; overflow:hidden; }
+  .theme-seg button { flex:1; background:var(--panel2); color:var(--muted); border:0; padding:6px 8px; font-size:12px; }
+  .theme-seg button:not(:last-child) { border-right:1px solid var(--line2); }
+  .theme-seg button.on { background:var(--accent-dim); color:var(--accent); font-weight:600; }
+  .theme-seg button:focus-visible { outline:none; box-shadow:inset 0 0 0 2px var(--accent); }
+  .swatches { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+  .swatch { width:26px; height:26px; border-radius:50%; border:2px solid var(--line2); padding:0;
+    cursor:pointer; position:relative; transition:transform .1s, border-color .15s; }
+  .swatch:hover { transform:scale(1.09); }
+  .swatch.on { border-color:var(--ink); }
+  .swatch.on::after { content:"✓"; position:absolute; inset:0; display:flex; align-items:center;
+    justify-content:center; color:#fff; font-size:13px; font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.65); }
+  .swatch:focus-visible { outline:none; box-shadow:0 0 0 3px var(--accent-glow); }
+  .swatch.custom { background:conic-gradient(from 90deg,#f43f5e,#f59e0b,#22c55e,#38bdf8,#8b5cf6,#f43f5e);
+    overflow:hidden; }
+  .swatch.custom input { position:absolute; inset:0; width:100%; height:100%; opacity:0; padding:0; border:0; cursor:pointer; }
+  .link-btn { background:transparent; border:0; color:var(--muted); font-size:11.5px; padding:0;
+    margin-top:9px; text-decoration:underline; }
+  .link-btn:hover { color:var(--accent); }
+  .link-btn:focus-visible { outline:none; color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); border-radius:4px; }
 </style>
 </head>
 <body>
@@ -207,6 +300,30 @@
     <div class="seg" title="Otomatik yenileme">
       <button id="rf-on" class="on">Canlı</button>
       <button id="rf-off">Durdur</button>
+    </div>
+    <button id="theme-toggle" class="icon-btn" type="button" aria-label="Temayı değiştir">🌙</button>
+    <div class="settings-wrap">
+      <button id="settings-btn" class="icon-btn" type="button" aria-label="Görünüm ayarları"
+        aria-haspopup="dialog" aria-expanded="false" title="Görünüm ayarları">⚙️</button>
+      <div id="settings-panel" class="popover" role="dialog" aria-label="Görünüm ayarları">
+        <div class="grp">
+          <h3>Tema</h3>
+          <div class="theme-seg" id="theme-seg" role="group" aria-label="Tema modu">
+            <button id="theme-auto" type="button" data-mode="auto">Otomatik</button>
+            <button id="theme-light" type="button" data-mode="light">Açık</button>
+            <button id="theme-dark" type="button" data-mode="dark">Koyu</button>
+          </div>
+        </div>
+        <div class="grp">
+          <h3>Vurgu Rengi</h3>
+          <div class="swatches" id="accent-swatches">
+            <button id="accent-custom" class="swatch custom" type="button" aria-label="Özel vurgu rengi seç" title="Özel renk">
+              <input id="accent-picker" type="color" aria-label="Özel vurgu rengi" value="#38bdf8">
+            </button>
+          </div>
+          <button id="accent-reset" class="link-btn" type="button">Varsayılana döndür</button>
+        </div>
+      </div>
     </div>
     <span class="whoami">👤 <b id="who"></b></span>
     <button id="logout" class="btn ghost sm">Çıkış</button>
@@ -442,6 +559,161 @@
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
+
+  // ================= TEMA & GÖRÜNÜM (dark/light + vurgu rengi) =================
+  // Not: Tek <script> (CSP nonce) modeli gereği tüm bu mantık bu IIFE içindedir.
+  var THEME_KEY = "xdr_theme", ACCENT_KEY = "xdr_accent";
+  var docEl = document.documentElement;
+  var ACCENTS = [
+    { name:"Gök Mavisi", hex:"#38bdf8" },
+    { name:"Mavi",       hex:"#3b82f6" },
+    { name:"Zümrüt",     hex:"#10b981" },
+    { name:"Mor",        hex:"#8b5cf6" },
+    { name:"Kehribar",   hex:"#f59e0b" },
+    { name:"Gül",        hex:"#f43f5e" }
+  ];
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+  function lsDel(k){ try { localStorage.removeItem(k); } catch(e){} }
+  function hexToRgb(h){
+    h = String(h||"").trim().replace(/^#/,"");
+    if(h.length===3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    if(!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    var n = parseInt(h,16);
+    return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+  }
+  function clampByte(x){ x=Math.round(x); return x<0?0:(x>255?255:x); }
+  function darken(hex,f){
+    var c=hexToRgb(hex); if(!c) return hex;
+    return "rgb("+clampByte(c.r*(1-f))+","+clampByte(c.g*(1-f))+","+clampByte(c.b*(1-f))+")";
+  }
+  function relLum(c){ // WCAG göreli parlaklık (0=siyah .. 1=beyaz)
+    var a=[c.r,c.g,c.b].map(function(v){ v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
+    return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];
+  }
+  // Vurgu rengini uygula: --accent + türev token'lar (her iki temada da geçerli).
+  function applyAccent(hex){
+    var c=hexToRgb(hex); if(!c){ clearAccent(); return; }
+    docEl.style.setProperty("--accent", hex);
+    docEl.style.setProperty("--accent2", darken(hex,0.16));
+    // Yarı saydam türev: panel üzerinde birleşerek koyu/açık temaya kendiliğinden uyar.
+    docEl.style.setProperty("--accent-dim", "rgba("+c.r+","+c.g+","+c.b+",.15)");
+    docEl.style.setProperty("--accent-glow", "rgba("+c.r+","+c.g+","+c.b+",.22)");
+    // Vurgu düğmesi metni: parlak vurguda koyu, koyu vurguda beyaz.
+    docEl.style.setProperty("--accent-ink", relLum(c) > 0.45 ? "#04121c" : "#ffffff");
+  }
+  function clearAccent(){
+    ["--accent","--accent2","--accent-dim","--accent-glow","--accent-ink"].forEach(function(p){
+      docEl.style.removeProperty(p);
+    });
+  }
+  function currentAccent(){ return lsGet(ACCENT_KEY); }
+  function storedMode(){ var m=lsGet(THEME_KEY); return (m==="light"||m==="dark") ? m : "auto"; }
+  function applyThemeMode(mode){
+    if(mode==="light"||mode==="dark") docEl.setAttribute("data-theme", mode);
+    else docEl.removeAttribute("data-theme"); // otomatik → OS tercihi
+  }
+  function effectiveTheme(){
+    var attr=docEl.getAttribute("data-theme");
+    if(attr==="light"||attr==="dark") return attr;
+    try { return (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark"; }
+    catch(e){ return "dark"; }
+  }
+  // --- ERKEN UYGULA: FOUC'u en aza indir (script gövde sonunda olsa da) ---
+  applyThemeMode(storedMode());
+  (function(){ var a=currentAccent(); if(a) applyAccent(a); })();
+
+  function updateThemeToggleIcon(){
+    var btn=$("theme-toggle"); if(!btn) return;
+    var eff=effectiveTheme();
+    btn.textContent = eff==="dark" ? "☀️" : "🌙";
+    btn.title = eff==="dark" ? "Açık temaya geç" : "Koyu temaya geç";
+    btn.setAttribute("aria-label", btn.title);
+  }
+  function updateThemeSeg(){
+    var m=storedMode();
+    ["theme-auto","theme-light","theme-dark"].forEach(function(id){
+      var el=$(id); if(!el) return;
+      var on = el.getAttribute("data-mode")===m;
+      el.className = on ? "on" : "";
+      el.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+  function setThemeMode(mode){
+    if(mode==="auto") lsDel(THEME_KEY); else lsSet(THEME_KEY, mode);
+    applyThemeMode(mode); updateThemeSeg(); updateThemeToggleIcon();
+  }
+  function renderSwatches(){
+    var wrap=$("accent-swatches"), custom=$("accent-custom");
+    if(!wrap || !custom) return;
+    Array.prototype.slice.call(wrap.querySelectorAll(".swatch:not(.custom)")).forEach(function(n){ n.remove(); });
+    var cur=(currentAccent()||"").toLowerCase();
+    ACCENTS.forEach(function(a){
+      var b=document.createElement("button");
+      b.type="button";
+      b.className="swatch"+(cur===a.hex.toLowerCase() ? " on" : "");
+      b.style.background=a.hex; b.title=a.name; b.setAttribute("aria-label","Vurgu rengi: "+a.name);
+      b.addEventListener("click", function(){ selectAccent(a.hex); });
+      wrap.insertBefore(b, custom);
+    });
+    var isPreset=ACCENTS.some(function(a){ return a.hex.toLowerCase()===cur; });
+    custom.className="swatch custom"+((cur && !isPreset) ? " on" : "");
+    var p=$("accent-picker");
+    if(p && /^#[0-9a-fA-F]{6}$/.test(cur)) p.value=cur;
+  }
+  function selectAccent(hex){ lsSet(ACCENT_KEY, hex); applyAccent(hex); renderSwatches(); }
+  function resetAccent(){ lsDel(ACCENT_KEY); clearAccent(); renderSwatches(); }
+  function closeSettings(){
+    var p=$("settings-panel"), b=$("settings-btn");
+    if(p) p.classList.remove("show");
+    if(b) b.setAttribute("aria-expanded","false");
+    document.removeEventListener("mousedown", onOutsideSettings, true);
+    document.removeEventListener("keydown", onEscSettings, true);
+  }
+  function openSettings(){
+    var p=$("settings-panel"), b=$("settings-btn");
+    if(p) p.classList.add("show");
+    if(b) b.setAttribute("aria-expanded","true");
+    document.addEventListener("mousedown", onOutsideSettings, true);
+    document.addEventListener("keydown", onEscSettings, true);
+  }
+  function onOutsideSettings(e){
+    var b=$("settings-btn"); if(!b) return;
+    if(!b.parentNode.contains(e.target)) closeSettings();
+  }
+  function onEscSettings(e){ if(e.key==="Escape"){ closeSettings(); var b=$("settings-btn"); if(b) b.focus(); } }
+  function setupAppearance(){
+    updateThemeToggleIcon(); updateThemeSeg(); renderSwatches();
+    var tt=$("theme-toggle");
+    if(tt) tt.addEventListener("click", function(){
+      setThemeMode(effectiveTheme()==="dark" ? "light" : "dark");
+    });
+    var sb=$("settings-btn");
+    if(sb) sb.addEventListener("click", function(){
+      var p=$("settings-panel");
+      if(p && p.classList.contains("show")) closeSettings(); else openSettings();
+    });
+    ["theme-auto","theme-light","theme-dark"].forEach(function(id){
+      var el=$(id); if(el) el.addEventListener("click", function(){ setThemeMode(this.getAttribute("data-mode")); });
+    });
+    var picker=$("accent-picker");
+    if(picker){
+      picker.addEventListener("input", function(){ selectAccent(this.value); });
+      // Native renk seçici, kapsayan düğmenin toggle mantığını tetiklemesin.
+      picker.addEventListener("click", function(e){ e.stopPropagation(); });
+    }
+    var reset=$("accent-reset");
+    if(reset) reset.addEventListener("click", resetAccent);
+    // Otomatik moddayken OS teması değişirse ikon/segment güncel kalsın.
+    try {
+      var mq=window.matchMedia("(prefers-color-scheme: light)");
+      var onMq=function(){ if(storedMode()==="auto") updateThemeToggleIcon(); };
+      if(mq.addEventListener) mq.addEventListener("change", onMq);
+      else if(mq.addListener) mq.addListener(onMq);
+    } catch(e){}
+  }
+  // ================= /TEMA & GÖRÜNÜM =================
+
   var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", auto:true, timer:null,
     evtOpen:{}, tokens:[], admins:[], policies:[], devSearch:"",
     streamOn:false, streamCtrl:null, streamRetry:null, polOpen:{}, polRules:{}, audSearch:"" };
@@ -1138,6 +1410,7 @@
   $("aud-search").addEventListener("input",function(){ state.audSearch=this.value; renderAudit(); });
   $("r-type").onchange=function(){ $("r-times").style.display = this.value==="APP_TIME_BLOCK" ? "flex" : "none"; };
   bindActions();
+  setupAppearance();
 
   // KVKK aydınlatma metnini yükle (public, giriş öncesi).
   fetch("/api/notice").then(function(r){ return r.json(); }).then(function(d){
