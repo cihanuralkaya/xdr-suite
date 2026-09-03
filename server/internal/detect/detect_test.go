@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"strings"
 	"testing"
 
 	"xdr.corp/suite/server/internal/model"
@@ -54,6 +55,45 @@ func TestContainsIsAND(t *testing.T) {
 	}
 	if d := e.Evaluate(model.Event{Message: "foo ve bar birlikte"}); len(d) != 1 {
 		t.Fatal("iki parça da geçince eşleşmeliydi")
+	}
+}
+
+func TestLoadRulesAndEvaluate(t *testing.T) {
+	js := `[
+	  {"id":"ORG-1","name":"Kripto madenci","category":"POLICY_VIOLATION","contains":["xmrig"],
+	   "severity":"CRITICAL","technique":{"id":"T1496","name":"Resource Hijacking","tactic":"Impact"}}
+	]`
+	custom, err := LoadRules(strings.NewReader(js))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(custom) != 1 || custom[0].ID != "ORG-1" {
+		t.Fatalf("özel kural ayrıştırılamadı: %+v", custom)
+	}
+	// Yerleşik + özel kurallarla motor: özel kural eşleşir.
+	e := NewEngine(WithDefaults(custom))
+	dets := e.Evaluate(model.Event{Category: "POLICY_VIOLATION", Message: "yasaklı süreç sonlandırıldı: xmrig.exe"})
+	var hasOrg bool
+	for _, d := range dets {
+		if d.RuleID == "ORG-1" && d.Severity == "CRITICAL" && d.Technique.ID == "T1496" {
+			hasOrg = true
+		}
+	}
+	if !hasOrg {
+		t.Fatalf("özel kural eşleşmeliydi: %+v", dets)
+	}
+	// Katalogda hem yerleşik hem özel görünür.
+	if len(e.Rules()) != len(DefaultRules())+1 {
+		t.Fatalf("katalog yerleşik+özel içermeliydi: %d", len(e.Rules()))
+	}
+}
+
+func TestLoadRulesRejectsInvalid(t *testing.T) {
+	if _, err := LoadRules(strings.NewReader(`[{"id":"x"}]`)); err == nil {
+		t.Fatal("eksik alanlı kural reddedilmeliydi")
+	}
+	if _, err := LoadRules(strings.NewReader(`bozuk json`)); err == nil {
+		t.Fatal("bozuk JSON reddedilmeliydi")
 	}
 }
 

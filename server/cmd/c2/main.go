@@ -192,8 +192,18 @@ func run() error {
 	agentHandler.SetAdminNotifier(liveBus)
 
 	// Sunucu-taraflı tespit motoru (tek kaynak): ingest'te değerlendirme + konsol
-	// kural kataloğu ucu aynı motoru paylaşır.
-	detector := detect.NewEngine(nil)
+	// kural kataloğu ucu aynı motoru paylaşır. XDR_DETECT_RULES_FILE ayarlıysa
+	// operatör-tanımlı özel kurallar yerleşiklere EKLENİR (koda dokunmadan).
+	detectRules := detect.DefaultRules()
+	if rf := os.Getenv("XDR_DETECT_RULES_FILE"); rf != "" {
+		custom, err := detect.LoadRulesFile(rf)
+		if err != nil {
+			return fmt.Errorf("tespit kuralları yüklenemedi: %w", err)
+		}
+		detectRules = append(detectRules, custom...)
+		log.Printf("tespit motoru: %d özel kural eklendi (toplam %d)", len(custom), len(detectRules))
+	}
+	detector := detect.NewEngine(detectRules)
 	agentHandler.SetDetector(detector)
 
 	// Dış uyarı (SOC webhook): XDR_ALERT_WEBHOOK_URL ayarlıysa yüksek önem düzeyli

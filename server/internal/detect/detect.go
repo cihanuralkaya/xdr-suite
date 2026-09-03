@@ -8,6 +8,10 @@
 package detect
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"xdr.corp/suite/server/internal/mitre"
@@ -79,6 +83,38 @@ func (e *Engine) Rules() []Rule {
 	cp := make([]Rule, len(e.rules))
 	copy(cp, e.rules)
 	return cp
+}
+
+// LoadRules, operatör-tanımlı özel tespit kurallarını JSON dizisinden ayrıştırır.
+// Her kural en az id/name/severity taşımalıdır (aksi halde hata). Böylece SOC,
+// koda dokunmadan kuruma özgü tespit içeriği ekleyebilir.
+func LoadRules(r io.Reader) ([]Rule, error) {
+	var rules []Rule
+	if err := json.NewDecoder(r).Decode(&rules); err != nil {
+		return nil, fmt.Errorf("detect: kural JSON ayrıştırılamadı: %w", err)
+	}
+	for i, rr := range rules {
+		if rr.ID == "" || rr.Name == "" || rr.Severity == "" {
+			return nil, fmt.Errorf("detect: kural[%d] eksik alan (id/name/severity zorunlu)", i)
+		}
+	}
+	return rules, nil
+}
+
+// LoadRulesFile, bir dosyadan özel kural seti yükler.
+func LoadRulesFile(path string) ([]Rule, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return LoadRules(f)
+}
+
+// WithDefaults, yerleşik kurallara özel kuralları ekler (yerleşikler önce
+// değerlendirilir, özel kurallar sonra).
+func WithDefaults(extra []Rule) []Rule {
+	return append(DefaultRules(), extra...)
 }
 
 // MITRE ATT&CK teknikleri (mitre paketiyle tutarlı).

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "ORG-0001",
+    "name": "Kripto madencilik süreci",
+    "category": "POLICY_VIOLATION",
+    "contains": ["xmrig"],
+    "severity": "CRITICAL",
+    "technique": { "id": "T1496", "name": "Resource Hijacking", "tactic": "Impact" }
+  },
+  {
+    "id": "ORG-0002",
+    "name": "PowerShell indir-çalıştır",
+    "category": "SECURITY",
+    "contains": ["powershell", "downloadstring"],
+    "severity": "HIGH",
+    "technique": { "id": "T1059", "name": "Command and Scripting Interpreter", "tactic": "Execution" }
+  }
+]
