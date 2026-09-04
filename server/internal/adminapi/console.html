@@ -1021,16 +1021,9 @@
       {k:"Kritik / yüksek olay", v:crit, cls:crit?"crit":""}
     ];
     if(quar>0) tiles.push({k:"Karantinada", v:quar, cls:"crit"});
-    // Uyumsuz cihaz KPI'ı: uyum olaylarından en son disk_encryption/firewall
-    // "off" olan cihaz sayısı (yalnız >0 ise göster — dikkat çekici).
-    var encL={}, fwL={};
-    (state.events||[]).forEach(function(e){ var id=e.device_id; if(!id||!e.details) return;
-      if(encL[id]===undefined && typeof e.details.disk_encryption==="string") encL[id]=e.details.disk_encryption;
-      if(fwL[id]===undefined && typeof e.details.firewall==="string") fwL[id]=e.details.firewall; });
-    var ncSet={};
-    Object.keys(encL).forEach(function(id){ if(encL[id]==="off") ncSet[id]=1; });
-    Object.keys(fwL).forEach(function(id){ if(fwL[id]==="off") ncSet[id]=1; });
-    var nonComp=Object.keys(ncSet).length;
+    // Uyumsuz cihaz KPI'ı: en son durumu "off" olan cihaz sayısı (paylaşılan
+    // hesap; yalnız >0 ise göster — dikkat çekici).
+    var nonComp=nonCompliantCount();
     if(nonComp>0) tiles.push({k:"Uyumsuz cihaz", v:nonComp, cls:"crit"});
     $("stats").innerHTML = tiles.map(function(t){
       return '<div class="stat '+t.cls+'"><div class="k">'+t.k+'</div><div class="v">'+t.v+'</div></div>';
@@ -1100,6 +1093,26 @@
     if(d && d.hostname) return d.hostname;
     return id.length>12 ? (id.slice(0,8)+"…") : id;
   }
+  // latestCompliance: yüklü olaylardan cihaz başına EN SON disk_encryption ve
+  // firewall durumunu çıkarır (olaylar yeniden-eskiye sıralı → ilk görülen en
+  // güncel). Uyum kartı + "uyumsuz cihaz" KPI'ı için tek kaynak (drift önler).
+  function latestCompliance(){
+    var enc={}, fw={};
+    (state.events||[]).forEach(function(e){
+      var id=e.device_id; if(!id || !e.details) return;
+      if(enc[id]===undefined && typeof e.details.disk_encryption==="string") enc[id]=e.details.disk_encryption;
+      if(fw[id]===undefined && typeof e.details.firewall==="string") fw[id]=e.details.firewall;
+    });
+    return {enc:enc, fw:fw};
+  }
+  // nonCompliantCount: uyum verisinden en son durumu "off" olan benzersiz cihaz
+  // sayısı (herhangi bir boyutta).
+  function nonCompliantCount(){
+    var c=latestCompliance(), s={};
+    Object.keys(c.enc).forEach(function(id){ if(c.enc[id]==="off") s[id]=1; });
+    Object.keys(c.fw).forEach(function(id){ if(c.fw[id]==="off") s[id]=1; });
+    return Object.keys(s).length;
+  }
   // renderTopDevices: son olayları cihaza göre gruplayıp en çok olay üreten
   // cihazları (kritik/yüksek vurgulu) gösterir — gürültülü/şüpheli uç triyajı.
   function renderTopDevices(){
@@ -1135,12 +1148,7 @@
   // Ajanın periyodik uyum olaylarını (COMPLIANCE) filo görünürlüğüne çevirir.
   function renderComplianceCard(){
     var box=$("enc-summary"); if(!box) return;
-    var enc={}, fw={}; // device_id → en son disk_encryption / firewall durumu
-    (state.events||[]).forEach(function(e){
-      var id=e.device_id; if(!id || !e.details) return;
-      if(enc[id]===undefined && typeof e.details.disk_encryption==="string") enc[id]=e.details.disk_encryption;
-      if(fw[id]===undefined && typeof e.details.firewall==="string") fw[id]=e.details.firewall;
-    });
+    var lc=latestCompliance(), enc=lc.enc, fw=lc.fw; // device_id → en son durum
     // Uyum verisi olan tüm cihazlar (herhangi bir boyutta).
     var idSet={}; Object.keys(enc).forEach(function(id){idSet[id]=1;}); Object.keys(fw).forEach(function(id){idSet[id]=1;});
     var ids=Object.keys(idSet);
