@@ -38,6 +38,7 @@ import (
 	"xdr.corp/suite/agent/internal/enforce"
 	"xdr.corp/suite/agent/internal/inventory"
 	"xdr.corp/suite/agent/internal/liveness"
+	"xdr.corp/suite/agent/internal/netconn"
 	"xdr.corp/suite/agent/internal/osinfo"
 	"xdr.corp/suite/agent/internal/policy"
 	"xdr.corp/suite/agent/internal/quarantine"
@@ -177,6 +178,12 @@ func run() error {
 	}
 	neighbors := discovery.NewNeighborSource()
 	netTracker := discovery.NewTracker(cfg.authMACs)
+	// Giden bağlantı telemetrisi (EDR/IoC; varsayılan AÇIK, XDR_NETCONN_DISABLE
+	// ile kapatılır). İlk tarama taban çizgisi; sonra yeni bağlantılar yayınlanır.
+	var connTr *connTracker
+	if os.Getenv("XDR_NETCONN_DISABLE") == "" {
+		connTr = &connTracker{}
+	}
 
 	// Karantina yöneticisi: izolasyonda yalnız C2'ye izin verilir.
 	// SAFE MODE (XDR_SAFE_MODE): gerçek firewall'a dokunmaz — demo/test için.
@@ -297,6 +304,10 @@ func run() error {
 		}
 		// Pasif ağ keşfi: yeni cihazları tespit et ve raporla (mimari 4.3).
 		scanNetwork(neighbors, netTracker, buf)
+		// Giden bağlantı telemetrisi (etkinse): yeni bağlantıları yayınla (#3).
+		if connTr != nil {
+			connTr.report(buf)
+		}
 		flushEvents(hbCtx, cli, ident, buf)
 	}
 
@@ -627,6 +638,45 @@ func reportInventory(buf *collector.Buffer) {
 		OccurredAt: time.Now(),
 		Details:    map[string]any{"software": anyList, "software_count": total},
 	})
+}
+
+// connTracker, ajan-ömrü boyunca görülen giden bağlantıları izler; yalnız YENİ
+// bağlantılar NETWORK_CONN olayı olarak yayınlanır. İlk tarama taban çizgisidir.
+type connTracker struct {
+	seen      map[string]bool
+	baselined bool
+}
+
+// report, mevcut giden bağlantıları tarar ve önceki tura göre yeni olanları
+// NETWORK_CONN/INFO olayı olarak yayınlar (uzak IP sunucuda IoC ile eşleştirilir).
+func (t *connTracker) report(buf *collector.Buffer) {
+	conns := netconn.Scan()
+	live := make(map[string]bool, len(conns))
+	for _, c := range conns {
+		live[c.Key()] = true
+	}
+	if !t.baselined {
+		t.seen = live
+		t.baselined = true
+		return
+	}
+	for _, c := range conns {
+		if t.seen[c.Key()] {
+			continue
+		}
+		det := map[string]any{"remote_ip": c.RemoteIP, "remote_port": c.RemotePort, "local_port": c.LocalPort}
+		if c.PID > 0 {
+			det["pid"] = c.PID
+		}
+		buf.Add(collector.Event{
+			Category:   "NETWORK_CONN",
+			Severity:   "INFO",
+			Message:    fmt.Sprintf("giden bağlantı: %s:%d (pid=%d)", c.RemoteIP, c.RemotePort, c.PID),
+			OccurredAt: time.Now(),
+			Details:    det,
+		})
+	}
+	t.seen = live
 }
 
 func scanNetwork(src discovery.NeighborSource, tr *discovery.Tracker, buf *collector.Buffer) {
