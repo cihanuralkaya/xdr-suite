@@ -287,7 +287,18 @@ func run() error {
 		"log_format":            getenv("XDR_LOG_FORMAT", "text"),
 		"persistence":           cfg.DatabaseURL != "",
 	})
-	httpSrv := &http.Server{Addr: cfg.ListenAdmin, Handler: adminAPI.Handler()}
+	// Zaman aşımları: yavaş-istemci (slowloris) DoS'una karşı bağlantı ömrünü
+	// sınırla. WriteTimeout KASITLI olarak ayarlanmadı — /api/stream (SSE)
+	// uzun-ömürlü bir yanıttır ve WriteTimeout onu keserdi. ReadHeaderTimeout
+	// başlık-yavaşlatma saldırısını, ReadTimeout yavaş-gövdeyi, IdleTimeout
+	// boşta keep-alive bağlantılarını kapsar.
+	httpSrv := &http.Server{
+		Addr:              cfg.ListenAdmin,
+		Handler:           adminAPI.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       20 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	// KVKK saklama görevi: dolan event_logs partition'larını düşür, gelecek
 	// ayları önceden oluştur (başlangıçta bir kez + günlük).
