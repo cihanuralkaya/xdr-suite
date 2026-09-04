@@ -128,6 +128,14 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 [ -n "$inv" ] && pass "yazılım envanteri raporlandı ($inv)" || fail "yazılım envanteri yok"
+# Kaynak telemetrisi: ajan bellek/disk/uptime raporlamalı (uç-nokta sağlığı).
+rsc=""
+for _ in $(seq 1 40); do
+  rsc="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -oE '"mem_used_pct":[0-9]+' | head -1)"
+  [ -n "$rsc" ] && break
+  sleep 0.25
+done
+[ -n "$rsc" ] && pass "kaynak telemetrisi raporlandı ($rsc)" || fail "kaynak telemetrisi yok"
 # Filo yazılım araması: envanterdeki bir paketi ara, cihaz eşleşmeli.
 pkg="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -oE '"software":\["[^"]+"' | head -1 | sed -E 's/.*\["([^"]+)".*/\1/' | cut -c1-6)"
 if [ -n "$pkg" ]; then

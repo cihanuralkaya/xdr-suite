@@ -41,6 +41,7 @@ import (
 	"xdr.corp/suite/agent/internal/osinfo"
 	"xdr.corp/suite/agent/internal/policy"
 	"xdr.corp/suite/agent/internal/quarantine"
+	"xdr.corp/suite/agent/internal/resource"
 	"xdr.corp/suite/agent/internal/script"
 	"xdr.corp/suite/agent/internal/transport"
 	"xdr.corp/suite/agent/internal/update"
@@ -218,8 +219,10 @@ func run() error {
 	// Yazılım envanteri: başlangıçta yüklü yazılım listesi raporlanır (MDM varlık
 	// görünürlüğü). Exec-ağır; periyodik olarak uyumla birlikte yenilenir.
 	reportInventory(buf)
-	// Periyodik uyum + envanter yeniden-kontrolü: açılıştan sonra değişiklikler
-	// yakalanır (EDR duruş takibi). Seyrek (exec-ağır).
+	// Kaynak kullanımı (bellek/disk/uptime): uç-nokta sağlığı.
+	reportResource(buf)
+	// Periyodik uyum + envanter + kaynak yeniden-kontrolü: açılıştan sonra
+	// değişiklikler yakalanır (EDR duruş takibi). Seyrek (exec-ağır).
 	go func() {
 		t := time.NewTicker(complianceInterval)
 		defer t.Stop()
@@ -230,6 +233,7 @@ func run() error {
 			case <-t.C:
 				reportCompliance(buf, compliance.NewChecker())
 				reportInventory(buf)
+				reportResource(buf)
 			}
 		}
 	}()
@@ -567,6 +571,34 @@ func reportCompliance(buf *collector.Buffer, chk compliance.Checker) {
 		Message:    msg,
 		OccurredAt: time.Now(),
 		Details:    map[string]any{"disk_encryption": enc, "firewall": fw},
+	})
+}
+
+// reportResource, uç noktanın kaynak kullanımı anlık görüntüsünü (bellek/disk
+// kullanımı + uptime) bir olay olarak yayınlar (uç-nokta sağlığı görünürlüğü).
+// Bellek veya disk kritik eşiğin üstündeyse SECURITY/MEDIUM (duruş uyarısı),
+// aksi halde SYSTEM/INFO. Details yüzdeleri taşır. Veri alınamazsa olay üretmez.
+func reportResource(buf *collector.Buffer) {
+	s := resource.Collect()
+	if !s.OK {
+		return
+	}
+	cat, sev := "SYSTEM", "INFO"
+	msg := fmt.Sprintf("kaynak: bellek %%%d, disk %%%d, uptime %dsa", s.MemUsedPct, s.DiskUsedPct, s.UptimeHours)
+	if s.MemUsedPct >= 90 || s.DiskUsedPct >= 90 {
+		cat, sev = "SECURITY", "MEDIUM"
+		msg = fmt.Sprintf("kaynak baskısı: bellek %%%d, disk %%%d", s.MemUsedPct, s.DiskUsedPct)
+	}
+	buf.Add(collector.Event{
+		Category:   cat,
+		Severity:   sev,
+		Message:    msg,
+		OccurredAt: time.Now(),
+		Details: map[string]any{
+			"mem_used_pct": s.MemUsedPct, "mem_total_mb": s.MemTotalMB,
+			"disk_used_pct": s.DiskUsedPct, "disk_total_gb": s.DiskTotalGB,
+			"uptime_hours": s.UptimeHours,
+		},
 	})
 }
 

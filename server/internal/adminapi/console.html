@@ -1818,6 +1818,22 @@
         return "<span style='color:"+c+";font-weight:600'>"+esc(s)+"</span>"; }
       var compHtml = (cEnc!==undefined||cFw!==undefined) ?
         ("<div class='mini'>Disk şifreleme: "+encBadge(cEnc)+" &nbsp;·&nbsp; Güvenlik duvarı: "+encBadge(cFw)+"</div>") : "";
+      // Kaynak kullanımı: en son kaynak olayından bellek/disk/uptime.
+      // (değişken adı 'res' DEĞİL — dış .then(res) parametresiyle çakışmasın.)
+      var resUse;
+      evs.forEach(function(e){ if(resUse===undefined && e.details && typeof e.details.mem_used_pct==="number") resUse=e.details; });
+      function usageBar(label, pct, detail){
+        var c = pct>=90?"var(--bad,#f43f5e)":(pct>=75?"var(--warn,#f59e0b)":"var(--accent)");
+        return "<div style='margin-bottom:6px'><div style='display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2px'>"+
+          "<span>"+label+"</span><span class='mono' style='color:var(--muted)'>%"+pct+(detail?(" · "+detail):"")+"</span></div>"+
+          "<div style='height:7px;border-radius:4px;background:var(--panel2);overflow:hidden'><div style='height:100%;width:"+Math.min(pct,100)+"%;background:"+c+"'></div></div></div>";
+      }
+      var resHtml="";
+      if(resUse){
+        resHtml=usageBar("Bellek", resUse.mem_used_pct||0, (resUse.mem_total_mb?(Math.round(resUse.mem_total_mb/1024)+" GB"):""))+
+          usageBar("Disk", resUse.disk_used_pct||0, (resUse.disk_total_gb?(resUse.disk_total_gb+" GB"):""))+
+          "<div class='mini' style='color:var(--faint)'>Uptime: "+(resUse.uptime_hours||0)+" saat</div>";
+      }
       // Yazılım envanteri: en son envanter olayından paket listesi (MDM varlık).
       var sw, swCount=0;
       evs.forEach(function(e){ if(sw===undefined && e.details && Array.isArray(e.details.software)){ sw=e.details.software; swCount=e.details.software_count||e.details.software.length; } });
@@ -1830,6 +1846,7 @@
       }
       el.innerHTML =
         "<h4>Sistem</h4><div class='mini'>"+sysLine+"</div>"+
+        (resHtml?("<h4>Kaynak kullanımı</h4>"+resHtml):"")+
         (compHtml?("<h4>Uyum durumu</h4>"+compHtml):"")+
         (swHtml?("<h4>Yüklü yazılım ("+swCount+")</h4>"+swHtml):"")+
         (neighHtml?("<h4>Ağ keşfi — komşular ("+nk.length+")</h4>"+neighHtml):"")+
