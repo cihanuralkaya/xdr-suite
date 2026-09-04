@@ -816,3 +816,41 @@ func TestDetectionTestEndpoint(t *testing.T) {
 		t.Fatalf("kategori kapsamı: eşleşme olmamalıydı: code=%d matched=%d", code, n)
 	}
 }
+
+// İstek gövdesi boyut sınırı: devasa JSON gövdesi 413 ile reddedilmeli (DoS
+// koruması). decode() tüm JSON POST uçlarında MaxBytesReader uygular.
+func TestRequestBodySizeLimit(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "ad1", "ad@x", "secret", admin.RoleAdmin)
+	_, lb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "ad@x", "password": "secret"})
+	token := lb["token"]
+	if token == "" {
+		t.Fatal("login token alınamadı")
+	}
+
+	// ~2 MiB'lik geçerli-JSON gövde (sınır 1 MiB) → 413.
+	big := make([]byte, 2<<20)
+	for i := range big {
+		big[i] = 'a'
+	}
+	body := []byte(`{"name":"`)
+	body = append(body, big...)
+	body = append(body, []byte(`"}`)...)
+	req, _ := http.NewRequest("POST", ts.URL+"/api/policies", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("devasa gövde 413 dönmeliydi, %d", resp.StatusCode)
+	}
+
+	// Normal küçük gövde hâlâ çalışmalı.
+	if code, b := post(t, ts.URL+"/api/policies", token, map[string]string{"name": "P", "version": "v1"}); code != http.StatusOK || b["policy_id"] == "" {
+		t.Fatalf("normal gövde 200 dönmeliydi: code=%d", code)
+	}
+}

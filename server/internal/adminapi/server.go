@@ -951,8 +951,20 @@ func bearer(r *http.Request) string {
 	return ""
 }
 
+// maxRequestBody, admin API JSON gövdeleri için üst sınırdır. Kimliği
+// doğrulanmış bir kullanıcının bile devasa gövde göndererek bellek tüketmesini
+// (DoS) önler; 1 MiB tüm meşru yükler (politika kuralları, kural testi vb.) için
+// fazlasıyla yeterlidir.
+const maxRequestBody = 1 << 20 // 1 MiB
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "istek gövdesi çok büyük")
+			return false
+		}
 		writeErr(w, http.StatusBadRequest, "geçersiz JSON")
 		return false
 	}
