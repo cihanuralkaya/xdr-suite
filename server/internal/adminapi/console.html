@@ -607,11 +607,12 @@
         </div>
         <div class="card" data-view="security" data-span="2">
           <div class="head"><h2>🎯 MITRE ATT&amp;CK Kapsamı</h2>
-            <span class="sp"></span><span id="mitre-count" class="count">0</span></div>
+            <span class="sp"></span><span id="mitre-gap" class="count" style="display:none"></span>
+            <span id="mitre-count" class="count">0</span></div>
           <div class="body">
-            <p class="hint" style="margin:0 0 10px">Bu dağıtımın üretilen olaylardan eşleyebildiği düşman teknikleri.</p>
+            <p class="hint" style="margin:0 0 10px">Bu dağıtımın eşleyebildiği düşman teknikleri ve her biri için etkin tespit kuralı olup olmadığı (kapsam boşluğu analizi).</p>
             <div class="tbl-wrap">
-              <table><thead><tr><th>Teknik</th><th>Ad</th><th>Taktik</th></tr></thead>
+              <table><thead><tr><th>Teknik</th><th>Ad</th><th>Taktik</th><th>Kapsam</th></tr></thead>
                 <tbody id="mitre-body"></tbody></table>
             </div>
             <div id="mitre-empty" class="empty" style="padding:14px">Yükleniyor…</div>
@@ -1310,15 +1311,30 @@
     });
   }
   function loadMitre(){
-    return api("/api/mitre/coverage").then(function(r){
-      var t=(r&&r.techniques)||[]; var body=$("mitre-body"); body.innerHTML="";
+    // Kapsam boşluğu analizi: bilinen her ATT&CK tekniği için etkin tespit
+    // kuralı sayısını hesapla; kuralı olmayan teknikler "boşluk" (blind spot).
+    return Promise.all([api("/api/mitre/coverage"), api("/api/detections/rules").catch(function(){return {rules:[]};})])
+      .then(function(res){
+      var t=(res[0]&&res[0].techniques)||[];
+      var rules=(res[1]&&res[1].rules)||[];
+      var ruleCount={}; // teknik id → kural sayısı
+      rules.forEach(function(rl){ var id=rl.technique&&rl.technique.id; if(id){ ruleCount[id]=(ruleCount[id]||0)+1; } });
+      var body=$("mitre-body"); body.innerHTML="";
       $("mitre-count").textContent=t.length;
       $("mitre-empty").style.display=t.length?"none":"block";
+      var gaps=0;
       t.forEach(function(x){
+        var n=ruleCount[x.id]||0; if(n===0) gaps++;
         var tr=document.createElement("tr");
-        tr.innerHTML="<td><b>"+esc(x.id)+"</b></td><td>"+esc(x.name)+"</td><td>"+esc(x.tactic)+"</td>";
+        var cov = n>0
+          ? "<span class='sev LOW' title='"+n+" etkin kural'>✓ "+n+" kural</span>"
+          : "<span class='sev HIGH' title='Bu teknik için etkin tespit kuralı yok — kapsam boşluğu'>⚠ boşluk</span>";
+        tr.innerHTML="<td><b>"+esc(x.id)+"</b></td><td>"+esc(x.name)+"</td><td>"+esc(x.tactic)+"</td><td>"+cov+"</td>";
         body.appendChild(tr);
       });
+      var gapEl=$("mitre-gap");
+      if(gaps>0){ gapEl.textContent=gaps+" boşluk"; gapEl.style.display=""; gapEl.style.color="var(--bad,#f43f5e)"; }
+      else { gapEl.textContent="tam kapsam"; gapEl.style.display=""; gapEl.style.color="var(--ok,#10b981)"; }
     }).catch(function(e){ $("mitre-empty").textContent="ATT&CK kapsamı yüklenemedi ("+e.message+")."; });
   }
   function featRow(label, on, detail){
