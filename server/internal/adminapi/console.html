@@ -1365,6 +1365,12 @@
             (e.ack_by?(" · "+esc(e.ack_by)):"")+(e.ack_at?(" · "+esc(relTime(e.ack_at))):"");
           dtd.appendChild(st);
         }
+        if(e.ack_assignee||e.ack_note){
+          var cs=document.createElement("div"); cs.style.cssText="font-size:11.5px;color:var(--muted);margin-bottom:6px";
+          cs.innerHTML="Vaka:"+(e.ack_assignee?(" 👤 <b>"+esc(e.ack_assignee)+"</b>"):"")+
+            (e.ack_note?(" · 📝 "+esc(e.ack_note)):"");
+          dtd.appendChild(cs);
+        }
         if(hasDet){
           var pre=document.createElement("pre");
           pre.style.cssText="margin:0;font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto";
@@ -1378,6 +1384,8 @@
         var rb=mkEvtBtn(e.ack_status==="RESOLVED"?"✓ Çözüldü":"Çözüldü işaretle",
           "Bu olayı 'kapatıldı' (RESOLVED) olarak işaretle", function(){ ackEvent(e.id,"RESOLVED"); });
         acts.appendChild(ab); acts.appendChild(rb);
+        acts.appendChild(mkEvtBtn("👤 Vaka ata / not",
+          "Bu olaya sorumlu (assignee) ve serbest-metin not ata", function(){ caseEvent(e); }));
         if(hasDet){
           acts.appendChild(mkEvtBtn("🧪 Kurallara karşı test et",
             "Güvenlik → Kural Test Aracı'na bu olayı taşır", function(){ testEventAgainstRules(e); }));
@@ -1410,6 +1418,17 @@
       toast(status==="RESOLVED"?"Olay çözüldü olarak işaretlendi":"Olay incelendi olarak işaretlendi","","ok");
       refresh();
     }).catch(function(e){ toast("Triyaj başarısız",e.message,"err"); });
+  }
+  // caseEvent: olaya sorumlu (assignee) + not atar — vaka/olay yönetimi (OPERATOR+).
+  function caseEvent(e){
+    var assignee=prompt("Sorumlu (assignee) — e-posta/ad; boş bırakılabilir:", e.ack_assignee||"");
+    if(assignee===null) return; // iptal
+    var note=prompt("Vaka notu — kısa açıklama; boş bırakılabilir:", e.ack_note||"");
+    if(note===null) return; // iptal
+    var path="/api/events/"+encodeURIComponent(e.id)+"/case";
+    api(path,"POST",{assignee:assignee.trim(),note:note.trim()}).then(function(){
+      toast("Vaka güncellendi","","ok"); refresh();
+    }).catch(function(x){ toast("Vaka güncelleme başarısız",x.message,"err"); });
   }
 
   function selectDevice(id){

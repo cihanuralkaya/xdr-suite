@@ -197,6 +197,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/vulnerabilities", s.authed(s.handleVulnerabilities))
 	mux.HandleFunc("POST /api/events/{id}/ack", s.authed(s.handleAckEvent))
 	mux.HandleFunc("POST /api/events/{id}/resolve", s.authed(s.handleResolveEvent))
+	mux.HandleFunc("POST /api/events/{id}/case", s.authed(s.handleEventCase))
 	mux.HandleFunc("POST /api/devices/{id}/collect-file", s.authed(s.handleCollectFile))
 	mux.HandleFunc("POST /api/devices/{id}/lock", s.authed(s.handleLockDevice))
 	mux.HandleFunc("POST /api/devices/{id}/restart", s.authed(s.handleRestartDevice))
@@ -922,6 +923,23 @@ func (s *Server) handleResolveEvent(w http.ResponseWriter, r *http.Request, admi
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "RESOLVED"})
+}
+
+// handleEventCase, bir olaya sorumlu (assignee) ve serbest-metin not atar —
+// vaka/olay yönetimi (#9). OPERATOR+ yetkisi gerektirir.
+func (s *Server) handleEventCase(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Assignee string `json:"assignee"`
+		Note     string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "geçersiz istek gövdesi"})
+		return
+	}
+	if respondErr(w, s.adminSvc.UpdateEventCase(r.Context(), adminID, r.PathValue("id"), req.Assignee, req.Note)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"assignee": req.Assignee, "note": req.Note})
 }
 
 // handleVulnerabilities, her cihazın en son yazılım envanterini yüklü zafiyet

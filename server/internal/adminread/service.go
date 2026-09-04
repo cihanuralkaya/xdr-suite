@@ -198,10 +198,12 @@ type ArtifactDTO struct {
 	CollectedAt time.Time `json:"collected_at"`
 }
 
-// EventAck, bir olayın triyaj durumudur (alarm yaşam-döngüsü).
+// EventAck, bir olayın triyaj/vaka durumudur (alarm yaşam-döngüsü + vaka yönetimi).
 type EventAck struct {
-	Status     string    // "ACKNOWLEDGED" | "RESOLVED"
-	AdminEmail string    // işaretleyen (görüntüleme; çözülmüş)
+	Status     string    // "ACKNOWLEDGED" | "RESOLVED" | "" (yalnız atama/not)
+	Assignee   string    // sorumlu analist (vaka yönetimi)
+	Note       string    // serbest triyaj notu
+	AdminEmail string    // son işleyen (görüntüleme; çözülmüş)
 	At         time.Time // son güncelleme
 }
 
@@ -215,10 +217,12 @@ type EventDTO struct {
 	OccurredAt time.Time       `json:"occurred_at"`
 	CreatedAt  time.Time       `json:"created_at"`
 	Details    json.RawMessage `json:"details,omitempty"`
-	// Alarm yaşam-döngüsü (işaretlenmişse dolu): triyaj durumu + kim + ne zaman.
-	AckStatus string    `json:"ack_status,omitempty"`
-	AckBy     string    `json:"ack_by,omitempty"`
-	AckAt     time.Time `json:"ack_at,omitempty"`
+	// Alarm yaşam-döngüsü + vaka yönetimi (işaretlenmişse dolu).
+	AckStatus   string    `json:"ack_status,omitempty"`
+	AckBy       string    `json:"ack_by,omitempty"`
+	AckAt       time.Time `json:"ack_at,omitempty"`
+	AckAssignee string    `json:"ack_assignee,omitempty"`
+	AckNote     string    `json:"ack_note,omitempty"`
 }
 
 // ComplianceStatus, bir cihazın en son güvenlik-duruşu uyum durumudur
@@ -408,6 +412,7 @@ func (s *Service) Events(ctx context.Context, deviceID, severity, category strin
 		}
 		if a, ok := acks[r.ID]; ok {
 			dto.AckStatus, dto.AckBy, dto.AckAt = a.Status, a.AdminEmail, a.At
+			dto.AckAssignee, dto.AckNote = a.Assignee, a.Note
 		}
 		out = append(out, dto)
 	}

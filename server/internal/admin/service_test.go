@@ -13,23 +13,24 @@ import (
 
 // memStore, admin testleri için bellek-içi Store.
 type memStore struct {
-	roles     map[string]Role
-	tokens    map[string]string // tokenIndex(hex) -> createdBy
-	revoked   map[string]bool   // tokenID -> iptal edildi mi
-	commands  []cmd
-	audits    []audit
-	policies  map[string]string            // id -> name
-	versions  map[string]string            // id -> version
-	rules     map[string][]RuleInput       // id -> kurallar
-	assigned  map[string]string            // deviceID -> policyID
-	statuses  map[string]string            // deviceID -> son ayarlanan durum
-	tags      map[string][]string          // deviceID -> etiketler
-	admins    map[string]*adminEntry       // id -> yönetici
-	erased    string                       // EraseDeviceData ile silinen son deviceID
-	eventAcks map[string]string            // eventID -> status (triyaj)
-	cmdParams map[string]map[string]string // cmdType -> son params
-	nextPolID int
-	nextAdmID int
+	roles      map[string]Role
+	tokens     map[string]string // tokenIndex(hex) -> createdBy
+	revoked    map[string]bool   // tokenID -> iptal edildi mi
+	commands   []cmd
+	audits     []audit
+	policies   map[string]string            // id -> name
+	versions   map[string]string            // id -> version
+	rules      map[string][]RuleInput       // id -> kurallar
+	assigned   map[string]string            // deviceID -> policyID
+	statuses   map[string]string            // deviceID -> son ayarlanan durum
+	tags       map[string][]string          // deviceID -> etiketler
+	admins     map[string]*adminEntry       // id -> yönetici
+	erased     string                       // EraseDeviceData ile silinen son deviceID
+	eventAcks  map[string]string            // eventID -> status (triyaj)
+	eventCases map[string][2]string         // eventID -> {assignee, note} (vaka)
+	cmdParams  map[string]map[string]string // cmdType -> son params
+	nextPolID  int
+	nextAdmID  int
 }
 
 func (m *memStore) SetEventAck(_ context.Context, eventID, _, status string) error {
@@ -37,6 +38,14 @@ func (m *memStore) SetEventAck(_ context.Context, eventID, _, status string) err
 		m.eventAcks = map[string]string{}
 	}
 	m.eventAcks[eventID] = status
+	return nil
+}
+
+func (m *memStore) SetEventCase(_ context.Context, eventID, _, assignee, note string) error {
+	if m.eventCases == nil {
+		m.eventCases = map[string][2]string{}
+	}
+	m.eventCases[eventID] = [2]string{assignee, note}
 	return nil
 }
 
@@ -279,6 +288,37 @@ func TestCollectFileRBACAndParams(t *testing.T) {
 		t.Fatalf("params.path iletilmeliydi: %+v", store.cmdParams)
 	}
 	if !hasAudit(store.audits, "COLLECT_FILE", "device", "dev-1") {
+		t.Fatalf("denetim izine yazılmalıydı: %+v", store.audits)
+	}
+}
+
+func TestUpdateEventCaseRBACAndAudit(t *testing.T) {
+	store := newMemStore()
+	store.roles["viewer1"] = RoleViewer
+	store.roles["op1"] = RoleOperator
+	svc, _ := newService(t, store)
+	ctx := context.Background()
+
+	// VIEWER reddedilmeli.
+	if err := svc.UpdateEventCase(ctx, "viewer1", "evt-1", "soc@corp", "inceleniyor"); err != ErrForbidden {
+		t.Fatalf("VIEWER vaka atayamamalı, dönen: %v", err)
+	}
+	// Boş olay kimliği reddedilmeli.
+	if err := svc.UpdateEventCase(ctx, "op1", "", "soc@corp", "x"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("boş kimlik reddedilmeliydi, dönen: %v", err)
+	}
+	// Aşırı uzun not reddedilmeli.
+	if err := svc.UpdateEventCase(ctx, "op1", "evt-1", "soc@corp", strings.Repeat("x", 2001)); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("uzun not reddedilmeliydi, dönen: %v", err)
+	}
+	// OPERATOR: vaka ata + audit. Girdi kırpılmalı.
+	if err := svc.UpdateEventCase(ctx, "op1", "evt-1", "  soc@corp  ", "  fidye şüphesi  "); err != nil {
+		t.Fatalf("OPERATOR vaka atayabilmeli: %v", err)
+	}
+	if got := store.eventCases["evt-1"]; got[0] != "soc@corp" || got[1] != "fidye şüphesi" {
+		t.Fatalf("vaka alanları kırpılıp kaydedilmeliydi: %+v", got)
+	}
+	if !hasAudit(store.audits, "EVENT_CASE", "event", "evt-1") {
 		t.Fatalf("denetim izine yazılmalıydı: %+v", store.audits)
 	}
 }

@@ -161,6 +161,14 @@ curl -sk "$B/api/devices/collect-diagnostics" -X POST -H "Authorization: Bearer 
 sleep 0.3
 curl -sk "$B/api/audit?limit=20" -H "Authorization: Bearer $TOK" | grep -q "COLLECT_DIAGNOSTICS" \
   && pass "tanılama komutu kuyruğa alındı + denetlendi" || fail "tanılama denetim izinde yok"
+# Vaka yönetimi (#9): bir olaya sorumlu+not ata, listede geri oku (db SetEventCase/EventAcks).
+EVID="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | sed -E 's/.*"id":"([^"]+)".*/\1/')"
+curl -sk "$B/api/events/$EVID/case" -X POST -H "Authorization: Bearer $TOK" \
+  -d '{"assignee":"soc@corp","note":"otomatik smoke vaka"}' -o /dev/null
+curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -q '"ack_assignee":"soc@corp"' \
+  && pass "olay vaka ataması (assignee) kalıcı + okundu" || fail "olay vaka ataması görünmedi"
+curl -sk "$B/api/audit?limit=20" -H "Authorization: Bearer $TOK" | grep -q "EVENT_CASE" \
+  && pass "vaka ataması denetim izine yazıldı" || fail "vaka denetim izinde yok"
 curl -sk "$B/api/summary" -H "Authorization: Bearer $TOK" | grep -q "devices_total" \
   && pass "özet uç yanıt verdi" || fail "özet uç başarısız"
 curl -sk "$B/api/policies" -H "Authorization: Bearer $TOK" | grep -q "policies" \

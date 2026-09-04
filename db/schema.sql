@@ -190,9 +190,13 @@ CREATE TABLE event_logs_2026_09 PARTITION OF event_logs
 -- Not: admin_id'de FK yok (admins tablosu bu noktadan sonra tanımlı; ayrıca
 -- device_id gibi uygulama katmanında doğrulanır). Kim işaretledi bilgisi
 -- denetim iziyle (WriteAudit) sağlam tutulur; buradaki admin_id yalnız görüntü.
+-- status nullable: bir olay yalnız atanabilir/notlanabilir (henüz ack'lenmeden) —
+-- vaka yönetimi (#9). assignee: sorumlu analist; note: serbest triyaj notu.
 CREATE TABLE event_ack (
     event_id   TEXT PRIMARY KEY,
-    status     TEXT NOT NULL CHECK (status IN ('ACKNOWLEDGED', 'RESOLVED')),
+    status     TEXT CHECK (status IS NULL OR status IN ('ACKNOWLEDGED', 'RESOLVED')),
+    assignee   TEXT,
+    note       TEXT,
     admin_id   UUID,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

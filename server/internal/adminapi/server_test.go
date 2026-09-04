@@ -328,7 +328,18 @@ func (m *memStore) SetEventAck(_ context.Context, eventID, adminID, status strin
 	if m.eventAcks == nil {
 		m.eventAcks = map[string]adminread.EventAck{}
 	}
-	m.eventAcks[eventID] = adminread.EventAck{Status: status, AdminEmail: adminID, At: time.Now()}
+	rec := m.eventAcks[eventID]
+	rec.Status, rec.AdminEmail, rec.At = status, adminID, time.Now()
+	m.eventAcks[eventID] = rec
+	return nil
+}
+func (m *memStore) SetEventCase(_ context.Context, eventID, adminID, assignee, note string) error {
+	if m.eventAcks == nil {
+		m.eventAcks = map[string]adminread.EventAck{}
+	}
+	rec := m.eventAcks[eventID]
+	rec.Assignee, rec.Note, rec.AdminEmail, rec.At = assignee, note, adminID, time.Now()
+	m.eventAcks[eventID] = rec
 	return nil
 }
 func (m *memStore) EventAcks(_ context.Context) (map[string]adminread.EventAck, error) {
@@ -983,6 +994,40 @@ func TestEventAckHTTP(t *testing.T) {
 	// RESOLVE → 200.
 	if code, _ := post(t, ts.URL+"/api/events/evt-x/resolve", opTok, map[string]string{}); code != http.StatusOK {
 		t.Fatalf("OPERATOR resolve 200 dönmeliydi, %d", code)
+	}
+
+	// Vaka ata (assignee+note): VIEWER 403, OPERATOR 200; liste alanlarda görünmeli (#9).
+	if code, _ := post(t, ts.URL+"/api/events/evt-x/case", vwTok,
+		map[string]string{"assignee": "soc@x", "note": "fidye"}); code != http.StatusForbidden {
+		t.Fatalf("VIEWER vaka 403 dönmeliydi, %d", code)
+	}
+	if code, _ := post(t, ts.URL+"/api/events/evt-x/case", opTok,
+		map[string]string{"assignee": "soc@x", "note": "fidye şüphesi"}); code != http.StatusOK {
+		t.Fatalf("OPERATOR vaka 200 dönmeliydi, %d", code)
+	}
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/events", nil)
+	req2.Header.Set("Authorization", "Bearer "+opTok)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	var out2 struct {
+		Events []struct {
+			ID       string `json:"id"`
+			Assignee string `json:"ack_assignee"`
+			Note     string `json:"ack_note"`
+		} `json:"events"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&out2)
+	okCase := false
+	for _, e := range out2.Events {
+		if e.ID == "evt-x" {
+			okCase = e.Assignee == "soc@x" && e.Note == "fidye şüphesi"
+		}
+	}
+	if !okCase {
+		t.Fatalf("evt-x vaka alanları listede görünmeliydi: %+v", out2.Events)
 	}
 }
 

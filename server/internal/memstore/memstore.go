@@ -130,11 +130,13 @@ type Store struct {
 	seq        int
 }
 
-// eventAckRec, bir olayın triyaj durumudur (bellek-içi).
+// eventAckRec, bir olayın triyaj/vaka durumudur (bellek-içi).
 type eventAckRec struct {
-	status  string
-	adminID string
-	at      time.Time
+	status   string
+	assignee string
+	note     string
+	adminID  string
+	at       time.Time
 }
 
 // artifactRec, toplanan bir dosya artefaktıdır (bellek-içi).
@@ -908,7 +910,22 @@ func (s *Store) SetEventAck(_ context.Context, eventID, adminID, status string) 
 	if s.eventAcks == nil {
 		s.eventAcks = map[string]eventAckRec{}
 	}
-	s.eventAcks[eventID] = eventAckRec{status: status, adminID: adminID, at: time.Now()}
+	rec := s.eventAcks[eventID] // mevcut assignee/note korunur
+	rec.status, rec.adminID, rec.at = status, adminID, time.Now()
+	s.eventAcks[eventID] = rec
+	return nil
+}
+
+// SetEventCase, olayın sorumlu+not alanlarını ayarlar (durumu korur). Vaka yönetimi.
+func (s *Store) SetEventCase(_ context.Context, eventID, adminID, assignee, note string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.eventAcks == nil {
+		s.eventAcks = map[string]eventAckRec{}
+	}
+	rec := s.eventAcks[eventID] // mevcut status korunur
+	rec.assignee, rec.note, rec.adminID, rec.at = assignee, note, adminID, time.Now()
+	s.eventAcks[eventID] = rec
 	return nil
 }
 
@@ -922,7 +939,7 @@ func (s *Store) EventAcks(_ context.Context) (map[string]adminread.EventAck, err
 		if rec, ok := s.adminsByID[a.adminID]; ok {
 			email = rec.email
 		}
-		out[id] = adminread.EventAck{Status: a.status, AdminEmail: email, At: a.at}
+		out[id] = adminread.EventAck{Status: a.status, Assignee: a.assignee, Note: a.note, AdminEmail: email, At: a.at}
 	}
 	return out, nil
 }

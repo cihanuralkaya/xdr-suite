@@ -90,6 +90,19 @@ func (s *Store) SetEventAck(ctx context.Context, eventID, adminID, status string
 	return nil
 }
 
+// SetEventCase, olayın sorumlu+not alanlarını ayarlar (durumu korur; upsert).
+func (s *Store) SetEventCase(ctx context.Context, eventID, adminID, assignee, note string) error {
+	const q = `
+		INSERT INTO event_ack (event_id, assignee, note, admin_id, updated_at)
+		VALUES ($1, NULLIF($2,''), NULLIF($3,''), NULLIF($4,'')::uuid, now())
+		ON CONFLICT (event_id) DO UPDATE
+		   SET assignee = NULLIF($2,''), note = NULLIF($3,''), admin_id = EXCLUDED.admin_id, updated_at = now()`
+	if _, err := s.pool.Exec(ctx, q, eventID, assignee, note, adminID); err != nil {
+		return fmt.Errorf("db: olay vaka güncelleme: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) WriteAudit(ctx context.Context, adminID, action, targetType, targetID string) error {
 	// Kurcalama-kanıtı hash zinciri (SEC C-1): önceki entry_hash okunur, yeni hash
 	// hesaplanır ve prev_hash+entry_hash+created_at ile eklenir — hepsi tek

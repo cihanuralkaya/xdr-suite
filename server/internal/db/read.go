@@ -119,7 +119,7 @@ func (s *Store) GetArtifact(ctx context.Context, id string) (adminread.ArtifactC
 // durum + işaretleyen e-posta + zaman). Alarm yaşam-döngüsü.
 func (s *Store) EventAcks(ctx context.Context) (map[string]adminread.EventAck, error) {
 	const q = `
-		SELECT e.event_id, e.status, COALESCE(ad.email,''), e.updated_at
+		SELECT e.event_id, COALESCE(e.status,''), COALESCE(e.assignee,''), COALESCE(e.note,''), COALESCE(ad.email,''), e.updated_at
 		  FROM event_ack e
 		  LEFT JOIN admins ad ON ad.id = e.admin_id`
 	rows, err := s.pool.Query(ctx, q)
@@ -132,7 +132,7 @@ func (s *Store) EventAcks(ctx context.Context) (map[string]adminread.EventAck, e
 	for rows.Next() {
 		var id string
 		var a adminread.EventAck
-		if err := rows.Scan(&id, &a.Status, &a.AdminEmail, &a.At); err != nil {
+		if err := rows.Scan(&id, &a.Status, &a.Assignee, &a.Note, &a.AdminEmail, &a.At); err != nil {
 			return nil, fmt.Errorf("db: olay triyaj okuma: %w", err)
 		}
 		out[id] = a

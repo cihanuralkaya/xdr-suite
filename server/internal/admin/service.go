@@ -91,6 +91,9 @@ type Store interface {
 	// SetEventAck, bir olayın triyaj durumunu (ACKNOWLEDGED/RESOLVED) ayarlar
 	// (olay başına upsert). Alarm yaşam-döngüsü.
 	SetEventAck(ctx context.Context, eventID, adminID, status string) error
+	// SetEventCase, bir olayın vaka alanlarını (sorumlu + not) ayarlar (upsert;
+	// durum sütununa dokunmaz). Vaka yönetimi (#9).
+	SetEventCase(ctx context.Context, eventID, adminID, assignee, note string) error
 	CreatePolicy(ctx context.Context, name, version string) (policyID string, err error)
 	AssignPolicy(ctx context.Context, deviceID, policyID string) error
 	// AddPolicyRule, politikaya yeni bir kural ekler.
@@ -355,6 +358,25 @@ func (s *Service) WipeDevice(ctx context.Context, adminID, deviceID string) erro
 		return err
 	}
 	_ = s.store.WriteAudit(ctx, adminID, "WIPE", "device", deviceID)
+	return nil
+}
+
+// UpdateEventCase, bir olayın vaka alanlarını (sorumlu analist + not) günceller
+// (OPERATOR+). Vaka yönetimi (#9). Denetim izine yazılır.
+func (s *Service) UpdateEventCase(ctx context.Context, adminID, eventID, assignee, note string) error {
+	if err := s.require(ctx, adminID, RoleOperator); err != nil {
+		return err
+	}
+	if eventID == "" {
+		return fmt.Errorf("%w: olay kimliği zorunlu", ErrInvalidInput)
+	}
+	if len(assignee) > 200 || len(note) > 2000 {
+		return fmt.Errorf("%w: sorumlu/not çok uzun", ErrInvalidInput)
+	}
+	if err := s.store.SetEventCase(ctx, eventID, adminID, strings.TrimSpace(assignee), strings.TrimSpace(note)); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "EVENT_CASE", "event", eventID)
 	return nil
 }
 
