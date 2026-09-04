@@ -403,6 +403,16 @@
       </div>
     </div>
 
+    <div class="card" data-view="overview">
+      <div class="head"><h2>🔒 Disk Şifreleme Uyumu <span class="count" id="enc-count">0</span></h2>
+        <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">cihaz uyum durumundan</span></div>
+      <div class="body">
+        <div id="enc-summary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"></div>
+        <div id="enc-noncompliant"></div>
+        <div id="enc-empty" class="empty" style="padding:10px">Henüz uyum verisi yok.</div>
+      </div>
+    </div>
+
     <div class="grid">
       <div class="col">
         <!-- DEVICES -->
@@ -1108,6 +1118,45 @@
       box.appendChild(row);
     });
   }
+  // renderCompliance: her cihazın EN SON disk_encryption durumunu olay
+  // akışından bulur (olaylar yeniden-eskiye sıralı → cihaz başına ilk görülen
+  // en günceldir) ve filo uyum özetini çıkarır (şifreli / KAPALI / bilinmiyor).
+  // Ajanın periyodik uyum olaylarını (COMPLIANCE) filo görünürlüğüne çevirir.
+  function renderComplianceCard(){
+    var box=$("enc-summary"); if(!box) return;
+    var latest={}; // device_id → en son disk_encryption durumu
+    (state.events||[]).forEach(function(e){
+      var id=e.device_id; if(!id || latest[id]!==undefined) return;
+      if(e.details && typeof e.details.disk_encryption==="string") latest[id]=e.details.disk_encryption;
+    });
+    var ids=Object.keys(latest);
+    $("enc-count").textContent=ids.length;
+    $("enc-empty").style.display=ids.length?"none":"block";
+    if(!ids.length){ box.innerHTML=""; $("enc-noncompliant").innerHTML=""; return; }
+    var on=0,off=0,unk=0, offDevs=[];
+    ids.forEach(function(id){
+      var st=latest[id];
+      if(st==="on") on++;
+      else if(st==="off"){ off++; offDevs.push(id); }
+      else unk++;
+    });
+    function tile(label,n,color){
+      return "<div style='flex:1;min-width:90px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 10px'>"+
+        "<div style='font-size:20px;font-weight:700;color:"+color+"'>"+n+"</div>"+
+        "<div style='font-size:11px;color:var(--faint)'>"+label+"</div></div>";
+    }
+    box.innerHTML=tile("Şifreli",on,"var(--ok,#10b981)")+tile("KAPALI",off,"var(--bad,#f43f5e)")+tile("Bilinmiyor",unk,"var(--muted)");
+    var nc=$("enc-noncompliant");
+    if(offDevs.length){
+      nc.innerHTML="<div class='lbl' style='margin:4px 0 6px;color:var(--bad,#f43f5e)'>⚠ Uyumsuz cihazlar (şifreleme kapalı)</div>"+
+        offDevs.map(function(id){
+          return "<div class='mini click' style='cursor:pointer;padding:3px 0' data-encdev='"+esc(id)+"'>• "+esc(deviceName(id))+"</div>";
+        }).join("");
+      Array.prototype.forEach.call(nc.querySelectorAll("[data-encdev]"),function(el){
+        el.onclick=function(){ setView("devices"); selectDevice(el.getAttribute("data-encdev")); };
+      });
+    } else { nc.innerHTML="<div class='mini' style='color:var(--ok,#10b981)'>✓ Tüm bilinen cihazlar uyumlu.</div>"; }
+  }
   function renderSeverity(){
     var s=state.summary, card=$("sevcard");
     var sev=(s&&s.events_by_severity)||null;
@@ -1291,7 +1340,7 @@
       state.tokens = (r[4] && r[4].tokens) || [];
       if(r[5] && r[5].admins) state.admins = r[5].admins;
       state.policies = (r[6] && r[6].policies) || [];
-      renderStats(); renderSeverity(); renderOSInventory(); renderTopDevices(); renderTactics(); renderDevices(); renderEvents(); renderAudit();
+      renderStats(); renderSeverity(); renderOSInventory(); renderTopDevices(); renderComplianceCard(); renderTactics(); renderDevices(); renderEvents(); renderAudit();
       renderTokens(); renderAdmins(); renderPolicies(); setLive(true);
       loadActivity();
       if(state.sel) loadDetail(state.sel);
