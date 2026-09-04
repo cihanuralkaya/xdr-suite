@@ -1021,6 +1021,17 @@
       {k:"Kritik / yüksek olay", v:crit, cls:crit?"crit":""}
     ];
     if(quar>0) tiles.push({k:"Karantinada", v:quar, cls:"crit"});
+    // Uyumsuz cihaz KPI'ı: uyum olaylarından en son disk_encryption/firewall
+    // "off" olan cihaz sayısı (yalnız >0 ise göster — dikkat çekici).
+    var encL={}, fwL={};
+    (state.events||[]).forEach(function(e){ var id=e.device_id; if(!id||!e.details) return;
+      if(encL[id]===undefined && typeof e.details.disk_encryption==="string") encL[id]=e.details.disk_encryption;
+      if(fwL[id]===undefined && typeof e.details.firewall==="string") fwL[id]=e.details.firewall; });
+    var ncSet={};
+    Object.keys(encL).forEach(function(id){ if(encL[id]==="off") ncSet[id]=1; });
+    Object.keys(fwL).forEach(function(id){ if(fwL[id]==="off") ncSet[id]=1; });
+    var nonComp=Object.keys(ncSet).length;
+    if(nonComp>0) tiles.push({k:"Uyumsuz cihaz", v:nonComp, cls:"crit"});
     $("stats").innerHTML = tiles.map(function(t){
       return '<div class="stat '+t.cls+'"><div class="k">'+t.k+'</div><div class="v">'+t.v+'</div></div>';
     }).join("");
