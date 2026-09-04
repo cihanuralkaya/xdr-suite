@@ -1031,12 +1031,19 @@
         if(e.severity==="CRITICAL"||e.severity==="HIGH") crit++;
       });
     }
+    // Bekleyen alarm: çözülmemiş (RESOLVED değil) yüksek-önem olay sayısı — SOC
+    // açık-alarm yükü. İstemci-taraflı (yüklü olaylardan).
+    var pendingAlerts=0;
+    (state.events||[]).forEach(function(e){
+      if((e.severity==="CRITICAL"||e.severity==="HIGH") && e.ack_status!=="RESOLVED") pendingAlerts++;
+    });
     var tiles=[
       {k:"Toplam cihaz", v:total, cls:""},
       {k:"Çevrimiçi", v:online+" <small>/ "+total+"</small>", cls:online?"good":""},
       {k:"Ağ keşfi (olay)", v:disc, cls:disc?"warn":""},
       {k:"Kritik / yüksek olay", v:crit, cls:crit?"crit":""}
     ];
+    if(pendingAlerts>0) tiles.push({k:"Bekleyen alarm", v:pendingAlerts, cls:"crit"});
     if(quar>0) tiles.push({k:"Karantinada", v:quar, cls:"crit"});
     // Uyumsuz cihaz KPI'ı: sunucu-taraflı filo-geneli sayımı (doğru, 200-olay
     // penceresiyle sınırlı değil) tercih et; yoksa istemci-taraflı hesaba düş.
