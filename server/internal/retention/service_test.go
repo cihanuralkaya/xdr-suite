@@ -7,9 +7,12 @@ import (
 )
 
 type memStore struct {
-	existing []time.Time
-	created  []string
-	dropped  []string
+	existing    []time.Time
+	created     []string
+	dropped     []string
+	purgeCutoff time.Time // PurgeArtifactsOlderThan'a geçirilen cutoff
+	purgeReturn int       // döndürülecek silme sayısı
+	purgeCalls  int
 }
 
 func (m *memStore) ListPartitions(context.Context) ([]time.Time, error) { return m.existing, nil }
@@ -20,6 +23,11 @@ func (m *memStore) CreatePartition(_ context.Context, ms time.Time) error {
 func (m *memStore) DropPartition(_ context.Context, ms time.Time) error {
 	m.dropped = append(m.dropped, PartitionName(ms))
 	return nil
+}
+func (m *memStore) PurgeArtifactsOlderThan(_ context.Context, cutoff time.Time) (int, error) {
+	m.purgeCalls++
+	m.purgeCutoff = cutoff
+	return m.purgeReturn, nil
 }
 
 func TestServiceRunCreatesThenDrops(t *testing.T) {
@@ -40,6 +48,23 @@ func TestServiceRunCreatesThenDrops(t *testing.T) {
 	}
 	if contains(store.dropped, "event_logs_2026_08") {
 		t.Fatal("güncel partition düşürülmemeli")
+	}
+}
+
+// Run, saklama penceresinden (now - retentionDays) eski artefaktları budamalı.
+func TestServiceRunPurgesOldArtifacts(t *testing.T) {
+	now := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+	store := &memStore{purgeReturn: 4}
+	svc := NewService(store, 90, 2, nil)
+	if err := svc.Run(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	if store.purgeCalls != 1 {
+		t.Fatalf("artefakt budama tam 1 kez çağrılmalıydı, çağrı: %d", store.purgeCalls)
+	}
+	wantCutoff := now.AddDate(0, 0, -90)
+	if !store.purgeCutoff.Equal(wantCutoff) {
+		t.Fatalf("cutoff now-90gün olmalı: beklenen %v, gelen %v", wantCutoff, store.purgeCutoff)
 	}
 }
 

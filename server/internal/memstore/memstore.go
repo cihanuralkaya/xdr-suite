@@ -1147,6 +1147,23 @@ func (s *Store) ListPartitions(context.Context) ([]time.Time, error) { return ni
 func (s *Store) CreatePartition(context.Context, time.Time) error    { return nil }
 func (s *Store) DropPartition(context.Context, time.Time) error      { return nil }
 
+// PurgeArtifactsOlderThan, cutoff'tan eski artefaktları düşürür ve sayısını döner.
+func (s *Store) PurgeArtifactsOlderThan(_ context.Context, cutoff time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.artifacts[:0]
+	removed := 0
+	for _, a := range s.artifacts {
+		if a.collectedAt.Before(cutoff) {
+			removed++
+			continue
+		}
+		kept = append(kept, a)
+	}
+	s.artifacts = kept
+	return removed, nil
+}
+
 // --- adminapi.AuthStore ---
 
 func (s *Store) LookupAdmin(_ context.Context, email string) (string, string, error) {

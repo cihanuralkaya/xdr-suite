@@ -2,6 +2,7 @@ package retention
 
 import (
 	"context"
+	"strconv"
 	"time"
 )
 
@@ -10,6 +11,10 @@ type Store interface {
 	ListPartitions(ctx context.Context) ([]time.Time, error)
 	CreatePartition(ctx context.Context, monthStart time.Time) error
 	DropPartition(ctx context.Context, monthStart time.Time) error
+	// PurgeArtifactsOlderThan, verilen zamandan eski toplanan dosya artefaktlarını
+	// (adli/IR, #4) siler ve silinen sayısını döner. artifacts tablosu dosya
+	// içeriğini (BYTEA) sakladığından partition'lanmaz; DELETE ile budanır.
+	PurgeArtifactsOlderThan(ctx context.Context, cutoff time.Time) (int, error)
 }
 
 // Service, saklama planını hesaplayıp uygular.
@@ -54,6 +59,15 @@ func (s *Service) Run(ctx context.Context, now time.Time) error {
 			return err
 		}
 		s.log("saklama süresi doldu, partition düşürüldü: " + PartitionName(m))
+	}
+
+	// Toplanan dosya artefaktları (adli/IR) partition'lanmaz; saklama penceresinden
+	// eski olanları DELETE ile buda (aksi halde BYTEA içerik sınırsız büyür).
+	cutoff := now.AddDate(0, 0, -s.retentionDays)
+	if n, err := s.store.PurgeArtifactsOlderThan(ctx, cutoff); err != nil {
+		return err
+	} else if n > 0 {
+		s.log("saklama süresi dolan " + strconv.Itoa(n) + " artefakt silindi")
 	}
 	return nil
 }
