@@ -845,6 +845,20 @@
     });
   }
   function cell(text, cls){ var td=document.createElement("td"); td.textContent=esc(text); if(cls) td.className=cls; return td; }
+  // filterChip: tıkla-süz için erişilebilir chip (klavye ile de kullanılabilir).
+  // role=button + tabindex ile odaklanabilir; Enter/Space tıklamayı tetikler;
+  // aria-pressed etkin filtreyi ekran okuyuculara bildirir.
+  function filterChip(text, active, title, handler){
+    var c=document.createElement("span");
+    c.className="chip"; c.textContent=text||"-";
+    c.style.cursor="pointer"; c.title=title;
+    c.setAttribute("role","button"); c.tabIndex=0;
+    c.setAttribute("aria-pressed", active?"true":"false");
+    if(active){ c.style.background="var(--accent-dim)"; c.style.color="var(--accent)"; }
+    c.onclick=function(ev){ if(ev) ev.stopPropagation(); handler(); };
+    c.onkeydown=function(ev){ if(ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); ev.stopPropagation(); handler(); } };
+    return c;
+  }
   function relTime(iso){
     if(!iso) return "-";
     var t=new Date(iso).getTime(); if(isNaN(t)) return "-";
@@ -1064,12 +1078,11 @@
       var tr=document.createElement("tr");
       if(hasDet){ tr.className="click"; tr.title="Ayrıntı için tıklayın"; }
       tr.appendChild(cell(relTime(e.created_at)));
-      var c=document.createElement("td"); var chip=document.createElement("span");
-      chip.className="chip"; chip.textContent=e.category||"-";
-      chip.style.cursor="pointer"; chip.title="Bu kategoriye göre süz";
-      if(state.catFilter===e.category){ chip.style.background="var(--accent-dim)"; chip.style.color="var(--accent)"; }
-      chip.onclick=function(ev){ ev.stopPropagation(); state.catFilter=(state.catFilter===e.category?"":e.category); renderEvents(); };
-      c.appendChild(chip); tr.appendChild(c);
+      var c=document.createElement("td");
+      var cat=e.category||"-";
+      c.appendChild(filterChip(cat, state.catFilter===e.category, "Bu kategoriye göre süz",
+        function(){ state.catFilter=(state.catFilter===e.category?"":e.category); renderEvents(); }));
+      tr.appendChild(c);
       var sv=document.createElement("td"); var s=document.createElement("span");
       s.className="sev "+(e.severity||""); s.textContent=e.severity||"-"; sv.appendChild(s); tr.appendChild(sv);
       var msg=cell((hasDet?"▸ ":"")+(e.message||"-")); msg.style.whiteSpace="normal"; tr.appendChild(msg);
@@ -1177,12 +1190,10 @@
       var tr=document.createElement("tr");
       tr.appendChild(cell(relTime(x.created_at)));
       tr.appendChild(cell(x.admin_email||"—"));
-      var ac=document.createElement("td"); var chip=document.createElement("span");
-      chip.className="chip"; chip.textContent=x.action||"-";
-      chip.style.cursor="pointer"; chip.title="Bu eyleme göre süz";
-      if(state.actFilter===x.action){ chip.style.background="var(--accent-dim)"; chip.style.color="var(--accent)"; }
-      chip.onclick=function(){ state.actFilter=(state.actFilter===x.action?"":x.action); renderAudit(); };
-      ac.appendChild(chip); tr.appendChild(ac);
+      var ac=document.createElement("td");
+      ac.appendChild(filterChip(x.action||"-", state.actFilter===x.action, "Bu eyleme göre süz",
+        function(){ state.actFilter=(state.actFilter===x.action?"":x.action); renderAudit(); }));
+      tr.appendChild(ac);
       tr.appendChild(cell((x.target_type||"")+(x.target_id?(" · "+x.target_id):""),"mono"));
       body.appendChild(tr);
     });
