@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +26,17 @@ type memStore struct {
 	tags      map[string][]string    // deviceID -> etiketler
 	admins    map[string]*adminEntry // id -> yönetici
 	erased    string                 // EraseDeviceData ile silinen son deviceID
+	eventAcks map[string]string      // eventID -> status (triyaj)
 	nextPolID int
 	nextAdmID int
+}
+
+func (m *memStore) SetEventAck(_ context.Context, eventID, _, status string) error {
+	if m.eventAcks == nil {
+		m.eventAcks = map[string]string{}
+	}
+	m.eventAcks[eventID] = status
+	return nil
 }
 
 func (m *memStore) EraseDeviceData(_ context.Context, deviceID string) (int, int, int, error) {
@@ -199,6 +209,46 @@ func newService(t *testing.T, store Store) (*Service, *security.BlindIndexer) {
 	}
 	bidx := security.NewBlindIndexer(security.DeriveKey(master, security.LabelBlindIndex))
 	return NewService(store, bidx, time.Hour), bidx
+}
+
+// AckEvent (alarm yaşam-döngüsü): VIEWER reddedilir; geçersiz durum reddedilir;
+// OPERATOR işaretler + denetim izine yazılır.
+func TestAckEventRBACAndAudit(t *testing.T) {
+	store := newMemStore()
+	store.roles["viewer1"] = RoleViewer
+	store.roles["op1"] = RoleOperator
+	svc, _ := newService(t, store)
+	ctx := context.Background()
+
+	// VIEWER reddedilmeli.
+	if err := svc.AckEvent(ctx, "viewer1", "evt-1", "ACKNOWLEDGED"); err != ErrForbidden {
+		t.Fatalf("VIEWER işaretleyememeli, dönen: %v", err)
+	}
+	// Geçersiz durum reddedilmeli (ErrInvalidInput).
+	if err := svc.AckEvent(ctx, "op1", "evt-1", "BOGUS"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("geçersiz durum reddedilmeliydi, dönen: %v", err)
+	}
+	// Boş olay kimliği reddedilmeli.
+	if err := svc.AckEvent(ctx, "op1", "", "RESOLVED"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("boş kimlik reddedilmeliydi, dönen: %v", err)
+	}
+	// OPERATOR: işaretle + audit.
+	if err := svc.AckEvent(ctx, "op1", "evt-1", "ACKNOWLEDGED"); err != nil {
+		t.Fatalf("OPERATOR işaretleyebilmeli: %v", err)
+	}
+	if store.eventAcks["evt-1"] != "ACKNOWLEDGED" {
+		t.Fatalf("triyaj durumu kaydedilmeliydi: %v", store.eventAcks)
+	}
+	if !hasAudit(store.audits, "EVENT_ACKNOWLEDGED", "event", "evt-1") {
+		t.Fatalf("denetim izine yazılmalıydı: %+v", store.audits)
+	}
+	// RESOLVED'e geçiş.
+	if err := svc.AckEvent(ctx, "op1", "evt-1", "RESOLVED"); err != nil {
+		t.Fatal(err)
+	}
+	if store.eventAcks["evt-1"] != "RESOLVED" {
+		t.Fatalf("RESOLVED olmalıydı: %v", store.eventAcks)
+	}
 }
 
 func TestSetDeviceTagsRBACAndNormalize(t *testing.T) {

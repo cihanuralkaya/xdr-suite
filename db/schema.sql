@@ -182,6 +182,20 @@ CREATE TABLE event_logs_2026_08 PARTITION OF event_logs
 CREATE TABLE event_logs_2026_09 PARTITION OF event_logs
     FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
 
+-- Olay triyaj durumu (alarm yaşam-döngüsü): yüksek-önem olayları SOC analisti
+-- ACKNOWLEDGED (inceleniyor) veya RESOLVED (kapatıldı) olarak işaretler. event_id
+-- olayın kimliğidir (partition'lı event_logs'a FK pratik değil — bkz. device_id
+-- notu). Olay başına tek durum (upsert). Denetim izi ayrıca WriteAudit ile tutulur.
+-- Not: admin_id'de FK yok (admins tablosu bu noktadan sonra tanımlı; ayrıca
+-- device_id gibi uygulama katmanında doğrulanır). Kim işaretledi bilgisi
+-- denetim iziyle (WriteAudit) sağlam tutulur; buradaki admin_id yalnız görüntü.
+CREATE TABLE event_ack (
+    event_id   TEXT PRIMARY KEY,
+    status     TEXT NOT NULL CHECK (status IN ('ACKNOWLEDGED', 'RESOLVED')),
+    admin_id   UUID,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- AĞ KEŞFİ (Network Discovery)
 -- ---------------------------------------------------------------------------

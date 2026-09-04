@@ -21,6 +21,7 @@ type memStore struct {
 	policies []PolicyRow
 	polID    string
 	polVer   string
+	acks     map[string]EventAck
 }
 
 func (m *memStore) ListPolicies(_ context.Context, _ int) ([]PolicyRow, error) {
@@ -124,6 +125,9 @@ func (m *memStore) SearchSoftware(_ context.Context, query string) (map[string][
 		}
 	}
 	return out, nil
+}
+func (m *memStore) EventAcks(_ context.Context) (map[string]EventAck, error) {
+	return m.acks, nil
 }
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]AuditRow, error) {
 	return m.audit, nil

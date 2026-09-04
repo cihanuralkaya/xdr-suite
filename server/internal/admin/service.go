@@ -85,6 +85,9 @@ type Store interface {
 	// ve iptal edilen sertifika sayısını döner.
 	EraseDeviceData(ctx context.Context, deviceID string) (events, commands, certs int, err error)
 	WriteAudit(ctx context.Context, adminID, action, targetType, targetID string) error
+	// SetEventAck, bir olayın triyaj durumunu (ACKNOWLEDGED/RESOLVED) ayarlar
+	// (olay başına upsert). Alarm yaşam-döngüsü.
+	SetEventAck(ctx context.Context, eventID, adminID, status string) error
 	CreatePolicy(ctx context.Context, name, version string) (policyID string, err error)
 	AssignPolicy(ctx context.Context, deviceID, policyID string) error
 	// AddPolicyRule, politikaya yeni bir kural ekler.
@@ -326,6 +329,25 @@ func (s *Service) ReleaseDevice(ctx context.Context, adminID, deviceID string) e
 // Durum değiştirmez — zararsız, salt-toplama bir işlemdir.
 func (s *Service) CollectDiagnostics(ctx context.Context, adminID, deviceID string) error {
 	return s.command(ctx, adminID, deviceID, "COLLECT_DIAGNOSTICS", "")
+}
+
+// AckEvent, bir olayı triyaj durumuna geçirir (ACKNOWLEDGED "inceleniyor" veya
+// RESOLVED "kapatıldı") — alarm yaşam-döngüsü (OPERATOR+). Denetim izine yazılır.
+func (s *Service) AckEvent(ctx context.Context, adminID, eventID, status string) error {
+	if err := s.require(ctx, adminID, RoleOperator); err != nil {
+		return err
+	}
+	if status != "ACKNOWLEDGED" && status != "RESOLVED" {
+		return fmt.Errorf("%w: geçersiz durum %q", ErrInvalidInput, status)
+	}
+	if eventID == "" {
+		return fmt.Errorf("%w: olay kimliği zorunlu", ErrInvalidInput)
+	}
+	if err := s.store.SetEventAck(ctx, eventID, adminID, status); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "EVENT_"+status, "event", eventID)
+	return nil
 }
 
 // command, RBAC kontrolü sonrası komutu kuyruğa ekler, denetim izine yazar ve

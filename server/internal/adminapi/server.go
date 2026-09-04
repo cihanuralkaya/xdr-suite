@@ -188,6 +188,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/detections/rules", s.authed(s.handleDetectionRules))
 	mux.HandleFunc("POST /api/detections/test", s.authed(s.handleTestDetection))
 	mux.HandleFunc("GET /api/software", s.authed(s.handleSoftwareSearch))
+	mux.HandleFunc("POST /api/events/{id}/ack", s.authed(s.handleAckEvent))
+	mux.HandleFunc("POST /api/events/{id}/resolve", s.authed(s.handleResolveEvent))
 	mux.HandleFunc("GET /api/activity", s.authed(s.handleActivity))
 	mux.HandleFunc("GET /api/features", s.authed(s.handleFeatures))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
@@ -820,6 +822,22 @@ func (s *Server) handleTestDetection(w http.ResponseWriter, r *http.Request, _ s
 		"matches": matches,
 		"matched": len(matches),
 	})
+}
+
+// handleAckEvent, bir olayı ACKNOWLEDGED (inceleniyor) işaretler (OPERATOR+).
+func (s *Server) handleAckEvent(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.AckEvent(r.Context(), adminID, r.PathValue("id"), "ACKNOWLEDGED")) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ACKNOWLEDGED"})
+}
+
+// handleResolveEvent, bir olayı RESOLVED (kapatıldı) işaretler (OPERATOR+).
+func (s *Server) handleResolveEvent(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.AckEvent(r.Context(), adminID, r.PathValue("id"), "RESOLVED")) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "RESOLVED"})
 }
 
 // handleSoftwareSearch, filo-geneli yazılım araması yapar (?q=...): adı query'yi

@@ -62,6 +62,20 @@ func (s *Store) SaveEnrollmentToken(ctx context.Context, tokenIndex []byte, crea
 }
 
 // WriteAudit, değişmez denetim izine bir satır yazar (#10).
+// SetEventAck, bir olayın triyaj durumunu ayarlar (olay başına upsert). Alarm
+// yaşam-döngüsü (ACKNOWLEDGED/RESOLVED).
+func (s *Store) SetEventAck(ctx context.Context, eventID, adminID, status string) error {
+	const q = `
+		INSERT INTO event_ack (event_id, status, admin_id, updated_at)
+		VALUES ($1, $2, NULLIF($3,'')::uuid, now())
+		ON CONFLICT (event_id) DO UPDATE
+		   SET status = EXCLUDED.status, admin_id = EXCLUDED.admin_id, updated_at = now()`
+	if _, err := s.pool.Exec(ctx, q, eventID, status, adminID); err != nil {
+		return fmt.Errorf("db: olay triyaj durumu: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) WriteAudit(ctx context.Context, adminID, action, targetType, targetID string) error {
 	// Kurcalama-kanıtı hash zinciri (SEC C-1): önceki entry_hash okunur, yeni hash
 	// hesaplanır ve prev_hash+entry_hash+created_at ile eklenir — hepsi tek

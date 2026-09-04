@@ -108,6 +108,9 @@ type Store interface {
 	// paket adları döner (eşleşme olmayan cihazlar dışarıda). Zafiyet müdahalesi
 	// ("X kurulu cihazlar hangileri") için filo-geneli arama.
 	SearchSoftware(ctx context.Context, query string) (map[string][]string, error)
+	// EventAcks, triyaj işaretli olayların durumunu döner (olay kimliği → durum).
+	// Alarm yaşam-döngüsü: olay listesine ACKNOWLEDGED/RESOLVED bindirilir.
+	EventAcks(ctx context.Context) (map[string]EventAck, error)
 	ListAudit(ctx context.Context, limit int) ([]AuditRow, error)
 	DeviceByID(ctx context.Context, id string) (DeviceRow, bool, error)
 	CertsByDevice(ctx context.Context, id string) ([]CertRow, error)
@@ -162,6 +165,13 @@ type DeviceDetailDTO struct {
 	AssignedPolicyVersion string     `json:"assigned_policy_version"`
 }
 
+// EventAck, bir olayın triyaj durumudur (alarm yaşam-döngüsü).
+type EventAck struct {
+	Status     string    // "ACKNOWLEDGED" | "RESOLVED"
+	AdminEmail string    // işaretleyen (görüntüleme; çözülmüş)
+	At         time.Time // son güncelleme
+}
+
 // EventDTO, konsola dönen olay görünümüdür.
 type EventDTO struct {
 	ID         string          `json:"id"`
@@ -172,6 +182,10 @@ type EventDTO struct {
 	OccurredAt time.Time       `json:"occurred_at"`
 	CreatedAt  time.Time       `json:"created_at"`
 	Details    json.RawMessage `json:"details,omitempty"`
+	// Alarm yaşam-döngüsü (işaretlenmişse dolu): triyaj durumu + kim + ne zaman.
+	AckStatus string    `json:"ack_status,omitempty"`
+	AckBy     string    `json:"ack_by,omitempty"`
+	AckAt     time.Time `json:"ack_at,omitempty"`
 }
 
 // ComplianceStatus, bir cihazın en son güvenlik-duruşu uyum durumudur
@@ -342,9 +356,14 @@ func (s *Service) Events(ctx context.Context, deviceID, severity, category strin
 	if err != nil {
 		return nil, err
 	}
+	// Alarm yaşam-döngüsü: triyaj işaretlerini (varsa) olaylara bindir.
+	acks, err := s.store.EventAcks(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]EventDTO, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, EventDTO{
+		dto := EventDTO{
 			ID:         r.ID,
 			DeviceID:   r.DeviceID,
 			Category:   r.Category,
@@ -353,7 +372,11 @@ func (s *Service) Events(ctx context.Context, deviceID, severity, category strin
 			OccurredAt: r.OccurredAt,
 			CreatedAt:  r.CreatedAt,
 			Details:    r.Details,
-		})
+		}
+		if a, ok := acks[r.ID]; ok {
+			dto.AckStatus, dto.AckBy, dto.AckAt = a.Status, a.AdminEmail, a.At
+		}
+		out = append(out, dto)
 	}
 	return out, nil
 }

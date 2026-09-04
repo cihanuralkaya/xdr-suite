@@ -124,7 +124,15 @@ type Store struct {
 	adminsByID map[string]*adminRec        // id -> admin
 	audit      []auditRec                  // denetim izi (en eskiden yeniye eklenir)
 	auditSeq   int64                       // audit_log identity taklidi
+	eventAcks  map[string]eventAckRec      // eventID -> triyaj durumu (alarm yaşam-döngüsü)
 	seq        int
+}
+
+// eventAckRec, bir olayın triyaj durumudur (bellek-içi).
+type eventAckRec struct {
+	status  string
+	adminID string
+	at      time.Time
 }
 
 // New, boş bir bellek-içi depo oluşturur.
@@ -136,6 +144,7 @@ func New() *Store {
 		policies:   map[string]*policyRec{},
 		admins:     map[string]*adminRec{},
 		adminsByID: map[string]*adminRec{},
+		eventAcks:  map[string]eventAckRec{},
 	}
 }
 
@@ -858,6 +867,32 @@ func (s *Store) SearchSoftware(_ context.Context, query string) (map[string][]st
 		if len(m) > 0 {
 			out[e.deviceID] = m
 		}
+	}
+	return out, nil
+}
+
+// SetEventAck, bir olayın triyaj durumunu ayarlar (upsert). Alarm yaşam-döngüsü.
+func (s *Store) SetEventAck(_ context.Context, eventID, adminID, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.eventAcks == nil {
+		s.eventAcks = map[string]eventAckRec{}
+	}
+	s.eventAcks[eventID] = eventAckRec{status: status, adminID: adminID, at: time.Now()}
+	return nil
+}
+
+// EventAcks, triyaj işaretli olayların durumunu döner (adminID → e-posta çözülür).
+func (s *Store) EventAcks(_ context.Context) (map[string]adminread.EventAck, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]adminread.EventAck, len(s.eventAcks))
+	for id, a := range s.eventAcks {
+		email := a.adminID
+		if rec, ok := s.adminsByID[a.adminID]; ok {
+			email = rec.email
+		}
+		out[id] = adminread.EventAck{Status: a.status, AdminEmail: email, At: a.at}
 	}
 	return out, nil
 }

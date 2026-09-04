@@ -76,6 +76,31 @@ func (s *Store) ListEvents(ctx context.Context, deviceID, severity, category str
 
 // ListAudit, denetim izini (audit_log) admin e-postasıyla birlikte en yeniden
 // eskiye listeler. Admin silinmiş/eşleşmemişse e-posta boş döner (LEFT JOIN).
+// EventAcks, triyaj işaretli tüm olayların durumunu döner (olay kimliği →
+// durum + işaretleyen e-posta + zaman). Alarm yaşam-döngüsü.
+func (s *Store) EventAcks(ctx context.Context) (map[string]adminread.EventAck, error) {
+	const q = `
+		SELECT e.event_id, e.status, COALESCE(ad.email,''), e.updated_at
+		  FROM event_ack e
+		  LEFT JOIN admins ad ON ad.id = e.admin_id`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("db: olay triyaj listesi: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]adminread.EventAck{}
+	for rows.Next() {
+		var id string
+		var a adminread.EventAck
+		if err := rows.Scan(&id, &a.Status, &a.AdminEmail, &a.At); err != nil {
+			return nil, fmt.Errorf("db: olay triyaj okuma: %w", err)
+		}
+		out[id] = a
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]adminread.AuditRow, error) {
 	const q = `
 		SELECT a.id, COALESCE(ad.email,''), a.action::text,

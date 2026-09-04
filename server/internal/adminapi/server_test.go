@@ -40,6 +40,7 @@ type memStore struct {
 	adminInfos map[string]*admin.AdminInfo  // id -> yönetici görünümü
 	nextAdmID  int
 	mfa        map[string]*mfaRec // adminID -> MFA durumu
+	eventAcks  map[string]adminread.EventAck
 }
 
 type adminRec struct{ id, hash string }
@@ -320,6 +321,16 @@ func (m *memStore) LatestComplianceByDevice(_ context.Context) (map[string]admin
 }
 func (m *memStore) SearchSoftware(_ context.Context, _ string) (map[string][]string, error) {
 	return map[string][]string{}, nil
+}
+func (m *memStore) SetEventAck(_ context.Context, eventID, adminID, status string) error {
+	if m.eventAcks == nil {
+		m.eventAcks = map[string]adminread.EventAck{}
+	}
+	m.eventAcks[eventID] = adminread.EventAck{Status: status, AdminEmail: adminID, At: time.Now()}
+	return nil
+}
+func (m *memStore) EventAcks(_ context.Context) (map[string]adminread.EventAck, error) {
+	return m.eventAcks, nil
 }
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]adminread.AuditRow, error) {
 	return m.auditRows, nil
@@ -879,5 +890,67 @@ func TestRequestBodySizeLimit(t *testing.T) {
 	// Normal küçük gövde hâlâ çalışmalı.
 	if code, b := post(t, ts.URL+"/api/policies", token, map[string]string{"name": "P", "version": "v1"}); code != http.StatusOK || b["policy_id"] == "" {
 		t.Fatalf("normal gövde 200 dönmeliydi: code=%d", code)
+	}
+}
+
+// Alarm yaşam-döngüsü uçtan uca (HTTP): OPERATOR olayı ack'ler → 200; sonraki
+// olay listesinde ack_status görünür; VIEWER 403 alır.
+func TestEventAckHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	addAdmin(t, store, "vw1", "vw@x", "secret", admin.RoleViewer)
+	store.evtRows = []adminread.EventRow{
+		{ID: "evt-x", Category: "SECURITY", Severity: "HIGH", Message: "şüpheli", CreatedAt: time.Now()},
+	}
+
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	opTok := ob["token"]
+	_, vb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "vw@x", "password": "secret"})
+	vwTok := vb["token"]
+	if opTok == "" || vwTok == "" {
+		t.Fatal("token alınamadı")
+	}
+
+	// VIEWER ack → 403.
+	if code, _ := post(t, ts.URL+"/api/events/evt-x/ack", vwTok, map[string]string{}); code != http.StatusForbidden {
+		t.Fatalf("VIEWER ack 403 dönmeliydi, %d", code)
+	}
+	// OPERATOR ack → 200.
+	if code, _ := post(t, ts.URL+"/api/events/evt-x/ack", opTok, map[string]string{}); code != http.StatusOK {
+		t.Fatalf("OPERATOR ack 200 dönmeliydi, %d", code)
+	}
+
+	// Olay listesinde ack_status görünmeli.
+	req, _ := http.NewRequest("GET", ts.URL+"/api/events", nil)
+	req.Header.Set("Authorization", "Bearer "+opTok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Events []struct {
+			ID        string `json:"id"`
+			AckStatus string `json:"ack_status"`
+		} `json:"events"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	found := false
+	for _, e := range out.Events {
+		if e.ID == "evt-x" {
+			found = true
+			if e.AckStatus != "ACKNOWLEDGED" {
+				t.Fatalf("evt-x ACKNOWLEDGED olmalıydı, %q", e.AckStatus)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("evt-x olay listesinde bulunamadı")
+	}
+
+	// RESOLVE → 200.
+	if code, _ := post(t, ts.URL+"/api/events/evt-x/resolve", opTok, map[string]string{}); code != http.StatusOK {
+		t.Fatalf("OPERATOR resolve 200 dönmeliydi, %d", code)
 	}
 }
