@@ -1384,13 +1384,17 @@
         var rb=mkEvtBtn(e.ack_status==="RESOLVED"?"✓ Çözüldü":"Çözüldü işaretle",
           "Bu olayı 'kapatıldı' (RESOLVED) olarak işaretle", function(){ ackEvent(e.id,"RESOLVED"); });
         acts.appendChild(ab); acts.appendChild(rb);
+        // İçine satır-içi vaka editörünün açılacağı kapsayıcı (aşağıya eklenir).
+        var caseHolder=document.createElement("div");
+        caseHolder.style.cssText="margin-top:8px;display:none";
         acts.appendChild(mkEvtBtn("👤 Vaka ata / not",
-          "Bu olaya sorumlu (assignee) ve serbest-metin not ata", function(){ caseEvent(e); }));
+          "Bu olaya sorumlu (assignee) ve serbest-metin not ata", function(){ toggleCaseForm(e, caseHolder); }));
         if(hasDet){
           acts.appendChild(mkEvtBtn("🧪 Kurallara karşı test et",
             "Güvenlik → Kural Test Aracı'na bu olayı taşır", function(){ testEventAgainstRules(e); }));
         }
         dtd.appendChild(acts);
+        dtd.appendChild(caseHolder);
         dr.appendChild(dtd); body.appendChild(dr);
       }
     });
@@ -1419,15 +1423,37 @@
       refresh();
     }).catch(function(e){ toast("Triyaj başarısız",e.message,"err"); });
   }
-  // caseEvent: olaya sorumlu (assignee) + not atar — vaka/olay yönetimi (OPERATOR+).
-  function caseEvent(e){
-    var assignee=prompt("Sorumlu (assignee) — e-posta/ad; boş bırakılabilir:", e.ack_assignee||"");
-    if(assignee===null) return; // iptal
-    var note=prompt("Vaka notu — kısa açıklama; boş bırakılabilir:", e.ack_note||"");
-    if(note===null) return; // iptal
-    var path="/api/events/"+encodeURIComponent(e.id)+"/case";
-    api(path,"POST",{assignee:assignee.trim(),note:note.trim()}).then(function(){
-      toast("Vaka güncellendi","","ok"); refresh();
+  // toggleCaseForm: olay-detay panelinde satır-içi vaka editörünü açar/kapatır
+  // (sorumlu + serbest-metin not) — vaka/olay yönetimi (OPERATOR+).
+  function toggleCaseForm(e, holder){
+    if(holder.style.display!=="none"){ holder.style.display="none"; return; }
+    holder.innerHTML="";
+    var wrap=document.createElement("div");
+    wrap.style.cssText="display:flex;flex-direction:column;gap:6px;padding:8px;background:var(--panel);border:1px solid var(--border);border-radius:8px;max-width:440px";
+    var lbl=document.createElement("div");
+    lbl.style.cssText="font-size:11px;color:var(--muted)";
+    lbl.textContent="Vaka ataması — sorumlu analist ve not (OPERATOR+; denetim izine yazılır).";
+    var ai=document.createElement("input");
+    ai.type="text"; ai.maxLength=200; ai.value=e.ack_assignee||"";
+    ai.placeholder="Sorumlu (assignee) — e-posta/ad";
+    ai.style.cssText="padding:6px 10px;font-size:12px";
+    var ta=document.createElement("textarea");
+    ta.rows=3; ta.maxLength=2000; ta.value=e.ack_note||"";
+    ta.placeholder="Vaka notu — kısa açıklama";
+    ta.style.cssText="padding:6px 10px;font-size:12px;font-family:inherit;resize:vertical";
+    var row=document.createElement("div"); row.style.cssText="display:flex;gap:6px";
+    var save=document.createElement("button"); save.className="btn sm"; save.type="button"; save.textContent="Kaydet";
+    var cancel=document.createElement("button"); cancel.className="btn ghost sm"; cancel.type="button"; cancel.textContent="İptal";
+    save.onclick=function(){ submitCase(e.id, ai.value.trim(), ta.value.trim(), holder); };
+    cancel.onclick=function(){ holder.style.display="none"; };
+    row.appendChild(save); row.appendChild(cancel);
+    wrap.appendChild(lbl); wrap.appendChild(ai); wrap.appendChild(ta); wrap.appendChild(row);
+    holder.appendChild(wrap); holder.style.display="block"; ai.focus();
+  }
+  // submitCase: vaka atamasını kaydeder (OPERATOR+; VIEWER 403 → uyarı).
+  function submitCase(id, assignee, note, holder){
+    api("/api/events/"+encodeURIComponent(id)+"/case","POST",{assignee:assignee,note:note}).then(function(){
+      toast("Vaka güncellendi","","ok"); holder.style.display="none"; refresh();
     }).catch(function(x){ toast("Vaka güncelleme başarısız",x.message,"err"); });
   }
 
