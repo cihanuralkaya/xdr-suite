@@ -245,6 +245,12 @@ func commandTypeToProto(t string) xdrv1.Command_CommandType {
 		return xdrv1.Command_COMMAND_TYPE_COLLECT_DIAGNOSTICS
 	case "COLLECT_FILE":
 		return xdrv1.Command_COMMAND_TYPE_COLLECT_FILE
+	case "LOCK":
+		return xdrv1.Command_COMMAND_TYPE_LOCK
+	case "RESTART":
+		return xdrv1.Command_COMMAND_TYPE_RESTART
+	case "WIPE":
+		return xdrv1.Command_COMMAND_TYPE_WIPE
 	default:
 		return xdrv1.Command_COMMAND_TYPE_UNSPECIFIED
 	}

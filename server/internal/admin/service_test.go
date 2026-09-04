@@ -222,6 +222,38 @@ func newService(t *testing.T, store Store) (*Service, *security.BlindIndexer) {
 
 // AckEvent (alarm yaşam-döngüsü): VIEWER reddedilir; geçersiz durum reddedilir;
 // OPERATOR işaretler + denetim izine yazılır.
+// MDM uzak eylemler: LOCK/RESTART OPERATOR+; WIPE yalnız ADMIN + denetim izi.
+func TestMDMActionsRBAC(t *testing.T) {
+	store := newMemStore()
+	store.roles["viewer1"] = RoleViewer
+	store.roles["op1"] = RoleOperator
+	store.roles["adm1"] = RoleAdmin
+	svc, _ := newService(t, store)
+	ctx := context.Background()
+
+	// LOCK: VIEWER reddedilir, OPERATOR geçer.
+	if err := svc.LockDevice(ctx, "viewer1", "dev-1"); err != ErrForbidden {
+		t.Fatalf("VIEWER kilitleyememeli: %v", err)
+	}
+	if err := svc.LockDevice(ctx, "op1", "dev-1"); err != nil {
+		t.Fatalf("OPERATOR kilitleyebilmeli: %v", err)
+	}
+	// RESTART: OPERATOR geçer.
+	if err := svc.RestartDevice(ctx, "op1", "dev-1"); err != nil {
+		t.Fatalf("OPERATOR yeniden başlatabilmeli: %v", err)
+	}
+	// WIPE: OPERATOR reddedilir (ADMIN gerekir), ADMIN geçer + audit.
+	if err := svc.WipeDevice(ctx, "op1", "dev-1"); err != ErrForbidden {
+		t.Fatalf("OPERATOR silememeli (ADMIN gerekir): %v", err)
+	}
+	if err := svc.WipeDevice(ctx, "adm1", "dev-1"); err != nil {
+		t.Fatalf("ADMIN silebilmeli: %v", err)
+	}
+	if !hasAudit(store.audits, "WIPE", "device", "dev-1") {
+		t.Fatalf("WIPE denetim izine yazılmalıydı: %+v", store.audits)
+	}
+}
+
 // CollectFile (adli dosya toplama): VIEWER reddedilir; boş yol reddedilir;
 // OPERATOR COLLECT_FILE komutunu params.path ile kuyruğa alır + audit.
 func TestCollectFileRBACAndParams(t *testing.T) {

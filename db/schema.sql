@@ -41,7 +41,8 @@ CREATE TYPE severity AS ENUM (
 CREATE TYPE admin_role AS ENUM ('VIEWER', 'OPERATOR', 'ADMIN');
 
 CREATE TYPE command_type AS ENUM (
-    'QUARANTINE', 'UNQUARANTINE', 'RUN_SIGNED_SCRIPT', 'UNINSTALL', 'COLLECT_DIAGNOSTICS', 'COLLECT_FILE'
+    'QUARANTINE', 'UNQUARANTINE', 'RUN_SIGNED_SCRIPT', 'UNINSTALL', 'COLLECT_DIAGNOSTICS', 'COLLECT_FILE',
+    'LOCK', 'RESTART', 'WIPE'
 );
 
 -- ---------------------------------------------------------------------------

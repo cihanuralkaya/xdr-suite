@@ -36,6 +36,7 @@ import (
 	"xdr.corp/suite/agent/internal/certrenew"
 	"xdr.corp/suite/agent/internal/collector"
 	"xdr.corp/suite/agent/internal/compliance"
+	"xdr.corp/suite/agent/internal/deviceaction"
 	"xdr.corp/suite/agent/internal/discovery"
 	"xdr.corp/suite/agent/internal/enforce"
 	"xdr.corp/suite/agent/internal/inventory"
@@ -190,10 +191,11 @@ func run() error {
 	// Karantina yöneticisi: izolasyonda yalnız C2'ye izin verilir.
 	// SAFE MODE (XDR_SAFE_MODE): gerçek firewall'a dokunmaz — demo/test için.
 	c2Host, _, _ := net.SplitHostPort(cfg.agentAddr)
+	safeMode := os.Getenv("XDR_SAFE_MODE") != ""
 	var isolator quarantine.Isolator = quarantine.NewIsolator()
-	if os.Getenv("XDR_SAFE_MODE") != "" {
+	if safeMode {
 		isolator = quarantine.NoopIsolator{}
-		log.Println("SAFE MODE açık: karantina gerçek ağ değişikliği yapmayacak")
+		log.Println("SAFE MODE açık: karantina/MDM eylemleri gerçek değişiklik yapmayacak")
 	}
 	quar := quarantine.NewManager(isolator, buf, filterEmpty([]string{c2Host}))
 
@@ -293,7 +295,7 @@ func run() error {
 		}
 		// Sunucudan gelen komutları işle (karantina, imzalı script vb.).
 		// ctx (hbCtx değil) geçilir: uzun scriptler heartbeat penceresini bloklamamalı.
-		handleCommands(ctx, resp.GetPendingCommands(), quar, scriptVerifier, buf, cli)
+		handleCommands(ctx, resp.GetPendingCommands(), quar, scriptVerifier, buf, cli, safeMode)
 		// Politika uygulaması: yasaklı süreçleri sonlandır (Faz 3).
 		if n, err := monitor.Tick(engine.Load()); err != nil {
 			log.Printf("enforcement hatası: %v", err)
@@ -444,7 +446,7 @@ func checkUpdate(ctx context.Context, cli xdrv1.AgentServiceClient, ident *ident
 
 // handleCommands, sunucudan gelen anlık komutları uygular (karantina, imzalı
 // script, adli dosya toplama).
-func handleCommands(ctx context.Context, cmds []*xdrv1.Command, quar *quarantine.Manager, sv *script.Verifier, buf *collector.Buffer, cli xdrv1.AgentServiceClient) {
+func handleCommands(ctx context.Context, cmds []*xdrv1.Command, quar *quarantine.Manager, sv *script.Verifier, buf *collector.Buffer, cli xdrv1.AgentServiceClient, safeMode bool) {
 	for _, c := range cmds {
 		switch c.GetType() {
 		case xdrv1.Command_COMMAND_TYPE_QUARANTINE:
@@ -465,10 +467,39 @@ func handleCommands(ctx context.Context, cmds []*xdrv1.Command, quar *quarantine
 		case xdrv1.Command_COMMAND_TYPE_COLLECT_FILE:
 			// Dosya okuma/yükleme bloklamasın; arka planda.
 			go collectFile(ctx, c, buf, cli)
+		case xdrv1.Command_COMMAND_TYPE_LOCK:
+			doDeviceAction(buf, safeMode, "LOCK", "ekran kilitleme", deviceaction.Lock)
+		case xdrv1.Command_COMMAND_TYPE_RESTART:
+			doDeviceAction(buf, safeMode, "RESTART", "yeniden başlatma", deviceaction.Restart)
+		case xdrv1.Command_COMMAND_TYPE_WIPE:
+			// WIPE bu sürümde gerçek silme yapmaz (güvenli güdük); komut+olay akışı tam.
+			doDeviceAction(buf, safeMode, "WIPE", "veri silme", deviceaction.Wipe)
 		default:
-			// Diğer komut tipleri (uninstall, teşhis) ileride.
+			// Diğer komut tipleri ileride.
 		}
 	}
+}
+
+// doDeviceAction, bir MDM uzak eylemini uygular ve sonucu olay olarak bildirir.
+// Güvenli-mod AÇIKKEN gerçek OS eylemi ÇAĞRILMAZ (yalnız olay üretilir) — demo/
+// test sırasında cihazın kilitlenmesi/yeniden başlaması önlenir.
+func doDeviceAction(buf *collector.Buffer, safeMode bool, action, label string, fn func() error) {
+	if safeMode {
+		buf.Add(collector.Event{Category: "SYSTEM", Severity: "INFO",
+			Message: "MDM " + label + " komutu alındı (GÜVENLİ MOD: gerçek eylem yok)", OccurredAt: time.Now(),
+			Details: map[string]any{"action": action, "safe_mode": true}})
+		log.Printf("MDM %s (güvenli mod: gerçek eylem yok)", action)
+		return
+	}
+	err := fn()
+	sev, msg := "INFO", "MDM "+label+" uygulandı"
+	det := map[string]any{"action": action}
+	if err != nil {
+		sev, msg = "MEDIUM", "MDM "+label+" başarısız: "+err.Error()
+		det["error"] = err.Error()
+	}
+	buf.Add(collector.Event{Category: "SYSTEM", Severity: sev, Message: msg, OccurredAt: time.Now(), Details: det})
+	log.Printf("MDM %s: %v", action, err)
 }
 
 // maxCollectBytes, ajanın toplayıp yükleyeceği bir dosyanın üst sınırıdır (sunucu

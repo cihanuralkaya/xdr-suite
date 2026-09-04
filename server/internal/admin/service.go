@@ -334,6 +334,30 @@ func (s *Service) CollectDiagnostics(ctx context.Context, adminID, deviceID stri
 	return s.command(ctx, adminID, deviceID, "COLLECT_DIAGNOSTICS", "")
 }
 
+// LockDevice, uzaktan ekran kilitleme komutu kuyruğa ekler (OPERATOR+, MDM).
+func (s *Service) LockDevice(ctx context.Context, adminID, deviceID string) error {
+	return s.command(ctx, adminID, deviceID, "LOCK", "")
+}
+
+// RestartDevice, uzaktan yeniden başlatma komutu kuyruğa ekler (OPERATOR+, MDM).
+func (s *Service) RestartDevice(ctx context.Context, adminID, deviceID string) error {
+	return s.command(ctx, adminID, deviceID, "RESTART", "")
+}
+
+// WipeDevice, uzaktan veri silme komutu kuyruğa ekler — YIKICI olduğundan ADMIN
+// gerektirir ve denetim izine yazılır. (Ajan bu sürümde gerçek silme yapmaz;
+// komut/RBAC/denetim akışı tamdır — bkz. deviceaction.Wipe.)
+func (s *Service) WipeDevice(ctx context.Context, adminID, deviceID string) error {
+	if err := s.require(ctx, adminID, RoleAdmin); err != nil {
+		return err
+	}
+	if err := s.store.EnqueueCommand(ctx, deviceID, "WIPE", adminID); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "WIPE", "device", deviceID)
+	return nil
+}
+
 // CollectFile, bir cihazdan adli/IR dosya toplama komutu kuyruğa ekler
 // (OPERATOR+). Ajan dosyayı okuyup UploadArtifact ile yükler. Denetim izine yazılır.
 func (s *Service) CollectFile(ctx context.Context, adminID, deviceID, path string) error {

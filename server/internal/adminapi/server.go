@@ -198,6 +198,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/events/{id}/ack", s.authed(s.handleAckEvent))
 	mux.HandleFunc("POST /api/events/{id}/resolve", s.authed(s.handleResolveEvent))
 	mux.HandleFunc("POST /api/devices/{id}/collect-file", s.authed(s.handleCollectFile))
+	mux.HandleFunc("POST /api/devices/{id}/lock", s.authed(s.handleLockDevice))
+	mux.HandleFunc("POST /api/devices/{id}/restart", s.authed(s.handleRestartDevice))
+	mux.HandleFunc("POST /api/devices/{id}/wipe", s.authed(s.handleWipeDevice))
 	mux.HandleFunc("GET /api/devices/{id}/artifacts", s.authed(s.handleListArtifacts))
 	mux.HandleFunc("GET /api/artifacts/{id}/download", s.authed(s.handleDownloadArtifact))
 	mux.HandleFunc("GET /api/activity", s.authed(s.handleActivity))
@@ -832,6 +835,30 @@ func (s *Server) handleTestDetection(w http.ResponseWriter, r *http.Request, _ s
 		"matches": matches,
 		"matched": len(matches),
 	})
+}
+
+// handleLockDevice, uzaktan ekran kilitleme komutu kuyruğa ekler (OPERATOR+).
+func (s *Server) handleLockDevice(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.LockDevice(r.Context(), adminID, r.PathValue("id"))) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "lock_queued"})
+}
+
+// handleRestartDevice, uzaktan yeniden başlatma komutu kuyruğa ekler (OPERATOR+).
+func (s *Server) handleRestartDevice(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.RestartDevice(r.Context(), adminID, r.PathValue("id"))) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restart_queued"})
+}
+
+// handleWipeDevice, uzaktan veri silme komutu kuyruğa ekler (ADMIN; yıkıcı + audit).
+func (s *Server) handleWipeDevice(w http.ResponseWriter, r *http.Request, adminID string) {
+	if respondErr(w, s.adminSvc.WipeDevice(r.Context(), adminID, r.PathValue("id"))) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "wipe_queued"})
 }
 
 // handleCollectFile, bir cihazdan adli/IR dosya toplama komutu kuyruğa ekler

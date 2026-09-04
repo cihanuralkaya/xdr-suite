@@ -82,6 +82,9 @@ message Command {
     COMMAND_TYPE_UNINSTALL = 4;     // Yalnız imzalı/OTP doğrulanmış kaldırma.
     COMMAND_TYPE_COLLECT_DIAGNOSTICS = 5;
     COMMAND_TYPE_COLLECT_FILE = 6;  // Adli dosya toplama (params.path).
+    COMMAND_TYPE_LOCK = 7;          // Uzaktan ekran kilitleme (MDM).
+    COMMAND_TYPE_RESTART = 8;       // Uzaktan yeniden başlatma (MDM).
+    COMMAND_TYPE_WIPE = 9;          // Uzaktan veri silme (MDM; ADMIN + audit).
   }
 }
 

@@ -504,6 +504,12 @@
               <button class="btn ghost sm" data-act="diagnostics" disabled>🩺 Tanılama Topla</button>
               <button class="btn danger sm" data-act="revoke" disabled>⛔ Sertifika İptal</button>
             </div>
+            <div class="lbl" style="margin-top:14px">MDM — Uzak Eylemler</div>
+            <div class="actions" style="margin-top:8px">
+              <button class="btn ghost sm" data-act="lock" disabled>🔒 Ekranı Kilitle</button>
+              <button class="btn warn sm" data-act="restart" disabled>🔄 Yeniden Başlat</button>
+              <button class="btn danger sm" data-act="wipe" disabled>💥 Veriyi Sil (ADMIN)</button>
+            </div>
             <div class="lbl" style="margin-top:14px">Adli — Dosya Toplama (IR)</div>
             <div style="display:flex;gap:6px;margin-top:6px">
               <input id="cf-path" placeholder="ör. C:\Windows\Temp\suspicious.log" style="flex:1;padding:6px 9px;font-size:12px" disabled>
@@ -1418,7 +1424,7 @@
       head.textContent="Bir cihaz seçmek için tablodan satıra tıklayın.";
     }
     document.querySelectorAll("[data-act]").forEach(function(b){
-      var needsSel = ["quarantine","release","diagnostics","revoke","exportData","eraseData","assignPolicy","setTags","collectFile"].indexOf(b.dataset.act)>=0;
+      var needsSel = ["quarantine","release","diagnostics","revoke","exportData","eraseData","assignPolicy","setTags","collectFile","lock","restart","wipe"].indexOf(b.dataset.act)>=0;
       if(needsSel) b.disabled = !state.sel;
       var cfp=$("cf-path"); if(cfp) cfp.disabled = !state.sel;
     });
@@ -2040,6 +2046,16 @@
     diagnostics: function(){ return api("/api/devices/collect-diagnostics","POST",{device_id:state.sel}).then(function(){
       showOut("o-dev","Tanılama toplama komutu kuyruğa alındı — ajan sonraki bağlantıda uygular.","ok");
       toast("Tanılama istendi",selName(),"ok"); if(state.sel) loadDetail(state.sel); }); },
+    lock: function(){ return api("/api/devices/"+encodeURIComponent(state.sel)+"/lock","POST",{}).then(function(){
+      showOut("o-dev","Kilitleme komutu kuyruğa alındı.","ok"); toast("Ekran kilitleme istendi",selName(),"ok"); }); },
+    restart: function(){
+      if(!confirm("“"+selName()+"” cihazı YENİDEN BAŞLATILACAK. Onaylıyor musunuz?")) return Promise.resolve();
+      return api("/api/devices/"+encodeURIComponent(state.sel)+"/restart","POST",{}).then(function(){
+        showOut("o-dev","Yeniden başlatma komutu kuyruğa alındı.","ok"); toast("Yeniden başlatma istendi",selName(),"warn"); }); },
+    wipe: function(){
+      if(!confirm("⚠ “"+selName()+"” cihazının VERİSİ SİLİNECEK (yıkıcı, ADMIN yetkisi). Emin misiniz?")) return Promise.resolve();
+      return api("/api/devices/"+encodeURIComponent(state.sel)+"/wipe","POST",{}).then(function(){
+        showOut("o-dev","Veri silme komutu kuyruğa alındı (ADMIN + denetim izi).","ok"); toast("Veri silme istendi",selName(),"err"); }); },
     collectFile: function(){
       var path=($("cf-path").value||"").trim();
       if(!path){ showOut("o-dev","Toplanacak dosya yolunu girin.","err"); return Promise.resolve(); }
