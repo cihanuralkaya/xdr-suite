@@ -1123,7 +1123,14 @@
           var pre=document.createElement("pre");
           pre.style.cssText="margin:0;font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto";
           try { pre.textContent=JSON.stringify(e.details,null,2); } catch(x){ pre.textContent=String(e.details); }
-          dtd.appendChild(pre); dr.appendChild(dtd); body.appendChild(dr);
+          dtd.appendChild(pre);
+          var tb=document.createElement("button");
+          tb.className="btn ghost sm"; tb.type="button"; tb.textContent="🧪 Bu olayı kurallara karşı test et";
+          tb.style.marginTop="8px";
+          tb.title="Güvenlik → Kural Test Aracı'na bu olayı taşıyıp hangi kuralların tetikleneceğini gösterir";
+          tb.onclick=function(ev){ ev.stopPropagation(); testEventAgainstRules(e); };
+          dtd.appendChild(tb);
+          dr.appendChild(dtd); body.appendChild(dr);
         }
       }
     });
@@ -1435,6 +1442,16 @@
       out.innerHTML='<p class="hint" style="margin:0 0 8px">⚡ '+m.length+' kural tetiklenir:</p>'+
         '<div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Ad</th><th>Önem</th><th>Teknik</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
     }).catch(function(e){ out.innerHTML='<p class="hint" style="margin:0;color:var(--bad,#f43f5e)">Test başarısız: '+esc(e.message)+'</p>'; });
+  }
+  // testEventAgainstRules: gerçek bir olayı Kural Test Aracı'na taşır — Güvenlik
+  // görünümüne geçer, kategori/mesajı doldurur, testi çalıştırır ve aracı görünür
+  // kılar. Olaylar akışını tespit motoruna bağlar (bu olay hangi kuralları tetikler?).
+  function testEventAgainstRules(e){
+    setView("security");
+    $("rt-cat").value=e.category||"";
+    $("rt-msg").value=e.message||"";
+    testRule();
+    var card=$("rt-run"); if(card && card.scrollIntoView) card.scrollIntoView({block:"center"});
   }
   function renderPolicies(){
     var body=$("pol-body"); body.innerHTML="";
