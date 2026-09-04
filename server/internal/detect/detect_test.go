@@ -108,3 +108,69 @@ func TestRulesCatalogCopy(t *testing.T) {
 		t.Fatal("Rules() iç kurallara referans sızdırdı")
 	}
 }
+
+// v2: MessageRegex koşulu — regex'e uyan mesaj eşleşir, uymayan eşleşmez.
+func TestRuleMessageRegex(t *testing.T) {
+	e := NewEngine([]Rule{{ID: "R1", Name: "regex", Category: "PROCESS",
+		MessageRegex: `mimikatz|\bnc\.exe`, Severity: "HIGH"}})
+	if d := e.Evaluate(model.Event{Category: "PROCESS", Message: "süreç başlatıldı: mimikatz.exe (pid=5)"}); len(d) != 1 {
+		t.Fatalf("mimikatz eşleşmeliydi, %d", len(d))
+	}
+	if d := e.Evaluate(model.Event{Category: "PROCESS", Message: "süreç başlatıldı: NC.EXE (pid=5)"}); len(d) != 1 {
+		t.Fatalf("nc.exe (büyük harf) eşleşmeliydi (küçük/büyük duyarsız), %d", len(d))
+	}
+	if d := e.Evaluate(model.Event{Category: "PROCESS", Message: "süreç başlatıldı: notepad.exe"}); len(d) != 0 {
+		t.Fatalf("notepad eşleşmemeliydi, %d", len(d))
+	}
+}
+
+// v2: Fields koşulu — olay Details'indeki alan(lar) belirtilen değeri içermeli.
+func TestRuleFields(t *testing.T) {
+	e := NewEngine([]Rule{{ID: "R2", Name: "fields", Category: "SYSTEM",
+		Fields: map[string]string{"disk_encryption": "off"}, Severity: "MEDIUM"}})
+	on := model.Event{Category: "SYSTEM", Message: "uyum", Details: `{"disk_encryption":"off","firewall":"on"}`}
+	if d := e.Evaluate(on); len(d) != 1 {
+		t.Fatalf("disk_encryption=off eşleşmeliydi, %d", len(d))
+	}
+	off := model.Event{Category: "SYSTEM", Message: "uyum", Details: `{"disk_encryption":"on"}`}
+	if d := e.Evaluate(off); len(d) != 0 {
+		t.Fatalf("disk_encryption=on eşleşmemeliydi, %d", len(d))
+	}
+	// Details yoksa / alan yoksa eşleşmez.
+	if d := e.Evaluate(model.Event{Category: "SYSTEM", Message: "uyum"}); len(d) != 0 {
+		t.Fatalf("Details olmadan eşleşmemeliydi, %d", len(d))
+	}
+}
+
+// v2: MinSeverity koşulu — olay önem düzeyi eşiğin altındaysa eşleşmez.
+func TestRuleMinSeverity(t *testing.T) {
+	e := NewEngine([]Rule{{ID: "R3", Name: "sev", Category: "SECURITY",
+		Contains: []string{"olay"}, MinSeverity: "HIGH", Severity: "HIGH"}})
+	if d := e.Evaluate(model.Event{Category: "SECURITY", Severity: "CRITICAL", Message: "kritik olay"}); len(d) != 1 {
+		t.Fatalf("CRITICAL >= HIGH eşleşmeliydi, %d", len(d))
+	}
+	if d := e.Evaluate(model.Event{Category: "SECURITY", Severity: "LOW", Message: "düşük olay"}); len(d) != 0 {
+		t.Fatalf("LOW < HIGH eşleşmemeliydi, %d", len(d))
+	}
+}
+
+// v2: geçersiz regex/min_severity LoadRules'ta reddedilir.
+func TestLoadRulesRejectsInvalidV2(t *testing.T) {
+	bad := `[{"id":"X","name":"n","severity":"HIGH","message_regex":"("}]`
+	if _, err := LoadRules(strings.NewReader(bad)); err == nil {
+		t.Fatal("geçersiz regex reddedilmeliydi")
+	}
+	badSev := `[{"id":"X","name":"n","severity":"HIGH","min_severity":"BOGUS"}]`
+	if _, err := LoadRules(strings.NewReader(badSev)); err == nil {
+		t.Fatal("geçersiz min_severity reddedilmeliydi")
+	}
+}
+
+// XDR-0007 varsayılan kuralı: şüpheli PROCESS regex'i.
+func TestDefaultSuspiciousProcessRule(t *testing.T) {
+	e := NewEngine(nil)
+	d := e.Evaluate(model.Event{Category: "PROCESS", Message: "süreç başlatıldı: powershell.exe -EncodedCommand ZQBjAGgAbw=="})
+	if len(d) == 0 || d[0].RuleID != "XDR-0007" {
+		t.Fatalf("XDR-0007 powershell -EncodedCommand eşleşmeliydi: %+v", d)
+	}
+}

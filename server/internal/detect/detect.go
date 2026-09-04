@@ -12,21 +12,30 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 
 	"xdr.corp/suite/server/internal/mitre"
 	"xdr.corp/suite/server/internal/model"
 )
 
-// Rule, bir tespit kuralıdır. Category boşsa her kategori eşleşir; Contains'taki
-// TÜM parçalar (küçük/büyük harf duyarsız) mesajda geçmelidir (AND).
+// Rule, bir tespit kuralıdır. Tüm belirtilen koşullar AND'lenir:
+//   - Category boşsa her kategori eşleşir.
+//   - Contains: TÜM parçalar (küçük/büyük harf duyarsız) mesajda geçmeli.
+//   - MessageRegex (v2): mesaj bu regex'e uymalı (küçük/büyük harf duyarsız).
+//   - Fields (v2): olayın Details JSON'unda her alan, belirtilen alt-dizeyi
+//     (küçük/büyük harf duyarsız) içermeli — ör. {"disk_encryption":"off"}.
+//   - MinSeverity (v2): olayın önem düzeyi en az bu olmalı (INFO<..<CRITICAL).
 type Rule struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Category  string          `json:"category,omitempty"`
-	Contains  []string        `json:"contains,omitempty"`
-	Severity  string          `json:"severity"` // kuralın atadığı normalize önem düzeyi
-	Technique mitre.Technique `json:"technique"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Category     string            `json:"category,omitempty"`
+	Contains     []string          `json:"contains,omitempty"`
+	MessageRegex string            `json:"message_regex,omitempty"`
+	Fields       map[string]string `json:"fields,omitempty"`
+	MinSeverity  string            `json:"min_severity,omitempty"`
+	Severity     string            `json:"severity"` // kuralın atadığı normalize önem düzeyi
+	Technique    mitre.Technique   `json:"technique"`
 }
 
 // Detection, eşleşen bir kuralın ürettiği tespittir.
@@ -37,9 +46,22 @@ type Detection struct {
 	Technique mitre.Technique `json:"technique"`
 }
 
-// matches, kuralın verilen olaya uyup uymadığını söyler.
-func (r Rule) matches(ev model.Event) bool {
+// sevRank, önem düzeylerini sıralar (eşik karşılaştırması için).
+var sevRank = map[string]int{"INFO": 1, "LOW": 2, "MEDIUM": 3, "HIGH": 4, "CRITICAL": 5}
+
+// compiledRule, bir kuralı ön-derlenmiş regex'iyle birlikte tutar.
+type compiledRule struct {
+	rule Rule
+	re   *regexp.Regexp // MessageRegex derlenmiş; yoksa nil
+}
+
+// matches, derlenmiş kuralın verilen olaya uyup uymadığını söyler.
+func (c compiledRule) matches(ev model.Event) bool {
+	r := c.rule
 	if r.Category != "" && r.Category != ev.Category {
+		return false
+	}
+	if r.MinSeverity != "" && sevRank[ev.Severity] < sevRank[r.MinSeverity] {
 		return false
 	}
 	msg := strings.ToLower(ev.Message)
@@ -48,30 +70,58 @@ func (r Rule) matches(ev model.Event) bool {
 			return false
 		}
 	}
+	if c.re != nil && !c.re.MatchString(ev.Message) {
+		return false
+	}
+	if len(r.Fields) > 0 {
+		var d map[string]any
+		if ev.Details == "" || json.Unmarshal([]byte(ev.Details), &d) != nil {
+			return false
+		}
+		for k, want := range r.Fields {
+			v, ok := d[k]
+			if !ok {
+				return false
+			}
+			if !strings.Contains(strings.ToLower(fmt.Sprintf("%v", v)), strings.ToLower(want)) {
+				return false
+			}
+		}
+	}
 	return true
 }
 
 // Engine, sıralı bir kural listesini değerlendirir.
 type Engine struct {
-	rules []Rule
+	rules []compiledRule
 }
 
 // NewEngine, verilen kurallarla motor kurar. Kural verilmezse yerleşik varsayılan
-// kural seti kullanılır.
+// kural seti kullanılır. Geçersiz MessageRegex taşıyan kural, regex koşulu
+// olmadan yüklenir (savunmacı; operatör kuralları LoadRules'ta önceden doğrulanır).
 func NewEngine(rules []Rule) *Engine {
 	if len(rules) == 0 {
 		rules = DefaultRules()
 	}
-	cp := make([]Rule, len(rules))
-	copy(cp, rules)
-	return &Engine{rules: cp}
+	cr := make([]compiledRule, 0, len(rules))
+	for _, r := range rules {
+		c := compiledRule{rule: r}
+		if r.MessageRegex != "" {
+			if re, err := regexp.Compile("(?i)" + r.MessageRegex); err == nil {
+				c.re = re
+			}
+		}
+		cr = append(cr, c)
+	}
+	return &Engine{rules: cr}
 }
 
 // Evaluate, olaya uyan tüm tespitleri (sıralı) döner. Eşleşme yoksa nil.
 func (e *Engine) Evaluate(ev model.Event) []Detection {
 	var out []Detection
-	for _, r := range e.rules {
-		if r.matches(ev) {
+	for _, c := range e.rules {
+		if c.matches(ev) {
+			r := c.rule
 			out = append(out, Detection{RuleID: r.ID, RuleName: r.Name, Severity: r.Severity, Technique: r.Technique})
 		}
 	}
@@ -81,7 +131,9 @@ func (e *Engine) Evaluate(ev model.Event) []Detection {
 // Rules, motorun kurallarını (katalog/görünürlük için) döner.
 func (e *Engine) Rules() []Rule {
 	cp := make([]Rule, len(e.rules))
-	copy(cp, e.rules)
+	for i, c := range e.rules {
+		cp[i] = c.rule
+	}
 	return cp
 }
 
@@ -96,6 +148,14 @@ func LoadRules(r io.Reader) ([]Rule, error) {
 	for i, rr := range rules {
 		if rr.ID == "" || rr.Name == "" || rr.Severity == "" {
 			return nil, fmt.Errorf("detect: kural[%d] eksik alan (id/name/severity zorunlu)", i)
+		}
+		if rr.MessageRegex != "" {
+			if _, err := regexp.Compile(rr.MessageRegex); err != nil {
+				return nil, fmt.Errorf("detect: kural[%d] (%s) message_regex geçersiz: %w", i, rr.ID, err)
+			}
+		}
+		if rr.MinSeverity != "" && sevRank[rr.MinSeverity] == 0 {
+			return nil, fmt.Errorf("detect: kural[%d] (%s) geçersiz min_severity %q", i, rr.ID, rr.MinSeverity)
 		}
 	}
 	return rules, nil
@@ -143,5 +203,10 @@ func DefaultRules() []Rule {
 			Severity: "HIGH", Technique: tUserExecution},
 		{ID: "XDR-0006", Name: "Ağ hizmet keşfi", Category: "NETWORK_DISCOVERY",
 			Severity: "LOW", Technique: tNetworkDiscov},
+		// v2: PROCESS telemetrisi üzerinde regex-tabanlı şüpheli-araç tespiti
+		// (saldırgan araçları / yaşam-alanı-dışı ikili kullanımı).
+		{ID: "XDR-0007", Name: "Şüpheli süreç/araç yürütmesi", Category: "PROCESS",
+			MessageRegex: `mimikatz|psexec|\bnc\.exe|\bncat|powershell.*(-enc|-encodedcommand)|certutil.*-urlcache|rundll32.*javascript|regsvr32.*scrobj`,
+			Severity:     "HIGH", Technique: tScripting},
 	}
 }
