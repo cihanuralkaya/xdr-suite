@@ -756,3 +756,63 @@ func TestCreatePolicyRequiresAdminHTTP(t *testing.T) {
 		t.Fatalf("ADMIN politika oluşturabilmeli: code=%d body=%v", code, body)
 	}
 }
+
+// Tespit kuralı test aracı (dry-run): örnek olay motora verilir, eşleşen
+// kurallar döner. Salt-okunur — herhangi bir kimliği doğrulanmış kullanıcı
+// erişebilir; eşleşme yoksa boş liste döner.
+func TestDetectionTestEndpoint(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "v1", "viewer@x", "secret", admin.RoleViewer)
+
+	_, lb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "viewer@x", "password": "secret"})
+	token := lb["token"]
+	if token == "" {
+		t.Fatal("login token alınamadı")
+	}
+
+	// Token'sız → 401.
+	if code, _ := post(t, ts.URL+"/api/detections/test", "", map[string]string{"category": "SECURITY", "message": "kurcalama"}); code != http.StatusUnauthorized {
+		t.Fatalf("token'sız istek 401 dönmeliydi, %d", code)
+	}
+
+	do := func(category, message string) (int, int, string) {
+		b, _ := json.Marshal(map[string]string{"category": category, "message": message})
+		req, _ := http.NewRequest("POST", ts.URL+"/api/detections/test", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Matched int `json:"matched"`
+			Matches []struct {
+				RuleID string `json:"rule_id"`
+			} `json:"matches"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		first := ""
+		if len(out.Matches) > 0 {
+			first = out.Matches[0].RuleID
+		}
+		return resp.StatusCode, out.Matched, first
+	}
+
+	// "kurcalama" + SECURITY → XDR-0001 eşleşir.
+	if code, n, first := do("SECURITY", "ajan kurcalama girişimi tespit edildi"); code != http.StatusOK || n < 1 || first != "XDR-0001" {
+		t.Fatalf("kurcalama eşleşmeliydi: code=%d matched=%d first=%q", code, n, first)
+	}
+
+	// Eşleşmeyen içerik → boş.
+	if code, n, _ := do("SECURITY", "sıradan bilgilendirme mesajı"); code != http.StatusOK || n != 0 {
+		t.Fatalf("eşleşme olmamalıydı: code=%d matched=%d", code, n)
+	}
+
+	// Kategori kapsamı: "kurcalama" SECURITY kuralında tanımlı; kuralı olmayan
+	// bir kategoride (INFO) aynı metin eşleşmemeli.
+	if code, n, _ := do("INFO", "kurcalama"); code != http.StatusOK || n != 0 {
+		t.Fatalf("kategori kapsamı: eşleşme olmamalıydı: code=%d matched=%d", code, n)
+	}
+}

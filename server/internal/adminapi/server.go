@@ -28,6 +28,7 @@ import (
 	"xdr.corp/suite/server/internal/eventbus"
 	"xdr.corp/suite/server/internal/metrics"
 	"xdr.corp/suite/server/internal/mitre"
+	"xdr.corp/suite/server/internal/model"
 	"xdr.corp/suite/server/internal/security"
 )
 
@@ -185,6 +186,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/summary", s.authed(s.handleSummary))
 	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
 	mux.HandleFunc("GET /api/detections/rules", s.authed(s.handleDetectionRules))
+	mux.HandleFunc("POST /api/detections/test", s.authed(s.handleTestDetection))
 	mux.HandleFunc("GET /api/activity", s.authed(s.handleActivity))
 	mux.HandleFunc("GET /api/features", s.authed(s.handleFeatures))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
@@ -797,6 +799,26 @@ func (s *Server) handleMitreCoverage(w http.ResponseWriter, _ *http.Request, _ s
 // döner. Konsol bunu "hangi tespitler etkin" görünümünde kullanır.
 func (s *Server) handleDetectionRules(w http.ResponseWriter, _ *http.Request, _ string) {
 	writeJSON(w, http.StatusOK, map[string]any{"rules": s.detector.Rules()})
+}
+
+// handleTestDetection, örnek bir olayı (kategori + mesaj) tespit motorundan
+// geçirir ve hangi kuralların eşleştiğini döner (kuru çalıştırma / dry-run).
+// SOC analistinin gerçek bir olay beklemeden tespit kapsamını doğrulaması
+// içindir. Salt-okunur bir değerlendirmedir; hiçbir olay saklanmaz veya
+// alarm üretilmez, bu yüzden herhangi bir kimliği doğrulanmış kullanıcı erişebilir.
+func (s *Server) handleTestDetection(w http.ResponseWriter, r *http.Request, _ string) {
+	var req struct {
+		Category string `json:"category"`
+		Message  string `json:"message"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	matches := s.detector.Evaluate(model.Event{Category: req.Category, Message: req.Message})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"matches": matches,
+		"matched": len(matches),
+	})
 }
 
 // handleActivity, süreç-içi tehdit/etkinlik sayaçlarını döner (konsol Genel Bakış

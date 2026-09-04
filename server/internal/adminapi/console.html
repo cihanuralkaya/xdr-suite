@@ -630,6 +630,31 @@
           </div>
         </div>
 
+        <div class="card" data-view="security" data-span="2">
+          <div class="head"><h2>🧪 Kural Test Aracı</h2>
+            <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">kuru çalıştırma</span></div>
+          <div class="body">
+            <p class="hint" style="margin:0 0 10px">Örnek bir olay girip hangi tespit kurallarının tetikleneceğini görün — gerçek olay beklemeden kapsamı doğrulayın. Salt-okunur; hiçbir olay saklanmaz.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+              <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--faint)">Kategori
+                <input id="rt-cat" list="rt-cats" placeholder="SECURITY" style="width:180px;padding:6px 9px;font-size:12px">
+              </label>
+              <datalist id="rt-cats">
+                <option value="SECURITY"></option>
+                <option value="POLICY_VIOLATION"></option>
+                <option value="NETWORK_DISCOVERY"></option>
+                <option value="COMPLIANCE"></option>
+                <option value="HEARTBEAT"></option>
+              </datalist>
+              <label style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--faint);flex:1;min-width:220px">Olay mesajı
+                <input id="rt-msg" placeholder="ör. ajan kurcalama girişimi tespit edildi" style="width:100%;padding:6px 9px;font-size:12px">
+              </label>
+              <button class="btn sm" id="rt-run" type="button">Test Et</button>
+            </div>
+            <div id="rt-result"></div>
+          </div>
+        </div>
+
         <div class="card" data-view="security">
           <div class="head"><h2>🧭 MITRE Taktik Dağılımı <span class="count" id="tac-count">0</span></h2>
             <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">son olaylardan</span></div>
@@ -1375,6 +1400,26 @@
       });
     }).catch(function(e){ $("det-empty").textContent="Tespit kuralları yüklenemedi ("+e.message+")."; });
   }
+  // testRule: örnek olayı /api/detections/test'e gönderip eşleşen kuralları
+  // gösterir (kuru çalıştırma). Sonuç kullanıcı-görünür HTML olduğundan tüm
+  // kural alanları esc()'ten geçer.
+  function testRule(){
+    var cat=($("rt-cat").value||"").trim(), msg=($("rt-msg").value||"").trim();
+    var out=$("rt-result");
+    if(!cat && !msg){ out.innerHTML='<p class="hint" style="margin:0">Kategori veya mesaj girin.</p>'; return; }
+    out.innerHTML='<p class="hint" style="margin:0">Değerlendiriliyor…</p>';
+    api("/api/detections/test","POST",{category:cat,message:msg}).then(function(r){
+      var m=(r&&r.matches)||[];
+      if(!m.length){ out.innerHTML='<p class="hint" style="margin:0;color:var(--faint)">✓ Eşleşen kural yok — bu olay hiçbir tespiti tetiklemez.</p>'; return; }
+      var rows=m.map(function(x){
+        var tech=(x.technique&&x.technique.id)?(x.technique.id):"";
+        return "<tr><td><b>"+esc(x.rule_id)+"</b></td><td>"+esc(x.rule_name)+"</td>"+
+          "<td><span class='sev "+esc(x.severity)+"'>"+esc(x.severity)+"</span></td><td class='mono'>"+esc(tech)+"</td></tr>";
+      }).join("");
+      out.innerHTML='<p class="hint" style="margin:0 0 8px">⚡ '+m.length+' kural tetiklenir:</p>'+
+        '<div class="tbl-wrap"><table><thead><tr><th>ID</th><th>Ad</th><th>Önem</th><th>Teknik</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    }).catch(function(e){ out.innerHTML='<p class="hint" style="margin:0;color:var(--bad,#f43f5e)">Test başarısız: '+esc(e.message)+'</p>'; });
+  }
   function renderPolicies(){
     var body=$("pol-body"); body.innerHTML="";
     var p=state.policies||[];
@@ -1722,6 +1767,8 @@
       else { toast("Denetim izi bütünlüğü BOZUK","Zincir doğrulanamadı: "+((r&&r.error)||"bilinmeyen"),"err"); }
     }).catch(function(e){ toast("Doğrulama başarısız",e.message,"err"); });
   };
+  $("rt-run").onclick=testRule;
+  $("rt-msg").addEventListener("keydown",function(ev){ if(ev.key==="Enter"){ ev.preventDefault(); testRule(); } });
   $("rf-on").onclick=function(){ state.auto=true; $("rf-on").className="on"; $("rf-off").className=""; startAuto(); startStream(); refresh(); };
   $("rf-off").onclick=function(){ state.auto=false; $("rf-on").className=""; $("rf-off").className="on"; stopAuto(); stopStream(); setLive(true); $("live-txt").textContent="duraklatıldı"; };
   document.querySelectorAll("#sevfilter button").forEach(function(b){
