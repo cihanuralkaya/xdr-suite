@@ -1703,8 +1703,19 @@
           "<span class='mono' style='color:var(--muted);flex:1'>"+esc(n.mac||"-")+"</span>"+
           (n.authorized===false?"<span style='color:var(--warn)'>YETKİSİZ</span>":"")+"</div>";
       }).join("") : "";
+      // Uyum durumu: yüklenen olaylardan en son disk_encryption + firewall.
+      var cEnc, cFw;
+      evs.forEach(function(e){ if(!e.details) return;
+        if(cEnc===undefined && typeof e.details.disk_encryption==="string") cEnc=e.details.disk_encryption;
+        if(cFw===undefined && typeof e.details.firewall==="string") cFw=e.details.firewall; });
+      function encBadge(s){ if(s===undefined) return "<span style='color:var(--faint)'>—</span>";
+        var c=s==="on"?"var(--ok,#10b981)":(s==="off"?"var(--bad,#f43f5e)":"var(--muted)");
+        return "<span style='color:"+c+";font-weight:600'>"+esc(s)+"</span>"; }
+      var compHtml = (cEnc!==undefined||cFw!==undefined) ?
+        ("<div class='mini'>Disk şifreleme: "+encBadge(cEnc)+" &nbsp;·&nbsp; Güvenlik duvarı: "+encBadge(cFw)+"</div>") : "";
       el.innerHTML =
         "<h4>Sistem</h4><div class='mini'>"+sysLine+"</div>"+
+        (compHtml?("<h4>Uyum durumu</h4>"+compHtml):"")+
         (neighHtml?("<h4>Ağ keşfi — komşular ("+nk.length+")</h4>"+neighHtml):"")+
         "<h4>Atanmış politika</h4><div class='mini'>"+(d.assigned_policy_id?(esc(d.assigned_policy_id)+" ("+esc(d.assigned_policy_version)+")"):"— yok")+"</div>"+
         "<h4>Son olaylar ("+evs.length+")</h4>"+evHtml+
