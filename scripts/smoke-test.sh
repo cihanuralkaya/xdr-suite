@@ -120,6 +120,14 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 [ -n "$comp" ] && pass "uyum olayı güvenlik duvarı durumu taşıyor ($comp)" || fail "uyum olayında firewall yok"
+# Yazılım envanteri: ajan yüklü yazılım listesini raporlamalı (MDM varlık).
+inv=""
+for _ in $(seq 1 40); do
+  inv="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -oE '"software_count":[0-9]+' | head -1)"
+  [ -n "$inv" ] && break
+  sleep 0.25
+done
+[ -n "$inv" ] && pass "yazılım envanteri raporlandı ($inv)" || fail "yazılım envanteri yok"
 
 echo "[5/6] Admin eylemleri + okuma uçları"
 DID="$(curl -sk "$B/api/devices" -H "Authorization: Bearer $TOK" | sed -E 's/.*"id":"([^"]+)".*/\1/')"

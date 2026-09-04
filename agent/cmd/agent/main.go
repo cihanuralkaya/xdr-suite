@@ -36,6 +36,7 @@ import (
 	"xdr.corp/suite/agent/internal/compliance"
 	"xdr.corp/suite/agent/internal/discovery"
 	"xdr.corp/suite/agent/internal/enforce"
+	"xdr.corp/suite/agent/internal/inventory"
 	"xdr.corp/suite/agent/internal/liveness"
 	"xdr.corp/suite/agent/internal/osinfo"
 	"xdr.corp/suite/agent/internal/policy"
@@ -214,8 +215,11 @@ func run() error {
 	// Uyum durumu: başlangıçta disk şifreleme kontrol edilir ve raporlanır. Şifreleme
 	// KAPALIYSA güvenlik-duruşu ihlali (SECURITY/MEDIUM); açık/bilinmiyor bilgi amaçlı.
 	reportCompliance(buf, compliance.NewChecker())
-	// Periyodik uyum yeniden-kontrolü: disk şifreleme açılıştan sonra kapatılırsa
-	// yakalanır (EDR duruş takibi). Seyrek (exec-ağır); durum değişince olay üretir.
+	// Yazılım envanteri: başlangıçta yüklü yazılım listesi raporlanır (MDM varlık
+	// görünürlüğü). Exec-ağır; periyodik olarak uyumla birlikte yenilenir.
+	reportInventory(buf)
+	// Periyodik uyum + envanter yeniden-kontrolü: açılıştan sonra değişiklikler
+	// yakalanır (EDR duruş takibi). Seyrek (exec-ağır).
 	go func() {
 		t := time.NewTicker(complianceInterval)
 		defer t.Stop()
@@ -225,6 +229,7 @@ func run() error {
 				return
 			case <-t.C:
 				reportCompliance(buf, compliance.NewChecker())
+				reportInventory(buf)
 			}
 		}
 	}()
@@ -562,6 +567,27 @@ func reportCompliance(buf *collector.Buffer, chk compliance.Checker) {
 		Message:    msg,
 		OccurredAt: time.Now(),
 		Details:    map[string]any{"disk_encryption": enc, "firewall": fw},
+	})
+}
+
+// reportInventory, yüklü yazılım envanterini bir olay olarak yayınlar (MDM varlık
+// görünürlüğü). Details, paket listesini (maxPackages'a kırpılmış) ve toplam
+// benzersiz sayıyı taşır. Envanter alınamazsa (desteksiz OS/araç yok) olay üretmez.
+func reportInventory(buf *collector.Buffer) {
+	list, total := inventory.Collect()
+	if total == 0 {
+		return // envanter yok — gürültü üretme
+	}
+	anyList := make([]any, len(list))
+	for i, s := range list {
+		anyList[i] = s
+	}
+	buf.Add(collector.Event{
+		Category:   "SYSTEM",
+		Severity:   "INFO",
+		Message:    fmt.Sprintf("yazılım envanteri: %d paket", total),
+		OccurredAt: time.Now(),
+		Details:    map[string]any{"software": anyList, "software_count": total},
 	})
 }
 
