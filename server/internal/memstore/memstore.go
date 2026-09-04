@@ -974,6 +974,30 @@ func (s *Store) GetArtifact(_ context.Context, id string) (adminread.ArtifactCon
 	return adminread.ArtifactContent{}, false, nil
 }
 
+// LatestSoftwareByDevice, her cihazın EN SON yazılım envanterini döner (olaylar
+// yeniden-eskiye; cihaz başına ilk görülen envanter geçerli).
+func (s *Store) LatestSoftwareByDevice(_ context.Context) (map[string][]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string][]string{}
+	seen := map[string]bool{}
+	for i := len(s.events) - 1; i >= 0; i-- {
+		e := s.events[i]
+		if e.deviceID == "" || e.details == "" || seen[e.deviceID] {
+			continue
+		}
+		var d struct {
+			Software []string `json:"software"`
+		}
+		if err := json.Unmarshal([]byte(e.details), &d); err != nil || d.Software == nil {
+			continue
+		}
+		seen[e.deviceID] = true
+		out[e.deviceID] = d.Software
+	}
+	return out, nil
+}
+
 func (s *Store) ListAudit(_ context.Context, limit int) ([]adminread.AuditRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

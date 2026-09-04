@@ -111,6 +111,9 @@ type Store interface {
 	// EventAcks, triyaj işaretli olayların durumunu döner (olay kimliği → durum).
 	// Alarm yaşam-döngüsü: olay listesine ACKNOWLEDGED/RESOLVED bindirilir.
 	EventAcks(ctx context.Context) (map[string]EventAck, error)
+	// LatestSoftwareByDevice, her cihazın EN SON yazılım envanterini döner
+	// (cihaz kimliği → paket adları). Zafiyet eşleştirmesi için.
+	LatestSoftwareByDevice(ctx context.Context) (map[string][]string, error)
 	// ListArtifacts, bir cihazdan toplanan dosya artefaktlarının META verisini
 	// (içerik HARİÇ) en yeniden eskiye döner (adli/IR).
 	ListArtifacts(ctx context.Context, deviceID string) ([]ArtifactRow, error)
@@ -504,6 +507,12 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		DevicesByOS:         byOS,
 		Since:               since,
 	}, nil
+}
+
+// LatestSoftwareByDevice, her cihazın en son yazılım envanterini döner (zafiyet
+// eşleştirme için; adminapi katmanı vuln veri kümesiyle eşler).
+func (s *Service) LatestSoftwareByDevice(ctx context.Context) (map[string][]string, error) {
+	return s.store.LatestSoftwareByDevice(ctx)
 }
 
 // Artifacts, bir cihazdan toplanan dosya artefaktlarının meta listesini döner

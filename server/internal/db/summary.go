@@ -112,6 +112,33 @@ func (s *Store) SearchSoftware(ctx context.Context, query string) (map[string][]
 	return out, rows.Err()
 }
 
+// LatestSoftwareByDevice, her cihazın EN SON yazılım envanterini döner (DISTINCT
+// ON ile en yeni envanter olayı; software dizisi JSON'dan çıkarılır).
+func (s *Store) LatestSoftwareByDevice(ctx context.Context) (map[string][]string, error) {
+	const sql = `
+		SELECT DISTINCT ON (device_id) device_id::text, COALESCE(details->>'software','[]')
+		  FROM event_logs
+		 WHERE details ? 'software'
+		 ORDER BY device_id, created_at DESC`
+	rows, err := s.pool.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("db: en son yazılım: %w", err)
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var id, swJSON string
+		if err := rows.Scan(&id, &swJSON); err != nil {
+			return nil, fmt.Errorf("db: en son yazılım okuma: %w", err)
+		}
+		var sw []string
+		if json.Unmarshal([]byte(swJSON), &sw) == nil && len(sw) > 0 {
+			out[id] = sw
+		}
+	}
+	return out, rows.Err()
+}
+
 // eventCounts, tek anahtar+adet dönen GROUP BY sorgularını çalıştırır.
 func (s *Store) eventCounts(ctx context.Context, q string, since time.Time, what string) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, q, since)

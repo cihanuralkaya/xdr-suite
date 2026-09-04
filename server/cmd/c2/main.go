@@ -38,6 +38,7 @@ import (
 	"xdr.corp/suite/server/internal/retention"
 	"xdr.corp/suite/server/internal/revocation"
 	"xdr.corp/suite/server/internal/security"
+	"xdr.corp/suite/server/internal/vuln"
 )
 
 // Backend, C2'nin ihtiyaç duyduğu tüm depolama arayüzlerinin birleşimidir;
@@ -280,9 +281,22 @@ func run() error {
 	metrics.SetBuildVersion(os.Getenv("XDR_BUILD_VERSION"))
 	adminAPI.SetMetricsToken(os.Getenv("XDR_METRICS_TOKEN"))
 	adminAPI.SetDetector(detector) // tespit kural kataloğu (ingest ile aynı motor)
+	// Zafiyet eşleştirme (#5): XDR_VULN_FILE ayarlıysa CVE/KB veri kümesi yüklenir
+	// ve yazılım envanteriyle eşleştirilir (/api/vulnerabilities).
+	vulnCount := 0
+	if vp := os.Getenv("XDR_VULN_FILE"); vp != "" {
+		vs, err := vuln.LoadFile(vp)
+		if err != nil {
+			return fmt.Errorf("zafiyet veri kümesi yüklenemedi: %w", err)
+		}
+		adminAPI.SetVulnSet(vs)
+		vulnCount = vs.Size()
+		log.Printf("zafiyet veri kümesi: %d kayıt yüklendi", vulnCount)
+	}
 	// Dağıtım koruma-duruşu (admin görünürlüğü: /api/features + konsol sistem kartı).
 	adminAPI.SetFeatures(map[string]any{
 		"alerting_enabled":      alertingOn,
+		"vuln_dataset_size":     vulnCount,
 		"alert_format":          getenv("XDR_ALERT_FORMAT", "json"),
 		"auto_response_enabled": autoRespOn,
 		"ioc_indicators":        iocCount,

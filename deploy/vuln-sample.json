@@ -1,0 +1,10 @@
+[
+  {"product": "7-Zip 20", "cve": "CVE-2022-29072", "severity": "HIGH", "fixed_version": "21.07", "description": "7-Zip through 21.07 privilege escalation / heap corruption via crafted help window."},
+  {"product": "7-Zip 19", "cve": "CVE-2022-29072", "severity": "HIGH", "fixed_version": "21.07"},
+  {"product": "Log4j", "cve": "CVE-2021-44228", "severity": "CRITICAL", "fixed_version": "2.17.0", "description": "Log4Shell — remote code execution via JNDI lookups."},
+  {"product": "OpenSSL 1.0", "cve": "CVE-2016-2107", "severity": "MEDIUM", "fixed_version": "1.0.2h"},
+  {"product": "Adobe Acrobat", "cve": "CVE-2023-26369", "severity": "HIGH", "fixed_version": "23.006.20320", "description": "Out-of-bounds write leading to code execution."},
+  {"product": "Advanced Port Scanner", "cve": "CVE-2021-0000", "severity": "LOW", "description": "Örnek/demo kaydı — dual-use tarama aracı varlığı."},
+  {"product": "Python 3.9", "cve": "CVE-2021-3737", "severity": "MEDIUM", "fixed_version": "3.9.13"},
+  {"product": "Node.js 16", "cve": "CVE-2023-30581", "severity": "HIGH", "fixed_version": "16.20.1"}
+]

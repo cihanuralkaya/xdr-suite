@@ -334,6 +334,9 @@ func (m *memStore) SetEventAck(_ context.Context, eventID, adminID, status strin
 func (m *memStore) EventAcks(_ context.Context) (map[string]adminread.EventAck, error) {
 	return m.eventAcks, nil
 }
+func (m *memStore) LatestSoftwareByDevice(_ context.Context) (map[string][]string, error) {
+	return nil, nil
+}
 func (m *memStore) EnqueueCommandParams(_ context.Context, deviceID, cmdType, _ string, params map[string]string) error {
 	m.commands = append(m.commands, deviceID+":"+cmdType)
 	return nil

@@ -51,6 +51,7 @@ COMMON_ENV=(
   "XDR_CA_CERT=$WORK/pki/ca.crt" "XDR_CA_KEY=$WORK/pki/ca.key"
   "XDR_SERVER_CERT=$WORK/pki/server.crt" "XDR_SERVER_KEY=$WORK/pki/server.key"
   "XDR_LISTEN_AGENT=:$AGENT_PORT" "XDR_LISTEN_ENROLL=:$ENROLL_PORT" "XDR_LISTEN_ADMIN=:$ADMIN_PORT"
+  "XDR_VULN_FILE=deploy/vuln-sample.json"
 )
 if [ -n "${XDR_DATABASE_URL:-}" ]; then
   env "${COMMON_ENV[@]}" "XDR_DATABASE_URL=$XDR_DATABASE_URL" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
@@ -128,6 +129,14 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 [ -n "$inv" ] && pass "yazılım envanteri raporlandı ($inv)" || fail "yazılım envanteri yok"
+# Zafiyet eşleştirme: envanter × CVE veri kümesi (örnek set 7-Zip/Adobe içerir).
+vln=""
+for _ in $(seq 1 40); do
+  vln="$(curl -sk "$B/api/vulnerabilities" -H "Authorization: Bearer $TOK" | grep -oE '"vulnerable_devices":[0-9]+' | head -1)"
+  echo "$vln" | grep -qE ':[1-9]' && break
+  sleep 0.25
+done
+echo "$vln" | grep -qE ':[1-9]' && pass "zafiyet eşleştirme çalıştı ($vln)" || fail "zafiyet eşleşmesi yok"
 # Kaynak telemetrisi: ajan bellek/disk/uptime raporlamalı (uç-nokta sağlığı).
 rsc=""
 for _ in $(seq 1 40); do

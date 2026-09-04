@@ -30,6 +30,7 @@ import (
 	"xdr.corp/suite/server/internal/mitre"
 	"xdr.corp/suite/server/internal/model"
 	"xdr.corp/suite/server/internal/security"
+	"xdr.corp/suite/server/internal/vuln"
 )
 
 //go:embed console.html
@@ -57,6 +58,7 @@ type Server struct {
 	auditVerify  func(context.Context) error
 	metricsToken string         // ayarlıysa /metrics bu Bearer token ile açılır; boşsa uç kapalı
 	detector     *detect.Engine // tespit kural kataloğu (görünürlük ucu)
+	vulnSet      *vuln.Set      // zafiyet veri kümesi (nil = kapalı); envanterle eşleşir
 	features     map[string]any // dağıtım koruma-duruşu (opsiyonel özellik bayrakları)
 }
 
@@ -72,6 +74,10 @@ func (s *Server) SetDetector(e *detect.Engine) {
 // SetFeatures, dağıtımın hangi opsiyonel korumalarının etkin olduğunu bildirir
 // (main tarafından bir kez). /api/features ADMIN'e bu duruşu döner.
 func (s *Server) SetFeatures(m map[string]any) { s.features = m }
+
+// SetVulnSet, zafiyet veri kümesini (envanter eşleştirme) etkinleştirir. nil ise
+// /api/vulnerabilities boş döner.
+func (s *Server) SetVulnSet(v *vuln.Set) { s.vulnSet = v }
 
 // SetMetricsToken, Prometheus /metrics ucunu verilen statik Bearer token ile
 // etkinleştirir. Boş bırakılırsa uç tamamen kapalıdır (cihaz sayıları gibi
@@ -188,6 +194,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/detections/rules", s.authed(s.handleDetectionRules))
 	mux.HandleFunc("POST /api/detections/test", s.authed(s.handleTestDetection))
 	mux.HandleFunc("GET /api/software", s.authed(s.handleSoftwareSearch))
+	mux.HandleFunc("GET /api/vulnerabilities", s.authed(s.handleVulnerabilities))
 	mux.HandleFunc("POST /api/events/{id}/ack", s.authed(s.handleAckEvent))
 	mux.HandleFunc("POST /api/events/{id}/resolve", s.authed(s.handleResolveEvent))
 	mux.HandleFunc("POST /api/devices/{id}/collect-file", s.authed(s.handleCollectFile))
@@ -888,6 +895,41 @@ func (s *Server) handleResolveEvent(w http.ResponseWriter, r *http.Request, admi
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "RESOLVED"})
+}
+
+// handleVulnerabilities, her cihazın en son yazılım envanterini yüklü zafiyet
+// veri kümesiyle eşleştirir ve zafiyetli cihazları (bulgularla) döner. Salt-
+// okunur; herhangi bir kimliği doğrulanmış kullanıcı erişebilir.
+func (s *Server) handleVulnerabilities(w http.ResponseWriter, r *http.Request, _ string) {
+	type deviceVulns struct {
+		DeviceID string         `json:"device_id"`
+		Hostname string         `json:"hostname"`
+		Findings []vuln.Finding `json:"findings"`
+	}
+	out := []deviceVulns{}
+	loaded := s.vulnSet.Size()
+	if s.vulnSet != nil && loaded > 0 {
+		byDev, err := s.reader.LatestSoftwareByDevice(r.Context())
+		if respondErr(w, err) {
+			return
+		}
+		devs, err := s.reader.Devices(r.Context(), 0)
+		if respondErr(w, err) {
+			return
+		}
+		hn := make(map[string]string, len(devs))
+		for _, d := range devs {
+			hn[d.ID] = d.Hostname
+		}
+		for id, sw := range byDev {
+			if f := s.vulnSet.Match(sw); len(f) > 0 {
+				out = append(out, deviceVulns{DeviceID: id, Hostname: hn[id], Findings: f})
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"dataset_size": loaded, "vulnerable_devices": len(out), "devices": out,
+	})
 }
 
 // handleSoftwareSearch, filo-geneli yazılım araması yapar (?q=...): adı query'yi

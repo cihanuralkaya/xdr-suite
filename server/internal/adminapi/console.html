@@ -678,6 +678,17 @@
         </div>
 
         <div class="card" data-view="security" data-span="2">
+          <div class="head"><h2>🩹 Zafiyetler (CVE) <span id="vuln-count" class="count">0</span></h2>
+            <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">envanter × CVE veri kümesi</span>
+            <button class="btn ghost sm" id="vuln-refresh" title="Yenile">↻</button></div>
+          <div class="body">
+            <p class="hint" style="margin:0 0 10px">Cihazların yüklü yazılımı bilinen zafiyet (CVE) veri kümesiyle eşleştirilir. Veri kümesi <span class="mono">XDR_VULN_FILE</span> ile yüklenir.</p>
+            <div id="vuln-body"></div>
+            <div id="vuln-empty" class="empty" style="padding:14px">Zafiyet verisi yok (veri kümesi yüklü değil veya eşleşme yok).</div>
+          </div>
+        </div>
+
+        <div class="card" data-view="security" data-span="2">
           <div class="head"><h2>🧪 Kural Test Aracı</h2>
             <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">kuru çalıştırma</span></div>
           <div class="body">
@@ -1683,6 +1694,36 @@
       });
     }).catch(function(e){ $("det-empty").textContent="Tespit kuralları yüklenemedi ("+e.message+")."; });
   }
+  // loadVulnerabilities: /api/vulnerabilities — zafiyetli cihazları ve CVE
+  // bulgularını gösterir (envanter × CVE veri kümesi). Sonuç HTML esc()'ten geçer.
+  function loadVulnerabilities(){
+    return api("/api/vulnerabilities").then(function(r){
+      var devs=(r&&r.devices)||[]; var body=$("vuln-body"); body.innerHTML="";
+      $("vuln-count").textContent=devs.length;
+      $("vuln-empty").style.display=devs.length?"none":"block";
+      if(!devs.length){
+        $("vuln-empty").textContent=(r&&r.dataset_size)?("✓ "+r.dataset_size+" CVE tarandı — eşleşen zafiyet yok."):"Zafiyet veri kümesi yüklü değil (XDR_VULN_FILE).";
+        return;
+      }
+      devs.forEach(function(d){
+        var wrap=document.createElement("div");
+        wrap.style.cssText="margin-bottom:10px;padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px";
+        var head="<div class='click' style='cursor:pointer;display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px' data-vdev='"+esc(d.device_id)+"'>"+
+          "<b>"+esc(d.hostname||d.device_id)+"</b><span class='mono' style='color:var(--bad,#f43f5e)'>"+(d.findings||[]).length+" CVE</span></div>";
+        var rows=(d.findings||[]).map(function(f){
+          return "<div class='mini' style='display:flex;gap:8px;padding:2px 0'>"+
+            "<span class='sev "+esc(f.severity)+"' style='font-size:10px'>"+esc(f.severity)+"</span>"+
+            "<span class='mono'>"+esc(f.cve)+"</span>"+
+            "<span style='flex:1;color:var(--muted)'>"+esc(f.package)+(f.fixed_in?(" → <span style='color:var(--ok,#10b981)'>"+esc(f.fixed_in)+"</span>"):"")+"</span></div>";
+        }).join("");
+        wrap.innerHTML=head+rows;
+        body.appendChild(wrap);
+      });
+      Array.prototype.forEach.call(body.querySelectorAll("[data-vdev]"),function(el){
+        el.onclick=function(){ setView("devices"); selectDevice(el.getAttribute("data-vdev")); };
+      });
+    }).catch(function(e){ $("vuln-empty").style.display="block"; $("vuln-empty").textContent="Zafiyetler yüklenemedi ("+e.message+")."; });
+  }
   // testRule: örnek olayı /api/detections/test'e gönderip eşleşen kuralları
   // gösterir (kuru çalıştırma). Sonuç kullanıcı-görünür HTML olduğundan tüm
   // kural alanları esc()'ten geçer.
@@ -2097,6 +2138,7 @@
     $("login").style.display="none"; $("app").style.display="grid";
     loadMitre();
     loadDetections();
+    loadVulnerabilities();
     loadActivity();
     loadFeatures();
     refresh().then(function(){ startAuto(); startStream(); });
@@ -2137,6 +2179,7 @@
   $("dev-search").addEventListener("input",function(){ state.devSearch=this.value; renderDevices(); });
   $("evt-csv").onclick=exportEvents; $("aud-csv").onclick=exportAudit;
   $("feat-refresh").onclick=loadFeatures;
+  $("vuln-refresh").onclick=loadVulnerabilities;
   $("bulk-action").addEventListener("change",function(){ $("bulk-pol-wrap").style.display=(this.value==="assign-policy")?"block":"none"; });
   $("aud-verify").onclick=function(){
     api("/api/audit/verify").then(function(r){

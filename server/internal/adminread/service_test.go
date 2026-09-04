@@ -24,6 +24,7 @@ type memStore struct {
 	acks       map[string]EventAck
 	artifacts  []ArtifactRow
 	artContent map[string]ArtifactContent
+	latestSW   map[string][]string
 }
 
 func (m *memStore) ListPolicies(_ context.Context, _ int) ([]PolicyRow, error) {
@@ -130,6 +131,9 @@ func (m *memStore) SearchSoftware(_ context.Context, query string) (map[string][
 }
 func (m *memStore) EventAcks(_ context.Context) (map[string]EventAck, error) {
 	return m.acks, nil
+}
+func (m *memStore) LatestSoftwareByDevice(_ context.Context) (map[string][]string, error) {
+	return m.latestSW, nil
 }
 func (m *memStore) ListArtifacts(_ context.Context, deviceID string) ([]ArtifactRow, error) {
 	var out []ArtifactRow
