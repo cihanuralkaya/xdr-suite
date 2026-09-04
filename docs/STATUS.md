@@ -98,7 +98,11 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Konsol: olay/denetim tıkla-süz chip'leri (klavye erişilebilir) | ✅ | `adminapi/console.html` | canlı |
 | Olay cihaz-atfı (device_id) + en çok olay üreten cihazlar | ✅ | `adminread`, `db`, `memstore`, console | birim + smoke + canlı |
 | Cihaz durumu hızlı-süzgeci (online/offline/karantina) | ✅ | `adminapi/console.html` | canlı |
-| Filo disk şifreleme uyum kartı (olaylardan) | ✅ | `agent/compliance`, console | birim + canlı |
+| Uyum kontrolleri: disk şifreleme + güvenlik duvarı (agent) | ✅ | `agent/compliance` | birim + smoke + canlı |
+| Filo uyum görünürlüğü: kart + cihaz-detay + "uyumsuz" KPI + CSV | ✅ | `adminread`, console | birim + canlı |
+| Sunucu-taraflı uyum özeti (doğru filo KPI, /api/summary) | ✅ | `adminread`, `db`, `memstore` | birim + smoke |
+| Sertleştirme: istek gövdesi 1 MiB sınırı (DoS) | ✅ | `adminapi` | birim |
+| Sertleştirme: admin HTTP zaman aşımları (slowloris) | ✅ | c2 main | smoke (SSE korunur) |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
@@ -264,7 +268,11 @@ proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
 | Console click-to-filter chips for events/audit (keyboard-accessible) | done | `adminapi/console.html` | live |
 | Event device attribution (device_id) + top devices by alert volume | done | `adminread`, `db`, `memstore`, console | unit + smoke + live |
 | Device status quick-filter (online/offline/quarantine) | done | `adminapi/console.html` | live |
-| Fleet disk-encryption compliance card (from events) | done | `agent/compliance`, console | unit + live |
+| Compliance checks: disk encryption + firewall (agent) | done | `agent/compliance` | unit + smoke + live |
+| Fleet compliance visibility: card + device-detail + non-compliant KPI + CSV | done | `adminread`, console | unit + live |
+| Server-side compliance summary (accurate fleet KPI, /api/summary) | done | `adminread`, `db`, `memstore` | unit + smoke |
+| Hardening: 1 MiB request-body limit (DoS) | done | `adminapi` | unit |
+| Hardening: admin HTTP timeouts (slowloris) | done | c2 main | smoke (SSE preserved) |
 | Encrypted PostgreSQL schema | done | `db/schema.sql` | - |
 
 ## Initial review findings - responses
