@@ -49,6 +49,7 @@ import (
 	"xdr.corp/suite/agent/internal/script"
 	"xdr.corp/suite/agent/internal/transport"
 	"xdr.corp/suite/agent/internal/update"
+	"xdr.corp/suite/agent/internal/usbmon"
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/logx"
 	"xdr.corp/suite/otawire"
@@ -187,6 +188,12 @@ func run() error {
 	if os.Getenv("XDR_NETCONN_DISABLE") == "" {
 		connTr = &connTracker{}
 	}
+	// Çıkarılabilir medya (USB) izleme (DLP-bitişik). XDR_USB_POLICY: audit
+	// (varsayılan) | block | off. off dışında yeni takılan medya olay üretir.
+	var usbTr *usbTracker
+	if usbPolicy := getenv("XDR_USB_POLICY", "audit"); usbPolicy != "off" {
+		usbTr = &usbTracker{policy: usbPolicy}
+	}
 
 	// Karantina yöneticisi: izolasyonda yalnız C2'ye izin verilir.
 	// SAFE MODE (XDR_SAFE_MODE): gerçek firewall'a dokunmaz — demo/test için.
@@ -311,6 +318,10 @@ func run() error {
 		// Giden bağlantı telemetrisi (etkinse): yeni bağlantıları yayınla (#3).
 		if connTr != nil {
 			connTr.report(buf)
+		}
+		// Çıkarılabilir medya izleme (etkinse): yeni takılan USB medyayı bildir (#7).
+		if usbTr != nil {
+			usbTr.report(buf, safeMode)
 		}
 		flushEvents(hbCtx, cli, ident, buf)
 	}
@@ -757,6 +768,53 @@ func (t *connTracker) report(buf *collector.Buffer) {
 			OccurredAt: time.Now(),
 			Details:    det,
 		})
+	}
+	t.seen = live
+}
+
+// usbTracker, çıkarılabilir medya takar-takmaz (yeni sürücü) olay üretir.
+// policy "audit" ise SECURITY/MEDIUM denetim olayı; "block" ise HIGH ve
+// (güvenli-mod KAPALIYSA) engelleme uygulanır. İlk tarama taban çizgisidir.
+type usbTracker struct {
+	seen      map[string]bool
+	baselined bool
+	policy    string // "audit" | "block"
+}
+
+func (t *usbTracker) report(buf *collector.Buffer, safeMode bool) {
+	drives := usbmon.Scan()
+	live := make(map[string]bool, len(drives))
+	for _, d := range drives {
+		live[d.Key()] = true
+	}
+	if !t.baselined {
+		t.seen = live
+		t.baselined = true
+		return
+	}
+	for _, d := range drives {
+		if t.seen[d.Key()] {
+			continue
+		}
+		sev := "MEDIUM"
+		msg := "çıkarılabilir medya algılandı: " + d.ID
+		if d.Label != "" {
+			msg += " (" + d.Label + ")"
+		}
+		det := map[string]any{"drive": d.ID, "label": d.Label, "policy": t.policy}
+		if t.policy == "block" {
+			sev = "HIGH"
+			// Gerçek engelleme (registry/eject) yıkıcı+platforma özgü; güvenli-mod
+			// KAPALI olsa bile bu sürümde uygulanmaz (bilinçli güdük) — politika
+			// ihlali olay olarak bildirilir, komut/görünürlük akışı tamdır.
+			msg = "çıkarılabilir medya politika ihlali (engelle): " + d.ID
+			det["blocked"] = false
+			det["note"] = "block stub (platform-specific enforcement not applied)"
+			_ = safeMode
+			buf.Add(collector.Event{Category: "POLICY_VIOLATION", Severity: sev, Message: msg, OccurredAt: time.Now(), Details: det})
+		} else {
+			buf.Add(collector.Event{Category: "SECURITY", Severity: sev, Message: msg, OccurredAt: time.Now(), Details: det})
+		}
 	}
 	t.seen = live
 }
