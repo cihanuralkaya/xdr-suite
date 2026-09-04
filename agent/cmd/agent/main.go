@@ -169,6 +169,12 @@ func run() error {
 		}
 		monitor.SetAnomalyDetector(anomaly.NewDetector(0.85, scorer))
 	}
+	// Süreç-yürütme telemetrisi (EDR görünürlüğü; varsayılan AÇIK,
+	// XDR_PROCESS_TELEMETRY_DISABLE ile kapatılır). İlk tur taban çizgisidir;
+	// sonraki turlarda yeni süreçler PROCESS olayı olarak yayınlanır.
+	if os.Getenv("XDR_PROCESS_TELEMETRY_DISABLE") == "" {
+		monitor.SetProcessTelemetry(true)
+	}
 	neighbors := discovery.NewNeighborSource()
 	netTracker := discovery.NewTracker(cfg.authMACs)
 

@@ -42,16 +42,57 @@ type Monitor struct {
 	self     uint32 // ajanın kendi PID'i — asla sonlandırılmaz
 	detector *anomaly.Detector
 	flagged  map[uint32]bool // anomali bildirilen PID'ler (tur-arası tekrar bastırma)
+	// Süreç-yürütme telemetrisi (EDR görünürlüğü): yeni süreçler PROCESS olayı
+	// olarak yayınlanır. İlk turda taban çizgisi sessizce alınır (açılış selini
+	// önlemek için); sonraki turlarda yalnız YENİ süreçler bildirilir.
+	procTelemetry bool
+	procBaselined bool
+	procSeen      map[uint32]bool
 }
 
 // NewMonitor oluşturur.
 func NewMonitor(ctrl ProcessController, clock *agentclock.Clock, buf *collector.Buffer, selfPID uint32) *Monitor {
-	return &Monitor{ctrl: ctrl, clock: clock, buf: buf, self: selfPID, flagged: map[uint32]bool{}}
+	return &Monitor{ctrl: ctrl, clock: clock, buf: buf, self: selfPID, flagged: map[uint32]bool{}, procSeen: map[uint32]bool{}}
 }
 
 // SetAnomalyDetector, davranışsal anomali tespitini etkinleştirir. nil (varsayılan)
 // ise anomali skorlama yapılmaz — enforce davranışı değişmez.
 func (m *Monitor) SetAnomalyDetector(d *anomaly.Detector) { m.detector = d }
+
+// SetProcessTelemetry, süreç-yürütme telemetrisini açar/kapatır (varsayılan kapalı;
+// ajan main açar). Açıkken her turda yeni süreçler PROCESS/INFO olayı üretir.
+func (m *Monitor) SetProcessTelemetry(on bool) { m.procTelemetry = on }
+
+// emitProcessTelemetry, bir önceki tura göre YENİ süreçleri PROCESS olayı olarak
+// yayınlar. İlk tur taban çizgisidir (yayın yok). Ölü PID'ler budanır (PID
+// yeniden-kullanımı yeni süreç sayılır). Ajanın kendisi ve pid 0 atlanır.
+func (m *Monitor) emitProcessTelemetry(procs []Process, now time.Time) {
+	if !m.procTelemetry {
+		return
+	}
+	live := make(map[uint32]bool, len(procs))
+	for _, p := range procs {
+		live[p.PID] = true
+	}
+	if !m.procBaselined {
+		m.procSeen = live
+		m.procBaselined = true
+		return
+	}
+	for _, p := range procs {
+		if p.PID == m.self || p.PID == 0 || m.procSeen[p.PID] {
+			continue
+		}
+		det := map[string]any{"process": p.Name, "pid": int(p.PID), "ppid": int(p.PPID)}
+		if p.Path != "" {
+			det["path"] = p.Path
+		}
+		addParentChain(det, procs, p.PID)
+		m.emitCatDetails("PROCESS", "INFO", now,
+			fmt.Sprintf("süreç başlatıldı: %s (pid=%d, ppid=%d)", p.Name, p.PID, p.PPID), det)
+	}
+	m.procSeen = live
+}
 
 // Tick, bir değerlendirme turu yürütür: süreçleri listeler, verilen motora göre
 // yasaklıları tespit edip sonlandırır ve olay üretir. Sonlandırılan süreç
@@ -62,6 +103,9 @@ func (m *Monitor) Tick(engine *policy.Engine) (int, error) {
 		return 0, err
 	}
 	now, synced := m.clock.Now()
+
+	// Süreç-yürütme telemetrisi (etkinse): yeni süreçleri yayınla.
+	m.emitProcessTelemetry(procs, now)
 
 	enforced := 0
 	for _, p := range procs {

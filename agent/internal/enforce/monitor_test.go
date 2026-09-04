@@ -283,3 +283,67 @@ func TestKillFailureEmitsCriticalEvent(t *testing.T) {
 		t.Errorf("başarısız sonlandırma CRITICAL olmalı, %s", ev.Severity)
 	}
 }
+
+// Süreç-yürütme telemetrisi: ilk tur taban çizgisi (yayın yok); sonraki turda
+// YENİ süreçler PROCESS/INFO olayı üretir; mevcut süreçler tekrar bildirilmez.
+func TestProcessTelemetryEmitsNewProcesses(t *testing.T) {
+	ctrl := &fakeCtrl{procs: []Process{
+		{PID: 100, Name: "init"},
+		{PID: 200, Name: "bash"},
+		{PID: 42, Name: "agent.exe"}, // self — telemetride atlanmalı
+	}}
+	buf := collector.NewBuffer(100)
+	mon := NewMonitor(ctrl, fixedClock(time.Now()), buf, 42)
+	mon.SetProcessTelemetry(true)
+	engine := policy.New(policy.Bundle{}) // boş: engelleme yok
+
+	countProc := func() int {
+		n := 0
+		for _, e := range buf.Pending(100) {
+			if e.Category == "PROCESS" {
+				n++
+			}
+		}
+		return n
+	}
+
+	// 1. tur: taban çizgisi — PROCESS olayı olmamalı.
+	if _, err := mon.Tick(engine); err != nil {
+		t.Fatal(err)
+	}
+	if countProc() != 0 {
+		t.Fatalf("taban çizgisi turunda PROCESS olayı olmamalı, %d", countProc())
+	}
+
+	// Yeni bir süreç belirir.
+	ctrl.procs = append(ctrl.procs, Process{PID: 300, Name: "evil.exe", PPID: 200, Path: `C:\tmp\evil.exe`})
+	if _, err := mon.Tick(engine); err != nil {
+		t.Fatal(err)
+	}
+	procEvents := 0
+	var last collector.Event
+	for _, e := range buf.Pending(100) {
+		if e.Category == "PROCESS" {
+			procEvents++
+			last = e
+		}
+	}
+	if procEvents != 1 {
+		t.Fatalf("yalnız 1 yeni süreç (evil.exe) bildirilmeliydi, %d", procEvents)
+	}
+	if last.Severity != "INFO" || last.Details["pid"] != 300 || last.Details["process"] != "evil.exe" {
+		t.Fatalf("PROCESS olayı ayrıntıları hatalı: sev=%s det=%v", last.Severity, last.Details)
+	}
+	if last.Details["path"] != `C:\tmp\evil.exe` {
+		t.Fatalf("path ayrıntısı eksik: %v", last.Details["path"])
+	}
+
+	// 3. tur: değişiklik yok → yeni PROCESS olayı olmamalı (300 artık biliniyor).
+	before := countProc()
+	if _, err := mon.Tick(engine); err != nil {
+		t.Fatal(err)
+	}
+	if countProc() != before {
+		t.Fatalf("değişiklik yokken yeni PROCESS olayı üretilmemeli (%d → %d)", before, countProc())
+	}
+}
