@@ -1022,7 +1022,10 @@ func TestArtifactCollectionHTTP(t *testing.T) {
 	// Artefakt listesi.
 	req, _ := http.NewRequest("GET", ts.URL+"/api/devices/dev-1/artifacts", nil)
 	req.Header.Set("Authorization", "Bearer "+opTok)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var lst struct {
 		Artifacts []struct {
@@ -1040,7 +1043,10 @@ func TestArtifactCollectionHTTP(t *testing.T) {
 	// İndirme içerikle döner.
 	dreq, _ := http.NewRequest("GET", ts.URL+"/api/artifacts/"+aid+"/download", nil)
 	dreq.Header.Set("Authorization", "Bearer "+opTok)
-	dresp, _ := http.DefaultClient.Do(dreq)
+	dresp, err := http.DefaultClient.Do(dreq)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer dresp.Body.Close()
 	body, _ := io.ReadAll(dresp.Body)
 	if string(body) != "gizli-log-icerigi" {
