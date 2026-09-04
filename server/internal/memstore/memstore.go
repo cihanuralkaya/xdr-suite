@@ -82,6 +82,7 @@ type policyRec struct {
 }
 
 type eventRec struct {
+	id         string // KARARLI kimlik (kayıt anında atanır; her listelemede değişmez)
 	deviceID   string
 	category   string
 	severity   string
@@ -309,6 +310,7 @@ func (s *Store) SaveEvents(_ context.Context, deviceID string, evs []model.Event
 	now := time.Now()
 	for _, e := range evs {
 		s.events = append(s.events, eventRec{
+			id:       randID("evt-"), // kararlı kimlik (kayıt anında)
 			deviceID: deviceID, category: e.Category, severity: e.Severity,
 			message: e.Message, occurredAt: e.OccurredAt, createdAt: now,
 			details: e.Details,
@@ -746,7 +748,7 @@ func (s *Store) ListEvents(_ context.Context, deviceID, severity, category strin
 			details = []byte(e.details)
 		}
 		out = append(out, adminread.EventRow{
-			ID: randID("evt-"), DeviceID: e.deviceID, Category: e.category, Severity: e.severity,
+			ID: e.id, DeviceID: e.deviceID, Category: e.category, Severity: e.severity,
 			Message: e.message, OccurredAt: e.occurredAt, CreatedAt: e.createdAt,
 			Details: details,
 		})
