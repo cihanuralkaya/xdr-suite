@@ -6,5 +6,6 @@
   {"product": "Adobe Acrobat", "cve": "CVE-2023-26369", "severity": "HIGH", "fixed_version": "23.006.20320", "description": "Out-of-bounds write leading to code execution."},
   {"product": "Advanced Port Scanner", "cve": "CVE-2021-0000", "severity": "LOW", "description": "Örnek/demo kaydı — dual-use tarama aracı varlığı."},
   {"product": "Python 3.9", "cve": "CVE-2021-3737", "severity": "MEDIUM", "fixed_version": "3.9.13"},
-  {"product": "Node.js 16", "cve": "CVE-2023-30581", "severity": "HIGH", "fixed_version": "16.20.1"}
+  {"product": "Node.js 16", "cve": "CVE-2023-30581", "severity": "HIGH", "fixed_version": "16.20.1"},
+  {"product": "coreutils", "cve": "CVE-2016-2781", "severity": "LOW", "description": "GNU coreutils — chroot ayrıcalık kaçışı (örnek/demo; Linux ajanlarında yaygın olarak eşleşir)."}
 ]
