@@ -1124,38 +1124,46 @@
   // Ajanın periyodik uyum olaylarını (COMPLIANCE) filo görünürlüğüne çevirir.
   function renderComplianceCard(){
     var box=$("enc-summary"); if(!box) return;
-    var latest={}; // device_id → en son disk_encryption durumu
+    var enc={}, fw={}; // device_id → en son disk_encryption / firewall durumu
     (state.events||[]).forEach(function(e){
-      var id=e.device_id; if(!id || latest[id]!==undefined) return;
-      if(e.details && typeof e.details.disk_encryption==="string") latest[id]=e.details.disk_encryption;
+      var id=e.device_id; if(!id || !e.details) return;
+      if(enc[id]===undefined && typeof e.details.disk_encryption==="string") enc[id]=e.details.disk_encryption;
+      if(fw[id]===undefined && typeof e.details.firewall==="string") fw[id]=e.details.firewall;
     });
-    var ids=Object.keys(latest);
+    // Uyum verisi olan tüm cihazlar (herhangi bir boyutta).
+    var idSet={}; Object.keys(enc).forEach(function(id){idSet[id]=1;}); Object.keys(fw).forEach(function(id){idSet[id]=1;});
+    var ids=Object.keys(idSet);
     $("enc-count").textContent=ids.length;
     $("enc-empty").style.display=ids.length?"none":"block";
     if(!ids.length){ box.innerHTML=""; $("enc-noncompliant").innerHTML=""; return; }
-    var on=0,off=0,unk=0, offDevs=[];
-    ids.forEach(function(id){
-      var st=latest[id];
-      if(st==="on") on++;
-      else if(st==="off"){ off++; offDevs.push(id); }
-      else unk++;
-    });
-    function tile(label,n,color){
-      return "<div style='flex:1;min-width:90px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 10px'>"+
-        "<div style='font-size:20px;font-weight:700;color:"+color+"'>"+n+"</div>"+
-        "<div style='font-size:11px;color:var(--faint)'>"+label+"</div></div>";
+    function tally(m){ var r={on:0,off:0,unk:0,offDevs:[]};
+      ids.forEach(function(id){ var s=m[id];
+        if(s==="on") r.on++; else if(s==="off"){ r.off++; r.offDevs.push(id); } else r.unk++; });
+      return r; }
+    var e=tally(enc), f=tally(fw);
+    function row(label,t){
+      function seg(n,color,txt){ return "<span style='color:"+color+";font-weight:600'>"+n+"</span> <span style='color:var(--faint);font-size:11px'>"+txt+"</span>"; }
+      return "<div style='flex:1;min-width:200px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 11px'>"+
+        "<div style='font-size:11px;color:var(--faint);margin-bottom:4px'>"+label+"</div>"+
+        "<div style='display:flex;gap:14px;font-size:14px'>"+seg(t.on,"var(--ok,#10b981)","açık")+seg(t.off,"var(--bad,#f43f5e)","kapalı")+seg(t.unk,"var(--muted)","bilinmiyor")+"</div></div>";
     }
-    box.innerHTML=tile("Şifreli",on,"var(--ok,#10b981)")+tile("KAPALI",off,"var(--bad,#f43f5e)")+tile("Bilinmiyor",unk,"var(--muted)");
+    box.innerHTML=row("🔒 Disk şifreleme",e)+row("🧱 Güvenlik duvarı",f);
+    // Uyumsuz cihazlar: herhangi bir boyutta "off". Hangi boyutların ihlal olduğunu belirt.
+    var problems={};
+    e.offDevs.forEach(function(id){ (problems[id]=problems[id]||[]).push("şifreleme"); });
+    f.offDevs.forEach(function(id){ (problems[id]=problems[id]||[]).push("güvenlik duvarı"); });
+    var pids=Object.keys(problems);
     var nc=$("enc-noncompliant");
-    if(offDevs.length){
-      nc.innerHTML="<div class='lbl' style='margin:4px 0 6px;color:var(--bad,#f43f5e)'>⚠ Uyumsuz cihazlar (şifreleme kapalı)</div>"+
-        offDevs.map(function(id){
-          return "<div class='mini click' style='cursor:pointer;padding:3px 0' data-encdev='"+esc(id)+"'>• "+esc(deviceName(id))+"</div>";
+    if(pids.length){
+      nc.innerHTML="<div class='lbl' style='margin:8px 0 6px;color:var(--bad,#f43f5e)'>⚠ Uyumsuz cihazlar</div>"+
+        pids.map(function(id){
+          return "<div class='mini click' style='cursor:pointer;padding:3px 0' data-encdev='"+esc(id)+"'>• "+esc(deviceName(id))+
+            " <span style='color:var(--bad,#f43f5e)'>("+problems[id].join(", ")+" kapalı)</span></div>";
         }).join("");
       Array.prototype.forEach.call(nc.querySelectorAll("[data-encdev]"),function(el){
         el.onclick=function(){ setView("devices"); selectDevice(el.getAttribute("data-encdev")); };
       });
-    } else { nc.innerHTML="<div class='mini' style='color:var(--ok,#10b981)'>✓ Tüm bilinen cihazlar uyumlu.</div>"; }
+    } else { nc.innerHTML="<div class='mini' style='margin-top:8px;color:var(--ok,#10b981)'>✓ Tüm bilinen cihazlar uyumlu.</div>"; }
   }
   function renderSeverity(){
     var s=state.summary, card=$("sevcard");

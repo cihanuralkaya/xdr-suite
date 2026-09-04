@@ -539,17 +539,29 @@ const complianceInterval = 6 * time.Hour
 // kapalıysa SECURITY/MEDIUM (uyum ihlali), aksi halde SYSTEM/INFO. Details, konsol
 // detay panelinde ve sunucu event_logs'ta durumu taşır.
 func reportCompliance(buf *collector.Buffer, chk compliance.Checker) {
-	status := chk.DiskEncryption()
-	cat, sev, msg := "SYSTEM", "INFO", "disk şifreleme: "+status
-	if status == compliance.EncOff {
-		cat, sev, msg = "SECURITY", "MEDIUM", "uyum ihlali: disk şifreleme KAPALI"
+	enc := chk.DiskEncryption()
+	fw := chk.Firewall()
+	// Herhangi bir kontrol KAPALIYSA güvenlik-duruşu ihlali (SECURITY/MEDIUM);
+	// aksi halde bilgi amaçlı (SYSTEM/INFO). Details her iki durumu da taşır.
+	cat, sev := "SYSTEM", "INFO"
+	msg := "uyum: disk şifreleme " + enc + ", güvenlik duvarı " + fw
+	var viol []string
+	if enc == compliance.EncOff {
+		viol = append(viol, "disk şifreleme KAPALI")
+	}
+	if fw == compliance.FwOff {
+		viol = append(viol, "güvenlik duvarı KAPALI")
+	}
+	if len(viol) > 0 {
+		cat, sev = "SECURITY", "MEDIUM"
+		msg = "uyum ihlali: " + strings.Join(viol, ", ")
 	}
 	buf.Add(collector.Event{
 		Category:   cat,
 		Severity:   sev,
 		Message:    msg,
 		OccurredAt: time.Now(),
-		Details:    map[string]any{"disk_encryption": status},
+		Details:    map[string]any{"disk_encryption": enc, "firewall": fw},
 	})
 }
 

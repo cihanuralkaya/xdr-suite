@@ -112,6 +112,14 @@ done
 # Olay cihaz-atfı: her olay device_id taşımalı (filo-geneli triyaj/gruplama).
 curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -q '"device_id"' \
   && pass "olaylar cihaz-atfı (device_id) taşıyor" || fail "olaylarda device_id yok"
+# Uyum olayı: disk şifreleme + güvenlik duvarı durumu (poll — uyum kontrolü exec-ağır).
+comp=""
+for _ in $(seq 1 40); do
+  comp="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -oE '"firewall":"[^"]+"' | head -1)"
+  [ -n "$comp" ] && break
+  sleep 0.25
+done
+[ -n "$comp" ] && pass "uyum olayı güvenlik duvarı durumu taşıyor ($comp)" || fail "uyum olayında firewall yok"
 
 echo "[5/6] Admin eylemleri + okuma uçları"
 DID="$(curl -sk "$B/api/devices" -H "Authorization: Bearer $TOK" | sed -E 's/.*"id":"([^"]+)".*/\1/')"

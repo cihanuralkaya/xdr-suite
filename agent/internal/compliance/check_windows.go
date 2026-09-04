@@ -24,3 +24,12 @@ func (winChecker) DiskEncryption() string {
 	}
 	return parseBitLockerStatus(string(out))
 }
+
+// Firewall, Windows Defender Güvenlik Duvarının profil durumlarını döner.
+func (winChecker) Firewall() string {
+	out, err := exec.Command("netsh", "advfirewall", "show", "allprofiles", "state").Output()
+	if err != nil {
+		return FwUnknown
+	}
+	return parseNetshFirewall(string(out))
+}

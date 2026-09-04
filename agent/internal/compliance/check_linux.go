@@ -18,3 +18,13 @@ func (linuxChecker) DiskEncryption() string {
 	}
 	return parseLsblkCrypt(string(out))
 }
+
+// Firewall, ufw durumunu döner (yaygın Linux güvenlik duvarı ön-yüzü). ufw yoksa
+// veya sorgulanamazsa unknown.
+func (linuxChecker) Firewall() string {
+	out, err := exec.Command("ufw", "status").Output()
+	if err != nil {
+		return FwUnknown
+	}
+	return parseUfwStatus(string(out))
+}

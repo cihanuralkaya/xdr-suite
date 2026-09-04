@@ -8,3 +8,5 @@ type unknownChecker struct{}
 func NewChecker() Checker { return unknownChecker{} }
 
 func (unknownChecker) DiskEncryption() string { return EncUnknown }
+
+func (unknownChecker) Firewall() string { return FwUnknown }
