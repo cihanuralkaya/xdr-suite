@@ -401,6 +401,12 @@
           <div class="head">
             <h2>💻 Cihazlar <span id="dev-count" class="count">0</span></h2>
             <span class="sp"></span>
+            <div class="seg" id="devfilter" title="Duruma göre süz">
+              <button data-status="" class="on" type="button">Tümü</button>
+              <button data-status="online" type="button">Çevrimiçi</button>
+              <button data-status="offline" type="button">Çevrimdışı</button>
+              <button data-status="quarantine" type="button">Karantina</button>
+            </div>
             <input id="dev-search" placeholder="🔍 hostname / MAC / OS / etiket" style="width:auto;padding:5px 10px;font-size:12px">
             <button class="btn ghost sm" id="dev-csv" title="Görünen cihazları CSV indir">↓ CSV</button>
             <button class="btn ghost sm" id="dev-refresh">↻ Yenile</button>
@@ -831,7 +837,7 @@
   // ================= /TEMA & GÖRÜNÜM =================
 
   var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", catFilter:"", actFilter:"", auto:true, timer:null,
-    evtOpen:{}, tokens:[], admins:[], policies:[], devSearch:"",
+    evtOpen:{}, tokens:[], admins:[], policies:[], devSearch:"", devFilter:"",
     streamOn:false, streamCtrl:null, streamRetry:null, polOpen:{}, polRules:{}, audSearch:"" };
 
   // ---------- API ----------
@@ -1078,15 +1084,22 @@
   function renderDevices(){
     var body=$("dev-body"); body.innerHTML="";
     var q=state.devSearch.trim().toLowerCase();
+    var f=state.devFilter;
     var list=state.devices.filter(function(d){
+      if(f){
+        var isQ=d.status==="QUARANTINED", on=isOnline(d);
+        if(f==="quarantine" && !isQ) return false;
+        if(f==="online" && (isQ || !on)) return false;
+        if(f==="offline" && (isQ || on)) return false;
+      }
       if(!q) return true;
       return (d.hostname||"").toLowerCase().indexOf(q)>=0 || (d.mac||"").toLowerCase().indexOf(q)>=0 ||
              (d.os_version||"").toLowerCase().indexOf(q)>=0 || (d.os_platform||"").toLowerCase().indexOf(q)>=0 ||
              (d.tags||[]).some(function(t){ return t.toLowerCase().indexOf(q)>=0; });
     });
-    $("dev-count").textContent=list.length;
+    $("dev-count").textContent=list.length + (f?(" · "+f):"");
     $("dev-empty").style.display = list.length ? "none" : "block";
-    if(q && list.length===0){ $("dev-empty").textContent='"'+state.devSearch+'" ile eşleşen cihaz yok.'; }
+    if((q||f) && list.length===0){ $("dev-empty").textContent="Bu süzgeçle eşleşen cihaz yok."; }
     else { $("dev-empty").textContent="Henüz kayıtlı cihaz yok. Sağdan bir enrollment token üretip ajanı kurun."; }
     list.forEach(function(d){
       var tr=document.createElement("tr"); tr.className="click"; if(state.sel===d.id) tr.className+=" sel";
@@ -1836,6 +1849,10 @@
   document.querySelectorAll("#sevfilter button").forEach(function(b){
     b.onclick=function(){ document.querySelectorAll("#sevfilter button").forEach(function(x){x.className="";}); b.className="on";
       state.sevFilter=b.dataset.sev; renderEvents(); };
+  });
+  document.querySelectorAll("#devfilter button").forEach(function(b){
+    b.onclick=function(){ document.querySelectorAll("#devfilter button").forEach(function(x){x.className="";}); b.className="on";
+      state.devFilter=b.dataset.status; renderDevices(); };
   });
   $("aud-refresh").onclick=refresh;
   $("aud-search").addEventListener("input",function(){ state.audSearch=this.value; renderAudit(); });
