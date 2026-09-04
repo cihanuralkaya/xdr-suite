@@ -12,16 +12,18 @@ import (
 )
 
 type memStore struct {
-	devices  []DeviceRow
-	events   []EventRow
-	audit    []AuditRow
-	certs    []CertRow
-	commands []CmdRow
-	tokens   []EnrollmentTokenRow
-	policies []PolicyRow
-	polID    string
-	polVer   string
-	acks     map[string]EventAck
+	devices    []DeviceRow
+	events     []EventRow
+	audit      []AuditRow
+	certs      []CertRow
+	commands   []CmdRow
+	tokens     []EnrollmentTokenRow
+	policies   []PolicyRow
+	polID      string
+	polVer     string
+	acks       map[string]EventAck
+	artifacts  []ArtifactRow
+	artContent map[string]ArtifactContent
 }
 
 func (m *memStore) ListPolicies(_ context.Context, _ int) ([]PolicyRow, error) {
@@ -128,6 +130,19 @@ func (m *memStore) SearchSoftware(_ context.Context, query string) (map[string][
 }
 func (m *memStore) EventAcks(_ context.Context) (map[string]EventAck, error) {
 	return m.acks, nil
+}
+func (m *memStore) ListArtifacts(_ context.Context, deviceID string) ([]ArtifactRow, error) {
+	var out []ArtifactRow
+	for _, a := range m.artifacts {
+		if a.DeviceID == deviceID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+func (m *memStore) GetArtifact(_ context.Context, id string) (ArtifactContent, bool, error) {
+	c, ok := m.artContent[id]
+	return c, ok, nil
 }
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]AuditRow, error) {
 	return m.audit, nil

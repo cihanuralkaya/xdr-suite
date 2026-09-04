@@ -50,6 +50,7 @@ type Backend interface {
 	xgrpc.UpdateProvider
 	admin.Store
 	adminread.Store
+	xgrpc.ArtifactSink
 	revocation.Source
 	retention.Store
 	adminapi.AuthStore
@@ -189,6 +190,7 @@ func run() error {
 	// Anlık politika push: admin atama → notifier → açık akış.
 	notifier := policypush.New()
 	agentHandler := xgrpc.NewAgentHandler(backend, backend, backend, backend, notifier)
+	agentHandler.SetArtifactSink(backend) // adli/IR dosya toplama (#4)
 	// Canlı konsol akışı (SSE): ajan olay/heartbeat → bus → admin /api/stream.
 	liveBus := eventbus.New()
 	agentHandler.SetAdminNotifier(liveBus)

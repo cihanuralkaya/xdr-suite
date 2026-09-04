@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"strings"
@@ -106,8 +108,57 @@ type AgentHandler struct {
 	alerter   notify.Notifier
 	responder AutoResponder
 	detector  *detect.Engine
-	iocSet    *ioc.Set // tehdit istihbaratı göstergeleri (nil = kapalı)
+	iocSet    *ioc.Set     // tehdit istihbaratı göstergeleri (nil = kapalı)
+	artifacts ArtifactSink // adli/IR dosya toplama deposu
 	now       func() time.Time
+}
+
+// ArtifactSink, ajanın topladığı dosya artefaktlarını saklar (adli/IR).
+type ArtifactSink interface {
+	SaveArtifact(ctx context.Context, deviceID, commandID, path, sha256 string, content []byte) (string, error)
+}
+
+type noopArtifactSink struct{}
+
+func (noopArtifactSink) SaveArtifact(context.Context, string, string, string, string, []byte) (string, error) {
+	return "", nil
+}
+
+// SetArtifactSink, dosya-toplama depolamasını etkinleştirir. Ayarlanmazsa
+// yüklenen artefaktlar sessizce yok sayılır (noop).
+func (h *AgentHandler) SetArtifactSink(a ArtifactSink) {
+	if a == nil {
+		a = noopArtifactSink{}
+	}
+	h.artifacts = a
+}
+
+// maxArtifactBytes, tek bir toplanan dosyanın üst sınırıdır (gRPC mesaj sınırı +
+// depolama şişmesi koruması). Bundan büyük yüklemeler reddedilir.
+const maxArtifactBytes = 3 << 20 // 3 MiB
+
+// UploadArtifact, ajanın COLLECT_FILE komutuyla topladığı dosyayı saklar. Kimlik
+// istemci sertifikasından; boyut ve SHA-256 doğrulanır.
+func (h *AgentHandler) UploadArtifact(ctx context.Context, req *xdrv1.UploadArtifactRequest) (*xdrv1.UploadArtifactResponse, error) {
+	deviceID, err := DeviceIDFromContext(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "kimlik doğrulanamadı")
+	}
+	content := req.GetContent()
+	if len(content) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "boş içerik")
+	}
+	if len(content) > maxArtifactBytes {
+		return nil, status.Errorf(codes.InvalidArgument, "dosya çok büyük (>%d bayt)", maxArtifactBytes)
+	}
+	sum := sha256.Sum256(content)
+	if got := hex.EncodeToString(sum[:]); req.GetSha256() != "" && got != req.GetSha256() {
+		return nil, status.Error(codes.InvalidArgument, "SHA-256 uyuşmuyor")
+	}
+	if _, err := h.artifacts.SaveArtifact(ctx, deviceID, req.GetCommandId(), req.GetPath(), hex.EncodeToString(sum[:]), content); err != nil {
+		return nil, status.Error(codes.Internal, "artefakt kaydedilemedi")
+	}
+	return &xdrv1.UploadArtifactResponse{Ok: true}, nil
 }
 
 // SetIoCSet, tehdit istihbaratı (IoC) eşleştirmesini etkinleştirir. nil ise kapalı.
@@ -154,7 +205,7 @@ func NewAgentHandler(devices DeviceRegistry, events EventSink, policies PolicyPr
 	if notifier == nil {
 		notifier = noopNotifier{}
 	}
-	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, alerter: noopAlerter{}, responder: noopResponder{}, detector: detect.NewEngine(nil), now: time.Now}
+	return &AgentHandler{devices: devices, events: events, policies: policies, updates: updates, notifier: notifier, admin: noopAdminNotifier{}, alerter: noopAlerter{}, responder: noopResponder{}, detector: detect.NewEngine(nil), artifacts: noopArtifactSink{}, now: time.Now}
 }
 
 // Heartbeat, yaşam sinyalini işler. Yanıt SUNUCU SAATİNİ taşır — ajan, politika

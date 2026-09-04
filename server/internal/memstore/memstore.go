@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
@@ -125,6 +126,7 @@ type Store struct {
 	audit      []auditRec                  // denetim izi (en eskiden yeniye eklenir)
 	auditSeq   int64                       // audit_log identity taklidi
 	eventAcks  map[string]eventAckRec      // eventID -> triyaj durumu (alarm yaşam-döngüsü)
+	artifacts  []artifactRec               // toplanan dosya artefaktları (adli/IR)
 	seq        int
 }
 
@@ -133,6 +135,13 @@ type eventAckRec struct {
 	status  string
 	adminID string
 	at      time.Time
+}
+
+// artifactRec, toplanan bir dosya artefaktıdır (bellek-içi).
+type artifactRec struct {
+	id, deviceID, commandID, path, sha256 string
+	content                               []byte
+	collectedAt                           time.Time
 }
 
 // New, boş bir bellek-içi depo oluşturur.
@@ -405,6 +414,27 @@ func (s *Store) EnqueueCommand(_ context.Context, deviceID, cmdType, issuedBy st
 		CommandId: randID("cmd-"), Type: commandTypeToProto(cmdType),
 	})
 	// Geçmişe de ekle (bekleyen kuyruk teslimde temizlense de geçmiş kalır).
+	s.cmdHistory = append(s.cmdHistory, cmdRec{
+		deviceID: deviceID, cmdType: cmdType, issuedBy: issuedBy, createdAt: time.Now(),
+	})
+	return nil
+}
+
+// EnqueueCommandParams, parametreli komut kuyruğa ekler (params → structpb).
+func (s *Store) EnqueueCommandParams(_ context.Context, deviceID, cmdType, issuedBy string, params map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var pb *structpb.Struct
+	if len(params) > 0 {
+		m := make(map[string]any, len(params))
+		for k, v := range params {
+			m[k] = v
+		}
+		pb, _ = structpb.NewStruct(m)
+	}
+	s.commands[deviceID] = append(s.commands[deviceID], &xdrv1.Command{
+		CommandId: randID("cmd-"), Type: commandTypeToProto(cmdType), Params: pb,
+	})
 	s.cmdHistory = append(s.cmdHistory, cmdRec{
 		deviceID: deviceID, cmdType: cmdType, issuedBy: issuedBy, createdAt: time.Now(),
 	})
@@ -897,6 +927,53 @@ func (s *Store) EventAcks(_ context.Context) (map[string]adminread.EventAck, err
 	return out, nil
 }
 
+// SaveArtifact, toplanan bir dosyayı saklar ve id'sini döner (grpc.ArtifactSink).
+func (s *Store) SaveArtifact(_ context.Context, deviceID, commandID, path, sha256 string, content []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := randID("art-")
+	cp := make([]byte, len(content))
+	copy(cp, content)
+	s.artifacts = append(s.artifacts, artifactRec{
+		id: id, deviceID: deviceID, commandID: commandID, path: path, sha256: sha256,
+		content: cp, collectedAt: time.Now(),
+	})
+	return id, nil
+}
+
+// ListArtifacts, bir cihazın artefakt meta verisini (içerik hariç) en yeniden
+// eskiye döner.
+func (s *Store) ListArtifacts(_ context.Context, deviceID string) ([]adminread.ArtifactRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []adminread.ArtifactRow
+	for i := len(s.artifacts) - 1; i >= 0; i-- {
+		a := s.artifacts[i]
+		if a.deviceID != deviceID {
+			continue
+		}
+		out = append(out, adminread.ArtifactRow{
+			ID: a.id, DeviceID: a.deviceID, Path: a.path, SHA256: a.sha256,
+			Size: len(a.content), CollectedAt: a.collectedAt,
+		})
+	}
+	return out, nil
+}
+
+// GetArtifact, tek bir artefaktın içeriğini döner.
+func (s *Store) GetArtifact(_ context.Context, id string) (adminread.ArtifactContent, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, a := range s.artifacts {
+		if a.id == id {
+			cp := make([]byte, len(a.content))
+			copy(cp, a.content)
+			return adminread.ArtifactContent{Path: a.path, Content: cp}, true, nil
+		}
+	}
+	return adminread.ArtifactContent{}, false, nil
+}
+
 func (s *Store) ListAudit(_ context.Context, limit int) ([]adminread.AuditRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1067,6 +1144,8 @@ func commandTypeToProto(t string) xdrv1.Command_CommandType {
 		return xdrv1.Command_COMMAND_TYPE_UNINSTALL
 	case "COLLECT_DIAGNOSTICS":
 		return xdrv1.Command_COMMAND_TYPE_COLLECT_DIAGNOSTICS
+	case "COLLECT_FILE":
+		return xdrv1.Command_COMMAND_TYPE_COLLECT_FILE
 	default:
 		return xdrv1.Command_COMMAND_TYPE_UNSPECIFIED
 	}

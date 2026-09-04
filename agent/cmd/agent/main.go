@@ -12,7 +12,9 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -291,7 +293,7 @@ func run() error {
 		}
 		// Sunucudan gelen komutları işle (karantina, imzalı script vb.).
 		// ctx (hbCtx değil) geçilir: uzun scriptler heartbeat penceresini bloklamamalı.
-		handleCommands(ctx, resp.GetPendingCommands(), quar, scriptVerifier, buf)
+		handleCommands(ctx, resp.GetPendingCommands(), quar, scriptVerifier, buf, cli)
 		// Politika uygulaması: yasaklı süreçleri sonlandır (Faz 3).
 		if n, err := monitor.Tick(engine.Load()); err != nil {
 			log.Printf("enforcement hatası: %v", err)
@@ -440,8 +442,9 @@ func checkUpdate(ctx context.Context, cli xdrv1.AgentServiceClient, ident *ident
 	})
 }
 
-// handleCommands, sunucudan gelen anlık komutları uygular (karantina, imzalı script).
-func handleCommands(ctx context.Context, cmds []*xdrv1.Command, quar *quarantine.Manager, sv *script.Verifier, buf *collector.Buffer) {
+// handleCommands, sunucudan gelen anlık komutları uygular (karantina, imzalı
+// script, adli dosya toplama).
+func handleCommands(ctx context.Context, cmds []*xdrv1.Command, quar *quarantine.Manager, sv *script.Verifier, buf *collector.Buffer, cli xdrv1.AgentServiceClient) {
 	for _, c := range cmds {
 		switch c.GetType() {
 		case xdrv1.Command_COMMAND_TYPE_QUARANTINE:
@@ -459,10 +462,58 @@ func handleCommands(ctx context.Context, cmds []*xdrv1.Command, quar *quarantine
 		case xdrv1.Command_COMMAND_TYPE_RUN_SIGNED_SCRIPT:
 			// Uzun sürebilir; heartbeat döngüsünü bloklamamak için arka planda.
 			go runSignedScript(ctx, c, sv, buf)
+		case xdrv1.Command_COMMAND_TYPE_COLLECT_FILE:
+			// Dosya okuma/yükleme bloklamasın; arka planda.
+			go collectFile(ctx, c, buf, cli)
 		default:
 			// Diğer komut tipleri (uninstall, teşhis) ileride.
 		}
 	}
+}
+
+// maxCollectBytes, ajanın toplayıp yükleyeceği bir dosyanın üst sınırıdır (sunucu
+// da ayrıca sınır uygular). Büyük dosyalar reddedilir.
+const maxCollectBytes = 3 << 20 // 3 MiB
+
+// collectFile, COLLECT_FILE komutunun hedef dosyasını (boyut-sınırlı) okur,
+// SHA-256'sını hesaplar ve UploadArtifact ile sunucuya yükler. Başarı/başarısızlık
+// bir SYSTEM olayı olarak da bildirilir (konsol görünürlüğü).
+func collectFile(ctx context.Context, c *xdrv1.Command, buf *collector.Buffer, cli xdrv1.AgentServiceClient) {
+	path := c.GetParams().GetFields()["path"].GetStringValue()
+	if path == "" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		buf.Add(collector.Event{Category: "SYSTEM", Severity: "LOW",
+			Message: "dosya toplama başarısız (bulunamadı/dizin): " + path, OccurredAt: time.Now(),
+			Details: map[string]any{"path": path, "error": "not_found_or_dir"}})
+		return
+	}
+	if info.Size() > maxCollectBytes {
+		buf.Add(collector.Event{Category: "SYSTEM", Severity: "LOW",
+			Message: fmt.Sprintf("dosya toplama başarısız (çok büyük: %d B): %s", info.Size(), path), OccurredAt: time.Now(),
+			Details: map[string]any{"path": path, "error": "too_large", "size": info.Size()}})
+		return
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		buf.Add(collector.Event{Category: "SYSTEM", Severity: "LOW",
+			Message: "dosya toplama başarısız (okunamadı): " + path, OccurredAt: time.Now(),
+			Details: map[string]any{"path": path, "error": "read_failed"}})
+		return
+	}
+	sum := sha256.Sum256(content)
+	_, err = cli.UploadArtifact(ctx, &xdrv1.UploadArtifactRequest{
+		CommandId: c.GetCommandId(), Path: path, Sha256: hex.EncodeToString(sum[:]), Content: content,
+	})
+	if err != nil {
+		log.Printf("artefakt yüklenemedi (%s): %v", path, err)
+		return
+	}
+	buf.Add(collector.Event{Category: "SYSTEM", Severity: "INFO",
+		Message: fmt.Sprintf("dosya toplandı ve yüklendi: %s (%d B)", path, len(content)), OccurredAt: time.Now(),
+		Details: map[string]any{"path": path, "size": len(content), "sha256": hex.EncodeToString(sum[:])}})
 }
 
 // runSignedScript, komut parametrelerinden scripti çıkarır, İMZASINI gömülü

@@ -41,6 +41,8 @@ type memStore struct {
 	nextAdmID  int
 	mfa        map[string]*mfaRec // adminID -> MFA durumu
 	eventAcks  map[string]adminread.EventAck
+	artifacts  map[string]adminread.ArtifactContent
+	artMeta    []adminread.ArtifactRow
 }
 
 type adminRec struct{ id, hash string }
@@ -331,6 +333,32 @@ func (m *memStore) SetEventAck(_ context.Context, eventID, adminID, status strin
 }
 func (m *memStore) EventAcks(_ context.Context) (map[string]adminread.EventAck, error) {
 	return m.eventAcks, nil
+}
+func (m *memStore) EnqueueCommandParams(_ context.Context, deviceID, cmdType, _ string, params map[string]string) error {
+	m.commands = append(m.commands, deviceID+":"+cmdType)
+	return nil
+}
+func (m *memStore) SaveArtifact(_ context.Context, deviceID, commandID, path, sha256 string, content []byte) (string, error) {
+	if m.artifacts == nil {
+		m.artifacts = map[string]adminread.ArtifactContent{}
+	}
+	id := "art-" + strconv.Itoa(len(m.artifacts)+1)
+	m.artifacts[id] = adminread.ArtifactContent{Path: path, Content: content}
+	m.artMeta = append(m.artMeta, adminread.ArtifactRow{ID: id, DeviceID: deviceID, Path: path, SHA256: sha256, Size: len(content), CollectedAt: time.Now()})
+	return id, nil
+}
+func (m *memStore) ListArtifacts(_ context.Context, deviceID string) ([]adminread.ArtifactRow, error) {
+	var out []adminread.ArtifactRow
+	for _, a := range m.artMeta {
+		if a.DeviceID == deviceID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+func (m *memStore) GetArtifact(_ context.Context, id string) (adminread.ArtifactContent, bool, error) {
+	c, ok := m.artifacts[id]
+	return c, ok, nil
 }
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]adminread.AuditRow, error) {
 	return m.auditRows, nil
@@ -952,5 +980,70 @@ func TestEventAckHTTP(t *testing.T) {
 	// RESOLVE → 200.
 	if code, _ := post(t, ts.URL+"/api/events/evt-x/resolve", opTok, map[string]string{}); code != http.StatusOK {
 		t.Fatalf("OPERATOR resolve 200 dönmeliydi, %d", code)
+	}
+}
+
+// Adli dosya toplama uçtan uca (HTTP): OPERATOR collect-file → queued; VIEWER
+// 403; artefakt listesi + indirme içerikle döner.
+func TestArtifactCollectionHTTP(t *testing.T) {
+	ts, store := setup(t)
+	defer ts.Close()
+	addAdmin(t, store, "op1", "op@x", "secret", admin.RoleOperator)
+	addAdmin(t, store, "vw1", "vw@x", "secret", admin.RoleViewer)
+	// Önceden toplanmış bir artefakt (grpc SaveArtifact yolunu taklit).
+	_, _ = store.SaveArtifact(context.Background(), "dev-1", "cmd-1", "C:/logs/app.log", "abcd", []byte("gizli-log-icerigi"))
+
+	_, ob := post(t, ts.URL+"/api/login", "", map[string]string{"email": "op@x", "password": "secret"})
+	opTok := ob["token"]
+	_, vb := post(t, ts.URL+"/api/login", "", map[string]string{"email": "vw@x", "password": "secret"})
+	vwTok := vb["token"]
+
+	// VIEWER collect-file → 403.
+	if code, _ := post(t, ts.URL+"/api/devices/dev-1/collect-file", vwTok, map[string]string{"path": "C:/x"}); code != http.StatusForbidden {
+		t.Fatalf("VIEWER collect-file 403 dönmeliydi, %d", code)
+	}
+	// OPERATOR collect-file → 200 + komut kuyruğa.
+	if code, _ := post(t, ts.URL+"/api/devices/dev-1/collect-file", opTok, map[string]string{"path": "C:/x/log.txt"}); code != http.StatusOK {
+		t.Fatalf("OPERATOR collect-file 200 dönmeliydi, %d", code)
+	}
+	found := false
+	for _, c := range store.commands {
+		if c == "dev-1:COLLECT_FILE" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("COLLECT_FILE komutu kuyruğa eklenmeliydi: %v", store.commands)
+	}
+
+	// Artefakt listesi.
+	req, _ := http.NewRequest("GET", ts.URL+"/api/devices/dev-1/artifacts", nil)
+	req.Header.Set("Authorization", "Bearer "+opTok)
+	resp, _ := http.DefaultClient.Do(req)
+	defer resp.Body.Close()
+	var lst struct {
+		Artifacts []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+			Size int    `json:"size"`
+		} `json:"artifacts"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&lst)
+	if len(lst.Artifacts) != 1 || lst.Artifacts[0].Path != "C:/logs/app.log" {
+		t.Fatalf("1 artefakt beklenirdi: %+v", lst.Artifacts)
+	}
+	aid := lst.Artifacts[0].ID
+
+	// İndirme içerikle döner.
+	dreq, _ := http.NewRequest("GET", ts.URL+"/api/artifacts/"+aid+"/download", nil)
+	dreq.Header.Set("Authorization", "Bearer "+opTok)
+	dresp, _ := http.DefaultClient.Do(dreq)
+	defer dresp.Body.Close()
+	body, _ := io.ReadAll(dresp.Body)
+	if string(body) != "gizli-log-icerigi" {
+		t.Fatalf("indirme içeriği hatalı: %q", string(body))
+	}
+	if cd := dresp.Header.Get("Content-Disposition"); !strings.Contains(cd, "app.log") {
+		t.Fatalf("Content-Disposition dosya adı içermeli: %q", cd)
 	}
 }

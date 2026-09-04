@@ -111,6 +111,11 @@ type Store interface {
 	// EventAcks, triyaj işaretli olayların durumunu döner (olay kimliği → durum).
 	// Alarm yaşam-döngüsü: olay listesine ACKNOWLEDGED/RESOLVED bindirilir.
 	EventAcks(ctx context.Context) (map[string]EventAck, error)
+	// ListArtifacts, bir cihazdan toplanan dosya artefaktlarının META verisini
+	// (içerik HARİÇ) en yeniden eskiye döner (adli/IR).
+	ListArtifacts(ctx context.Context, deviceID string) ([]ArtifactRow, error)
+	// GetArtifact, tek bir artefaktın içeriğini (indirme için) döner.
+	GetArtifact(ctx context.Context, id string) (ArtifactContent, bool, error)
 	ListAudit(ctx context.Context, limit int) ([]AuditRow, error)
 	DeviceByID(ctx context.Context, id string) (DeviceRow, bool, error)
 	CertsByDevice(ctx context.Context, id string) ([]CertRow, error)
@@ -163,6 +168,31 @@ type DeviceDetailDTO struct {
 	Commands              []CmdView  `json:"commands"`
 	AssignedPolicyID      string     `json:"assigned_policy_id"`
 	AssignedPolicyVersion string     `json:"assigned_policy_version"`
+}
+
+// ArtifactRow, toplanan bir dosya artefaktının meta verisidir (içerik hariç).
+type ArtifactRow struct {
+	ID          string
+	DeviceID    string
+	Path        string
+	SHA256      string
+	Size        int
+	CollectedAt time.Time
+}
+
+// ArtifactContent, bir artefaktın indirme içeriğidir.
+type ArtifactContent struct {
+	Path    string
+	Content []byte
+}
+
+// ArtifactDTO, konsola dönen artefakt meta görünümüdür.
+type ArtifactDTO struct {
+	ID          string    `json:"id"`
+	Path        string    `json:"path"`
+	SHA256      string    `json:"sha256"`
+	Size        int       `json:"size"`
+	CollectedAt time.Time `json:"collected_at"`
 }
 
 // EventAck, bir olayın triyaj durumudur (alarm yaşam-döngüsü).
@@ -474,6 +504,25 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		DevicesByOS:         byOS,
 		Since:               since,
 	}, nil
+}
+
+// Artifacts, bir cihazdan toplanan dosya artefaktlarının meta listesini döner
+// (içerik hariç; indirme ayrı uçtan). Adli/IR.
+func (s *Service) Artifacts(ctx context.Context, deviceID string) ([]ArtifactDTO, error) {
+	rows, err := s.store.ListArtifacts(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ArtifactDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ArtifactDTO{ID: r.ID, Path: r.Path, SHA256: r.SHA256, Size: r.Size, CollectedAt: r.CollectedAt})
+	}
+	return out, nil
+}
+
+// ArtifactBytes, tek bir artefaktın içeriğini (indirme için) döner.
+func (s *Service) ArtifactBytes(ctx context.Context, id string) (ArtifactContent, bool, error) {
+	return s.store.GetArtifact(ctx, id)
 }
 
 // SoftwareMatchDTO, yazılım aramasında eşleşen bir cihazı ve eşleşen paketleri

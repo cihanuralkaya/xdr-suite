@@ -2,8 +2,11 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"xdr.corp/suite/server/internal/adminread"
 )
@@ -76,6 +79,42 @@ func (s *Store) ListEvents(ctx context.Context, deviceID, severity, category str
 
 // ListAudit, denetim izini (audit_log) admin e-postasıyla birlikte en yeniden
 // eskiye listeler. Admin silinmiş/eşleşmemişse e-posta boş döner (LEFT JOIN).
+// ListArtifacts, bir cihazın artefakt meta verisini (içerik hariç) en yeniden
+// eskiye döner.
+func (s *Store) ListArtifacts(ctx context.Context, deviceID string) ([]adminread.ArtifactRow, error) {
+	const q = `
+		SELECT id::text, device_id::text, path, sha256, size_bytes, collected_at
+		  FROM artifacts WHERE device_id = $1::uuid ORDER BY collected_at DESC`
+	rows, err := s.pool.Query(ctx, q, deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("db: artefakt listesi: %w", err)
+	}
+	defer rows.Close()
+	var out []adminread.ArtifactRow
+	for rows.Next() {
+		var a adminread.ArtifactRow
+		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Path, &a.SHA256, &a.Size, &a.CollectedAt); err != nil {
+			return nil, fmt.Errorf("db: artefakt okuma: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// GetArtifact, tek bir artefaktın içeriğini (indirme için) döner.
+func (s *Store) GetArtifact(ctx context.Context, id string) (adminread.ArtifactContent, bool, error) {
+	const q = `SELECT path, content FROM artifacts WHERE id = $1::uuid`
+	var c adminread.ArtifactContent
+	err := s.pool.QueryRow(ctx, q, id).Scan(&c.Path, &c.Content)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return adminread.ArtifactContent{}, false, nil
+		}
+		return adminread.ArtifactContent{}, false, fmt.Errorf("db: artefakt içerik: %w", err)
+	}
+	return c, true, nil
+}
+
 // EventAcks, triyaj işaretli tüm olayların durumunu döner (olay kimliği →
 // durum + işaretleyen e-posta + zaman). Alarm yaşam-döngüsü.
 func (s *Store) EventAcks(ctx context.Context) (map[string]adminread.EventAck, error) {

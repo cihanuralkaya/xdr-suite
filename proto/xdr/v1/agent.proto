@@ -29,6 +29,22 @@ service AgentService {
   // OTA güncelleme kontrolü. Yanıt yalnızca metadata + İMZA taşır; ikili paket
   // ayrı, imzalı bir kanaldan indirilir ve ajan İMZAYI doğrular (yalnız hash yetmez).
   rpc CheckUpdate(UpdateCheckRequest) returns (UpdateManifest);
+
+  // Adli/IR dosya toplama: COLLECT_FILE komutu üzerine ajan hedef dosyayı
+  // (boyut-sınırlı) okuyup içeriğini yükler. Kimlik istemci sertifikasından.
+  rpc UploadArtifact(UploadArtifactRequest) returns (UploadArtifactResponse);
+}
+
+// UploadArtifactRequest, ajanın topladığı bir dosyayı taşır (boyut-sınırlı).
+message UploadArtifactRequest {
+  string command_id = 1;  // toplamayı tetikleyen komut
+  string path = 2;        // kaynaktaki dosya yolu
+  string sha256 = 3;      // içeriğin SHA-256'sı (hex)
+  bytes content = 4;      // dosya içeriği (sunucu boyut sınırını uygular)
+}
+
+message UploadArtifactResponse {
+  bool ok = 1;
 }
 
 message HeartbeatRequest {
@@ -65,6 +81,7 @@ message Command {
     COMMAND_TYPE_RUN_SIGNED_SCRIPT = 3; // İmzalı script çalıştır (sandbox'ta).
     COMMAND_TYPE_UNINSTALL = 4;     // Yalnız imzalı/OTP doğrulanmış kaldırma.
     COMMAND_TYPE_COLLECT_DIAGNOSTICS = 5;
+    COMMAND_TYPE_COLLECT_FILE = 6;  // Adli dosya toplama (params.path).
   }
 }
 

@@ -41,7 +41,7 @@ CREATE TYPE severity AS ENUM (
 CREATE TYPE admin_role AS ENUM ('VIEWER', 'OPERATOR', 'ADMIN');
 
 CREATE TYPE command_type AS ENUM (
-    'QUARANTINE', 'UNQUARANTINE', 'RUN_SIGNED_SCRIPT', 'UNINSTALL', 'COLLECT_DIAGNOSTICS'
+    'QUARANTINE', 'UNQUARANTINE', 'RUN_SIGNED_SCRIPT', 'UNINSTALL', 'COLLECT_DIAGNOSTICS', 'COLLECT_FILE'
 );
 
 -- ---------------------------------------------------------------------------
@@ -228,6 +228,21 @@ CREATE TABLE device_commands (
 );
 CREATE INDEX idx_device_commands_pending ON device_commands (device_id, created_at)
     WHERE delivered_at IS NULL;
+
+-- Adli/IR dosya toplama artefaktları: COLLECT_FILE komutuyla ajandan yüklenen
+-- dosya içeriği (boyut-sınırlı, uygulama katmanında). content ham baytlar;
+-- hassas olabileceğinden erişim RBAC + denetim iziyle korunur.
+CREATE TABLE artifacts (
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    device_id    UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    command_id   UUID,
+    path         TEXT NOT NULL,
+    sha256       CHAR(64) NOT NULL,
+    size_bytes   INTEGER NOT NULL,
+    content      BYTEA NOT NULL,
+    collected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_artifacts_device ON artifacts (device_id, collected_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- YÖNETİCİLER (RBAC) + DENETİM İZİ (#10)

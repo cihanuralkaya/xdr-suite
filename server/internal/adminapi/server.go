@@ -190,6 +190,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/software", s.authed(s.handleSoftwareSearch))
 	mux.HandleFunc("POST /api/events/{id}/ack", s.authed(s.handleAckEvent))
 	mux.HandleFunc("POST /api/events/{id}/resolve", s.authed(s.handleResolveEvent))
+	mux.HandleFunc("POST /api/devices/{id}/collect-file", s.authed(s.handleCollectFile))
+	mux.HandleFunc("GET /api/devices/{id}/artifacts", s.authed(s.handleListArtifacts))
+	mux.HandleFunc("GET /api/artifacts/{id}/download", s.authed(s.handleDownloadArtifact))
 	mux.HandleFunc("GET /api/activity", s.authed(s.handleActivity))
 	mux.HandleFunc("GET /api/features", s.authed(s.handleFeatures))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
@@ -822,6 +825,53 @@ func (s *Server) handleTestDetection(w http.ResponseWriter, r *http.Request, _ s
 		"matches": matches,
 		"matched": len(matches),
 	})
+}
+
+// handleCollectFile, bir cihazdan adli/IR dosya toplama komutu kuyruğa ekler
+// (OPERATOR+). Ajan dosyayı okuyup yükler; sonuç /artifacts uçlarından görülür.
+func (s *Server) handleCollectFile(w http.ResponseWriter, r *http.Request, adminID string) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if respondErr(w, s.adminSvc.CollectFile(r.Context(), adminID, r.PathValue("id"), req.Path)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "queued"})
+}
+
+// handleListArtifacts, bir cihazdan toplanan artefaktların meta listesini döner.
+func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request, _ string) {
+	arts, err := s.reader.Artifacts(r.Context(), r.PathValue("id"))
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artifacts": arts})
+}
+
+// handleDownloadArtifact, tek bir artefaktın ham içeriğini indirir (attachment).
+func (s *Server) handleDownloadArtifact(w http.ResponseWriter, r *http.Request, _ string) {
+	c, ok, err := s.reader.ArtifactBytes(r.Context(), r.PathValue("id"))
+	if respondErr(w, err) {
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "artefakt bulunamadı")
+		return
+	}
+	name := c.Path
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	if name == "" {
+		name = "artifact.bin"
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(c.Content)
 }
 
 // handleAckEvent, bir olayı ACKNOWLEDGED (inceleniyor) işaretler (OPERATOR+).

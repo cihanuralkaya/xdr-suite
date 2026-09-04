@@ -504,6 +504,11 @@
               <button class="btn ghost sm" data-act="diagnostics" disabled>🩺 Tanılama Topla</button>
               <button class="btn danger sm" data-act="revoke" disabled>⛔ Sertifika İptal</button>
             </div>
+            <div class="lbl" style="margin-top:14px">Adli — Dosya Toplama (IR)</div>
+            <div style="display:flex;gap:6px;margin-top:6px">
+              <input id="cf-path" placeholder="ör. C:\Windows\Temp\suspicious.log" style="flex:1;padding:6px 9px;font-size:12px" disabled>
+              <button class="btn sm" data-act="collectFile" disabled>📥 Topla</button>
+            </div>
             <div class="lbl" style="margin-top:14px">KVKK — Veri Sahibi Hakları</div>
             <div class="actions" style="margin-top:8px">
               <button class="btn ghost sm" data-act="exportData" disabled>📤 Veri Dışa Aktar</button>
@@ -954,6 +959,25 @@
     setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },0);
     toast("CSV indirildi",filename+" · "+rows.length+" satır","ok");
   }
+  // fmtBytes, bayt sayısını okunabilir biçime çevirir.
+  function fmtBytes(n){
+    n=n||0; if(n<1024) return n+" B";
+    if(n<1048576) return (n/1024).toFixed(1)+" KB";
+    return (n/1048576).toFixed(1)+" MB";
+  }
+  // downloadArtifact, kimlik doğrulamalı GET ile artefakt içeriğini indirir
+  // (Bearer başlığı gerektiğinden düz <a href> yerine fetch→blob).
+  function downloadArtifact(id, path){
+    var name=(path||"artifact").replace(/^.*[\\/]/,"")||"artifact";
+    fetch("/api/artifacts/"+encodeURIComponent(id)+"/download",{headers:{Authorization:"Bearer "+state.token}})
+      .then(function(res){ if(!res.ok) throw new Error("HTTP "+res.status); return res.blob(); })
+      .then(function(blob){
+        var url=URL.createObjectURL(blob), a=document.createElement("a");
+        a.href=url; a.download=name; document.body.appendChild(a); a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },0);
+        toast("Artefakt indirildi",name,"ok");
+      }).catch(function(e){ toast("İndirme başarısız",e.message,"err"); });
+  }
   function downloadJSON(filename, obj){
     var blob=new Blob([JSON.stringify(obj,null,2)],{type:"application/json;charset=utf-8"});
     var url=URL.createObjectURL(blob), a=document.createElement("a");
@@ -1383,8 +1407,9 @@
       head.textContent="Bir cihaz seçmek için tablodan satıra tıklayın.";
     }
     document.querySelectorAll("[data-act]").forEach(function(b){
-      var needsSel = ["quarantine","release","diagnostics","revoke","exportData","eraseData","assignPolicy","setTags"].indexOf(b.dataset.act)>=0;
+      var needsSel = ["quarantine","release","diagnostics","revoke","exportData","eraseData","assignPolicy","setTags","collectFile"].indexOf(b.dataset.act)>=0;
       if(needsSel) b.disabled = !state.sel;
+      var cfp=$("cf-path"); if(cfp) cfp.disabled = !state.sel;
     });
     renderTags(d);
     var det=$("dev-detail");
@@ -1780,7 +1805,8 @@
   function loadDetail(id){
     Promise.all([
       api("/api/devices/"+encodeURIComponent(id)),
-      soft(api("/api/events?device_id="+encodeURIComponent(id)+"&limit=15"))
+      soft(api("/api/events?device_id="+encodeURIComponent(id)+"&limit=15")),
+      soft(api("/api/devices/"+encodeURIComponent(id)+"/artifacts"))
     ]).then(function(res){
       if(state.sel!==id) return; // seçim değiştiyse eski yanıtı yazma
       var d=res[0].device_detail; if(!d) return;
@@ -1844,16 +1870,31 @@
         swHtml="<div style='max-height:200px;overflow:auto'>"+shown+"</div>"+
           (moreN>0?("<div class='mini' style='color:var(--faint)'>… ve "+moreN+" tane daha</div>"):"");
       }
+      // Toplanan artefaktlar (adli/IR): indirilebilir dosya listesi.
+      var arts=(res[2]&&res[2].artifacts)||[];
+      var artHtml="";
+      if(arts.length){
+        artHtml=arts.map(function(a){
+          return "<div class='mini' style='display:flex;gap:8px;align-items:baseline;padding:3px 0'>"+
+            "<span class='click' style='cursor:pointer;color:var(--accent)' data-artdl='"+esc(a.id)+"' data-artname='"+esc(a.path)+"'>⬇</span>"+
+            "<span style='flex:1;word-break:break-all'>"+esc(a.path)+"</span>"+
+            "<span class='mono' style='color:var(--faint)'>"+fmtBytes(a.size)+"</span></div>";
+        }).join("");
+      }
       el.innerHTML =
         "<h4>Sistem</h4><div class='mini'>"+sysLine+"</div>"+
         (resHtml?("<h4>Kaynak kullanımı</h4>"+resHtml):"")+
         (compHtml?("<h4>Uyum durumu</h4>"+compHtml):"")+
         (swHtml?("<h4>Yüklü yazılım ("+swCount+")</h4>"+swHtml):"")+
         (neighHtml?("<h4>Ağ keşfi — komşular ("+nk.length+")</h4>"+neighHtml):"")+
+        (artHtml?("<h4>Toplanan dosyalar ("+arts.length+")</h4>"+artHtml):"")+
         "<h4>Atanmış politika</h4><div class='mini'>"+(d.assigned_policy_id?(esc(d.assigned_policy_id)+" ("+esc(d.assigned_policy_version)+")"):"— yok")+"</div>"+
         "<h4>Son olaylar ("+evs.length+")</h4>"+evHtml+
         "<h4>Sertifikalar</h4>"+certs+
         "<h4>Komut geçmişi</h4>"+cmds;
+      Array.prototype.forEach.call(el.querySelectorAll("[data-artdl]"),function(a){
+        a.onclick=function(){ downloadArtifact(a.getAttribute("data-artdl"), a.getAttribute("data-artname")); };
+      });
       if(d.assigned_policy_id){ if(!$("r-pol").value) $("r-pol").value=d.assigned_policy_id; if(!$("a-pol").value) $("a-pol").value=d.assigned_policy_id; }
     }).catch(function(){});
   }
@@ -1958,6 +1999,12 @@
     diagnostics: function(){ return api("/api/devices/collect-diagnostics","POST",{device_id:state.sel}).then(function(){
       showOut("o-dev","Tanılama toplama komutu kuyruğa alındı — ajan sonraki bağlantıda uygular.","ok");
       toast("Tanılama istendi",selName(),"ok"); if(state.sel) loadDetail(state.sel); }); },
+    collectFile: function(){
+      var path=($("cf-path").value||"").trim();
+      if(!path){ showOut("o-dev","Toplanacak dosya yolunu girin.","err"); return Promise.resolve(); }
+      return api("/api/devices/"+encodeURIComponent(state.sel)+"/collect-file","POST",{path:path}).then(function(){
+        showOut("o-dev","Dosya toplama komutu kuyruğa alındı: "+esc(path)+" — ajan yükledikten sonra 'Toplanan dosyalar'da görünür.","ok");
+        toast("Dosya toplama istendi",path,"ok"); }); },
     revoke: function(){
       if(!confirm("“"+selName()+"” cihazının sertifikası İPTAL edilecek. Bu GERİ ALINAMAZ — cihaz yeniden kaydolana kadar bağlanamaz. Onaylıyor musunuz?")) return Promise.resolve();
       return api("/api/devices/revoke","POST",{device_id:state.sel}).then(function(){

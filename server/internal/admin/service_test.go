@@ -18,15 +18,16 @@ type memStore struct {
 	revoked   map[string]bool   // tokenID -> iptal edildi mi
 	commands  []cmd
 	audits    []audit
-	policies  map[string]string      // id -> name
-	versions  map[string]string      // id -> version
-	rules     map[string][]RuleInput // id -> kurallar
-	assigned  map[string]string      // deviceID -> policyID
-	statuses  map[string]string      // deviceID -> son ayarlanan durum
-	tags      map[string][]string    // deviceID -> etiketler
-	admins    map[string]*adminEntry // id -> yönetici
-	erased    string                 // EraseDeviceData ile silinen son deviceID
-	eventAcks map[string]string      // eventID -> status (triyaj)
+	policies  map[string]string            // id -> name
+	versions  map[string]string            // id -> version
+	rules     map[string][]RuleInput       // id -> kurallar
+	assigned  map[string]string            // deviceID -> policyID
+	statuses  map[string]string            // deviceID -> son ayarlanan durum
+	tags      map[string][]string          // deviceID -> etiketler
+	admins    map[string]*adminEntry       // id -> yönetici
+	erased    string                       // EraseDeviceData ile silinen son deviceID
+	eventAcks map[string]string            // eventID -> status (triyaj)
+	cmdParams map[string]map[string]string // cmdType -> son params
 	nextPolID int
 	nextAdmID int
 }
@@ -86,6 +87,14 @@ func (m *memStore) RevokeEnrollmentToken(_ context.Context, tokenID string) erro
 }
 func (m *memStore) EnqueueCommand(_ context.Context, deviceID, cmdType, issuedBy string) error {
 	m.commands = append(m.commands, cmd{deviceID, cmdType, issuedBy})
+	return nil
+}
+func (m *memStore) EnqueueCommandParams(_ context.Context, deviceID, cmdType, issuedBy string, params map[string]string) error {
+	m.commands = append(m.commands, cmd{deviceID, cmdType, issuedBy})
+	if m.cmdParams == nil {
+		m.cmdParams = map[string]map[string]string{}
+	}
+	m.cmdParams[cmdType] = params
 	return nil
 }
 func (m *memStore) SetDeviceStatus(_ context.Context, deviceID, status string) error {
@@ -213,6 +222,35 @@ func newService(t *testing.T, store Store) (*Service, *security.BlindIndexer) {
 
 // AckEvent (alarm yaşam-döngüsü): VIEWER reddedilir; geçersiz durum reddedilir;
 // OPERATOR işaretler + denetim izine yazılır.
+// CollectFile (adli dosya toplama): VIEWER reddedilir; boş yol reddedilir;
+// OPERATOR COLLECT_FILE komutunu params.path ile kuyruğa alır + audit.
+func TestCollectFileRBACAndParams(t *testing.T) {
+	store := newMemStore()
+	store.roles["viewer1"] = RoleViewer
+	store.roles["op1"] = RoleOperator
+	svc, _ := newService(t, store)
+	ctx := context.Background()
+
+	if err := svc.CollectFile(ctx, "viewer1", "dev-1", "C:/x/log.txt"); err != ErrForbidden {
+		t.Fatalf("VIEWER toplayamamalı, dönen: %v", err)
+	}
+	if err := svc.CollectFile(ctx, "op1", "dev-1", "  "); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("boş yol reddedilmeliydi, dönen: %v", err)
+	}
+	if err := svc.CollectFile(ctx, "op1", "dev-1", "C:/x/log.txt"); err != nil {
+		t.Fatalf("OPERATOR toplayabilmeli: %v", err)
+	}
+	if len(store.commands) != 1 || store.commands[0].cmdType != "COLLECT_FILE" {
+		t.Fatalf("COLLECT_FILE komutu kuyruğa eklenmeliydi: %+v", store.commands)
+	}
+	if store.cmdParams["COLLECT_FILE"]["path"] != "C:/x/log.txt" {
+		t.Fatalf("params.path iletilmeliydi: %+v", store.cmdParams)
+	}
+	if !hasAudit(store.audits, "COLLECT_FILE", "device", "dev-1") {
+		t.Fatalf("denetim izine yazılmalıydı: %+v", store.audits)
+	}
+}
+
 func TestAckEventRBACAndAudit(t *testing.T) {
 	store := newMemStore()
 	store.roles["viewer1"] = RoleViewer

@@ -8,12 +8,14 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	xdrv1 "xdr.corp/suite/gen/xdr/v1"
 	"xdr.corp/suite/server/internal/enroll"
@@ -182,7 +184,7 @@ func (s *Store) PendingCommands(ctx context.Context, deviceID string) ([]*xdrv1.
 		        WHERE device_id = $1 AND delivered_at IS NULL
 		        ORDER BY created_at
 		        LIMIT 100)
-	 RETURNING id::text, type`
+	 RETURNING id::text, type, COALESCE(params::text, '')`
 	rows, err := s.pool.Query(ctx, q, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("db: komut sorgusu: %w", err)
@@ -191,21 +193,38 @@ func (s *Store) PendingCommands(ctx context.Context, deviceID string) ([]*xdrv1.
 
 	var cmds []*xdrv1.Command
 	for rows.Next() {
-		var id, typ string
-		if err := rows.Scan(&id, &typ); err != nil {
+		var id, typ, paramsJSON string
+		if err := rows.Scan(&id, &typ, &paramsJSON); err != nil {
 			return nil, fmt.Errorf("db: komut okuma: %w", err)
 		}
-		cmds = append(cmds, &xdrv1.Command{CommandId: id, Type: commandTypeToProto(typ)})
+		cmd := &xdrv1.Command{CommandId: id, Type: commandTypeToProto(typ)}
+		if paramsJSON != "" {
+			var m map[string]any
+			if json.Unmarshal([]byte(paramsJSON), &m) == nil {
+				cmd.Params, _ = structpb.NewStruct(m)
+			}
+		}
+		cmds = append(cmds, cmd)
 	}
 	return cmds, rows.Err()
 }
 
 // EnqueueCommand, cihaz için bir komut kuyruğa ekler (admin aksiyonu).
 func (s *Store) EnqueueCommand(ctx context.Context, deviceID, cmdType, issuedBy string) error {
+	return s.EnqueueCommandParams(ctx, deviceID, cmdType, issuedBy, nil)
+}
+
+// EnqueueCommandParams, parametreli komut kuyruğa ekler (params JSONB olarak
+// saklanır ve teslimde google.protobuf.Struct'a dönüşür).
+func (s *Store) EnqueueCommandParams(ctx context.Context, deviceID, cmdType, issuedBy string, params map[string]string) error {
+	var pj []byte
+	if len(params) > 0 {
+		pj, _ = json.Marshal(params)
+	}
 	const q = `
-		INSERT INTO device_commands (device_id, type, issued_by)
-		VALUES ($1, $2::command_type, NULLIF($3,'')::uuid)`
-	_, err := s.pool.Exec(ctx, q, deviceID, cmdType, issuedBy)
+		INSERT INTO device_commands (device_id, type, issued_by, params)
+		VALUES ($1, $2::command_type, NULLIF($3,'')::uuid, $4)`
+	_, err := s.pool.Exec(ctx, q, deviceID, cmdType, issuedBy, pj)
 	if err != nil {
 		return fmt.Errorf("db: komut kuyruğa eklenemedi: %w", err)
 	}
@@ -224,6 +243,8 @@ func commandTypeToProto(t string) xdrv1.Command_CommandType {
 		return xdrv1.Command_COMMAND_TYPE_UNINSTALL
 	case "COLLECT_DIAGNOSTICS":
 		return xdrv1.Command_COMMAND_TYPE_COLLECT_DIAGNOSTICS
+	case "COLLECT_FILE":
+		return xdrv1.Command_COMMAND_TYPE_COLLECT_FILE
 	default:
 		return xdrv1.Command_COMMAND_TYPE_UNSPECIFIED
 	}

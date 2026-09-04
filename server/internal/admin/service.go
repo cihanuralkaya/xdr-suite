@@ -73,6 +73,9 @@ type Store interface {
 	// (used_at damgalar). Zaten kullanılmış/yok token için sessizdir (no-op).
 	RevokeEnrollmentToken(ctx context.Context, tokenID string) error
 	EnqueueCommand(ctx context.Context, deviceID, cmdType, issuedBy string) error
+	// EnqueueCommandParams, parametreli komut kuyruğa ekler (ör. COLLECT_FILE
+	// için params.path). params ajana google.protobuf.Struct olarak iletilir.
+	EnqueueCommandParams(ctx context.Context, deviceID, cmdType, issuedBy string, params map[string]string) error
 	// SetDeviceStatus, cihazın durum sütununu doğrudan ayarlar (komut kuyruğa
 	// girdikten sonra durumun UI'da yansıması için).
 	SetDeviceStatus(ctx context.Context, deviceID, status string) error
@@ -329,6 +332,22 @@ func (s *Service) ReleaseDevice(ctx context.Context, adminID, deviceID string) e
 // Durum değiştirmez — zararsız, salt-toplama bir işlemdir.
 func (s *Service) CollectDiagnostics(ctx context.Context, adminID, deviceID string) error {
 	return s.command(ctx, adminID, deviceID, "COLLECT_DIAGNOSTICS", "")
+}
+
+// CollectFile, bir cihazdan adli/IR dosya toplama komutu kuyruğa ekler
+// (OPERATOR+). Ajan dosyayı okuyup UploadArtifact ile yükler. Denetim izine yazılır.
+func (s *Service) CollectFile(ctx context.Context, adminID, deviceID, path string) error {
+	if err := s.require(ctx, adminID, RoleOperator); err != nil {
+		return err
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("%w: dosya yolu zorunlu", ErrInvalidInput)
+	}
+	if err := s.store.EnqueueCommandParams(ctx, deviceID, "COLLECT_FILE", adminID, map[string]string{"path": path}); err != nil {
+		return err
+	}
+	_ = s.store.WriteAudit(ctx, adminID, "COLLECT_FILE", "device", deviceID)
+	return nil
 }
 
 // AckEvent, bir olayı triyaj durumuna geçirir (ACKNOWLEDGED "inceleniyor" veya

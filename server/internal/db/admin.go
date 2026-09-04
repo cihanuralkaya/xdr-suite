@@ -62,6 +62,20 @@ func (s *Store) SaveEnrollmentToken(ctx context.Context, tokenIndex []byte, crea
 }
 
 // WriteAudit, değişmez denetim izine bir satır yazar (#10).
+// SaveArtifact, toplanan bir dosya artefaktını saklar ve id'sini döner
+// (grpc.ArtifactSink; adli/IR). command_id boşsa NULL yazılır.
+func (s *Store) SaveArtifact(ctx context.Context, deviceID, commandID, path, sha256 string, content []byte) (string, error) {
+	const q = `
+		INSERT INTO artifacts (device_id, command_id, path, sha256, size_bytes, content)
+		VALUES ($1::uuid, NULLIF($2,'')::uuid, $3, $4, $5, $6)
+		RETURNING id::text`
+	var id string
+	if err := s.pool.QueryRow(ctx, q, deviceID, commandID, path, sha256, len(content), content).Scan(&id); err != nil {
+		return "", fmt.Errorf("db: artefakt kaydı: %w", err)
+	}
+	return id, nil
+}
+
 // SetEventAck, bir olayın triyaj durumunu ayarlar (olay başına upsert). Alarm
 // yaşam-döngüsü (ACKNOWLEDGED/RESOLVED).
 func (s *Store) SetEventAck(ctx context.Context, eventID, adminID, status string) error {
