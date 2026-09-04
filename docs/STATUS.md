@@ -14,8 +14,8 @@ kanıtlandı** (`server/internal/e2e`). Kernel-seviye tamper koruması bilinçli
 olarak kapsam dışıdır (bkz. aşağıda).
 
 - Dil: **Go** (tek dil), iletişim **gRPC + mTLS**, TLS 1.3.
-- ~8 100 satır üretim Go + kapsamlı test.
-- **204 test fonksiyonu / 39 test paketi**, tümü geçiyor (`go test ./...`).
+- ~15 000 satır üretim Go + kapsamlı test.
+- **267 test fonksiyonu / 45 test paketi**, tümü geçiyor (`go test ./...`).
 - Cross-compile doğrulandı: Windows (native), Linux, macOS.
 - **Bellek-içi demo modu** canlı çalıştırıldı (`XDR_DATABASE_URL` boş): gerçek
   enrollment, gerçek ağ keşfi, tüm admin/konsol akışları uçtan uca denendi.
@@ -29,7 +29,7 @@ OTA imza + rollout kapısı → komut teslimi (karantina) → tek-kullanımlık 
 **Smoke/kabul testi** (`scripts/smoke-test.sh`, `make smoke`): gerçek c2 + gerçek
 agent süreçlerini izole portlarda ayağa kaldırır ve kayıt → CSR imza → heartbeat →
 olay → admin eylem (tanılama) → denetim izi → özet/politika okuma → **SSE canlı
-akış** zincirini 15 iddiayla doğrular. **CI** (`.github/workflows/ci.yml`):
+akış** zincirini ~28 iddiayla doğrular. **CI** (`.github/workflows/ci.yml`):
 proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifact).
 
 ## Yetenek matrisi
@@ -104,6 +104,16 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Sertleştirme: istek gövdesi 1 MiB sınırı (DoS) | ✅ | `adminapi` | birim |
 | Sertleştirme: admin HTTP zaman aşımları (slowloris) | ✅ | c2 main | smoke (SSE korunur) |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
+| Zengin süreç-çalıştırma telemetrisi (komut satırı + soyağacı) | ✅ Win/Linux | `agent/internal/enforce`, `monitor` | birim |
+| Tespit motoru v2 (regex/alan/eşik kuralları) | ✅ | `server/internal/detect` | birim + smoke |
+| Ağ bağlantı telemetrisi (dinleyen/kurulu) | ✅ Win/Linux | `agent/internal/netconn`, grpc, db | birim |
+| İsteğe-bağlı dosya/artefakt toplama (adli/IR) | ✅ | `admin.CollectFile`, `grpc.UploadArtifact`, `artifacts` tablosu | birim + canlı |
+| Envanterden zafiyet eşleştirme (CVE) | ✅ opsiyonel | `server/internal/vuln`, `adminread`, console | birim + smoke |
+| MDM uzak eylemler (LOCK/RESTART/WIPE) | ✅ mantık/OS-derlendi + safe-mode | `admin`, `agent/internal/deviceaction`, proto | birim + smoke |
+| USB/çıkarılabilir medya kontrolü | ✅ Win/Linux | `agent/internal/usbmon` | birim |
+| SIEM iletici (syslog + CEF/LEEF) | ✅ opsiyonel | `server/internal/notify/siem.go`, c2 main | birim |
+| Vaka/olay yönetimi (sorumlu + not, denetimli) | ✅ | `admin.UpdateEventCase`, `adminread`, `db`, `memstore`, console | birim + smoke + canlı |
+| Yatay ölçekleme / HA (çok-düğüm SSE fan-out) | ✅ opsiyonel | `server/internal/cluster` (Postgres LISTEN/NOTIFY), `eventbus`, `db` | birim + smoke (gerçek pg_notify) |
 
 ## İlk inceleme bulguları — karşılıklar
 
@@ -194,8 +204,8 @@ mTLS gRPC and real cryptography (`server/internal/e2e`). Kernel-level tamper
 protection is deliberately out of scope (see below).
 
 - Language: **Go** (single language), communication over **gRPC + mTLS**, TLS 1.3.
-- ~8,100 lines of production Go + comprehensive tests.
-- **204 test functions / 39 test packages**, all passing (`go test ./...`).
+- ~15,000 lines of production Go + comprehensive tests.
+- **267 test functions / 45 test packages**, all passing (`go test ./...`).
 - Cross-compilation verified: Windows (native), Linux, macOS.
 - **In-memory demo mode** run live (`XDR_DATABASE_URL` empty): real enrollment, real
   network discovery, all admin/console flows exercised end-to-end.
@@ -209,7 +219,7 @@ OTA signature + rollout gate -> command delivery (quarantine) -> single-use toke
 **Smoke/acceptance test** (`scripts/smoke-test.sh`, `make smoke`): brings up real c2
 + real agent processes on isolated ports and verifies the enroll -> CSR signing ->
 heartbeat -> event -> admin action (diagnostics) -> audit log -> summary/policy read
--> **live SSE stream** chain with 15 assertions. **CI** (`.github/workflows/ci.yml`):
+-> **live SSE stream** chain with ~28 assertions. **CI** (`.github/workflows/ci.yml`):
 proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
 
 ## Capability matrix
@@ -274,6 +284,16 @@ proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
 | Hardening: 1 MiB request-body limit (DoS) | done | `adminapi` | unit |
 | Hardening: admin HTTP timeouts (slowloris) | done | c2 main | smoke (SSE preserved) |
 | Encrypted PostgreSQL schema | done | `db/schema.sql` | - |
+| Rich process-execution telemetry (command line + lineage) | done Win/Linux | `agent/internal/enforce`, `monitor` | unit |
+| Detection engine v2 (regex/field/threshold rules) | done | `server/internal/detect` | unit + smoke |
+| Network connection telemetry (listening/established) | done Win/Linux | `agent/internal/netconn`, grpc, db | unit |
+| On-demand file/artifact collection (forensics/IR) | done | `admin.CollectFile`, `grpc.UploadArtifact`, `artifacts` table | unit + live |
+| Vulnerability mapping from inventory (CVE) | done optional | `server/internal/vuln`, `adminread`, console | unit + smoke |
+| MDM remote actions (LOCK/RESTART/WIPE) | done logic/OS-compiled + safe-mode | `admin`, `agent/internal/deviceaction`, proto | unit + smoke |
+| USB/removable-media control | done Win/Linux | `agent/internal/usbmon` | unit |
+| SIEM forwarder (syslog + CEF/LEEF) | done optional | `server/internal/notify/siem.go`, c2 main | unit |
+| Case/incident management (assignee + note, audited) | done | `admin.UpdateEventCase`, `adminread`, `db`, `memstore`, console | unit + smoke + live |
+| Horizontal scale / HA (multi-node SSE fan-out) | done optional | `server/internal/cluster` (Postgres LISTEN/NOTIFY), `eventbus`, `db` | unit + smoke (real pg_notify) |
 
 ## Initial review findings - responses
 

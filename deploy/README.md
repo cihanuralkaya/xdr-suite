@@ -72,6 +72,26 @@ Tüm ajan ortam değişkenleri: `deploy/agent.env.example`.
 `-safe-mode` bayrağı: karantina gerçek ağ değişikliği yapmaz (test/dağıtım
 başlangıcı için güvenli).
 
+## Yatay ölçekleme (çok-düğüm / HA)
+
+Tek düğüm yükü kaldırmaya yetmezse birden çok C2 düğümü bir yük dengeleyici
+arkasında koşabilir. Gereksinimler ve davranış:
+
+- **Paylaşılan PostgreSQL zorunlu.** Tüm düğümler aynı `XDR_DATABASE_URL`'i
+  kullanır (bellek-içi demo modu çok-düğümde çalışmaz). Şema tek sefer yüklenir.
+- **`XDR_CLUSTER=1`** ile canlı konsol akışı (SSE) düğümler arası **Postgres
+  LISTEN/NOTIFY** ile fan-out edilir: bir ajanın olayı hangi düğüme gelirse
+  gelsin, tüm düğümlerdeki admin konsolları anında görür. Kanal adı
+  `XDR_CLUSTER_CHANNEL` (varsayılan `xdr_notice`).
+- **Ajan/enroll trafiği durumsuzdur** — herhangi bir düğüme dengelenebilir (mTLS
+  kimliği ve komut kuyruğu DB'dedir). Sertifika iptali her düğümde DB'den
+  periyodik tazelenir.
+- **Admin konsolu (SSE)** uzun-ömürlü bir bağlantıdır; yük dengeleyicide oturum
+  yapışkanlığı (sticky session) önerilir — akışın koptuğunda konsol otomatik
+  yeniden bağlanır ve periyodik yenileme tutarlılığı yakalar.
+- `/api/features` → `cluster_enabled: true` ve konsol sistem kartındaki "Yatay
+  ölçekleme" satırı fan-out'un etkin olduğunu doğrular.
+
 ## Kurulan konumlar
 
 | | Sunucu | Ajan |
@@ -164,6 +184,26 @@ All agent environment variables: `deploy/agent.env.example`.
 
 The `-safe-mode` flag: quarantine makes no real network changes (safe for
 testing / the start of a rollout).
+
+## Horizontal scale (multi-node / HA)
+
+When one node is not enough, multiple C2 nodes can run behind a load balancer.
+Requirements and behavior:
+
+- **Shared PostgreSQL is mandatory.** All nodes use the same `XDR_DATABASE_URL`
+  (the in-memory demo mode does not work multi-node). Load the schema once.
+- **`XDR_CLUSTER=1`** fans out the live console stream (SSE) across nodes via
+  **Postgres LISTEN/NOTIFY**: whichever node an agent's event lands on, every
+  node's admin console sees it instantly. Channel name via `XDR_CLUSTER_CHANNEL`
+  (default `xdr_notice`).
+- **Agent/enroll traffic is stateless** — it can be balanced to any node (mTLS
+  identity and the command queue live in the DB). Certificate revocation is
+  refreshed from the DB on each node periodically.
+- **The admin console (SSE)** is a long-lived connection; sticky sessions are
+  recommended at the load balancer — the console auto-reconnects if the stream
+  drops and periodic refresh reconciles state.
+- `/api/features` → `cluster_enabled: true` and the "Horizontal scale" row on the
+  console system card confirm the fan-out is active.
 
 ## Installed locations
 
