@@ -463,6 +463,7 @@
               <button data-sev="HIGH">Yüksek+</button>
               <button data-sev="CRITICAL">Kritik</button>
             </div>
+            <button class="btn ghost sm" id="evt-pending" type="button" title="Yalnız çözülmemiş (kapatılmamış) olayları göster">Bekleyen</button>
             <button class="btn ghost sm" id="evt-csv" title="Görünen olayları CSV indir">↓ CSV</button>
             <button class="btn ghost sm" id="evt-refresh">↻</button>
           </div>
@@ -869,7 +870,7 @@
   }
   // ================= /TEMA & GÖRÜNÜM =================
 
-  var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", catFilter:"", actFilter:"", auto:true, timer:null,
+  var state = { token:"", email:"", devices:[], events:[], sel:null, sevFilter:"", catFilter:"", actFilter:"", pendingOnly:false, auto:true, timer:null,
     evtOpen:{}, tokens:[], admins:[], policies:[], devSearch:"", devFilter:"",
     streamOn:false, streamCtrl:null, streamRetry:null, polOpen:{}, polRules:{}, audSearch:"" };
 
@@ -1275,17 +1276,19 @@
   function renderEvents(){
     var body=$("evt-body"); body.innerHTML="";
     var list=state.events.filter(function(e){
+      if(state.pendingOnly && e.ack_status==="RESOLVED") return false;
       if(state.catFilter && e.category!==state.catFilter) return false;
       if(!state.sevFilter) return true;
       if(state.sevFilter==="CRITICAL") return e.severity==="CRITICAL";
       return e.severity==="CRITICAL"||e.severity==="HIGH";
     });
-    $("evt-count").textContent=list.length + (state.catFilter?(" · "+state.catFilter):"");
+    $("evt-count").textContent=list.length + (state.catFilter?(" · "+state.catFilter):"") + (state.pendingOnly?" · bekleyen":"");
     $("evt-empty").style.display = list.length ? "none" : "block";
     list.forEach(function(e){
       var hasDet = e.details != null && JSON.stringify(e.details) !== "null" && JSON.stringify(e.details) !== "{}";
+      var open = state.evtOpen[e.id];
       var tr=document.createElement("tr");
-      if(hasDet){ tr.className="click"; tr.title="Ayrıntı için tıklayın"; }
+      tr.className="click"; tr.title="Ayrıntı / triyaj için tıklayın";
       tr.appendChild(cell(relTime(e.created_at)));
       var c=document.createElement("td");
       var cat=e.category||"-";
@@ -1294,35 +1297,71 @@
       tr.appendChild(c);
       var sv=document.createElement("td"); var s=document.createElement("span");
       s.className="sev "+(e.severity||""); s.textContent=e.severity||"-"; sv.appendChild(s); tr.appendChild(sv);
-      var msg=cell((hasDet?"▸ ":"")+(e.message||"-")); msg.style.whiteSpace="normal"; tr.appendChild(msg);
+      var msg=cell((open?"▾ ":"▸ ")+(e.message||"-")); msg.style.whiteSpace="normal";
+      if(e.ack_status){ msg.appendChild(ackBadge(e)); }
+      tr.appendChild(msg);
+      tr.onclick=function(){ state.evtOpen[e.id]=!state.evtOpen[e.id]; renderEvents(); };
       body.appendChild(tr);
-      if(hasDet){
-        var open = state.evtOpen[e.id];
-        if(open) msg.firstChild && (msg.textContent="▾ "+(e.message||"-"));
-        tr.onclick=function(){ state.evtOpen[e.id]=!state.evtOpen[e.id]; renderEvents(); };
-        if(open){
-          var dr=document.createElement("tr"); var dtd=document.createElement("td");
-          dtd.colSpan=4; dtd.style.background="var(--panel2)";
-          if(e.device_id){
-            var dv=document.createElement("div");
-            dv.style.cssText="font-size:11.5px;color:var(--muted);margin-bottom:6px";
-            dv.innerHTML="Cihaz: <b>"+esc(deviceName(e.device_id))+"</b>";
-            dtd.appendChild(dv);
-          }
+      if(open){
+        var dr=document.createElement("tr"); var dtd=document.createElement("td");
+        dtd.colSpan=4; dtd.style.background="var(--panel2)";
+        if(e.device_id){
+          var dv=document.createElement("div");
+          dv.style.cssText="font-size:11.5px;color:var(--muted);margin-bottom:6px";
+          dv.innerHTML="Cihaz: <b>"+esc(deviceName(e.device_id))+"</b>";
+          dtd.appendChild(dv);
+        }
+        if(e.ack_status){
+          var st=document.createElement("div"); st.style.cssText="font-size:11.5px;color:var(--muted);margin-bottom:6px";
+          st.innerHTML="Triyaj: <b>"+(e.ack_status==="RESOLVED"?"Çözüldü":"İnceleniyor")+"</b>"+
+            (e.ack_by?(" · "+esc(e.ack_by)):"")+(e.ack_at?(" · "+esc(relTime(e.ack_at))):"");
+          dtd.appendChild(st);
+        }
+        if(hasDet){
           var pre=document.createElement("pre");
           pre.style.cssText="margin:0;font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto";
           try { pre.textContent=JSON.stringify(e.details,null,2); } catch(x){ pre.textContent=String(e.details); }
           dtd.appendChild(pre);
-          var tb=document.createElement("button");
-          tb.className="btn ghost sm"; tb.type="button"; tb.textContent="🧪 Bu olayı kurallara karşı test et";
-          tb.style.marginTop="8px";
-          tb.title="Güvenlik → Kural Test Aracı'na bu olayı taşıyıp hangi kuralların tetikleneceğini gösterir";
-          tb.onclick=function(ev){ ev.stopPropagation(); testEventAgainstRules(e); };
-          dtd.appendChild(tb);
-          dr.appendChild(dtd); body.appendChild(dr);
         }
+        // Triyaj + test eylemleri.
+        var acts=document.createElement("div"); acts.style.cssText="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px";
+        var ab=mkEvtBtn(e.ack_status==="ACKNOWLEDGED"?"◔ İnceleniyor":"İncelendi işaretle",
+          "Bu olayı 'inceleniyor' (ACKNOWLEDGED) olarak işaretle", function(){ ackEvent(e.id,"ACKNOWLEDGED"); });
+        var rb=mkEvtBtn(e.ack_status==="RESOLVED"?"✓ Çözüldü":"Çözüldü işaretle",
+          "Bu olayı 'kapatıldı' (RESOLVED) olarak işaretle", function(){ ackEvent(e.id,"RESOLVED"); });
+        acts.appendChild(ab); acts.appendChild(rb);
+        if(hasDet){
+          acts.appendChild(mkEvtBtn("🧪 Kurallara karşı test et",
+            "Güvenlik → Kural Test Aracı'na bu olayı taşır", function(){ testEventAgainstRules(e); }));
+        }
+        dtd.appendChild(acts);
+        dr.appendChild(dtd); body.appendChild(dr);
       }
     });
+  }
+  // ackBadge: olay satırında triyaj durumu rozeti (inceleniyor / kapatıldı).
+  function ackBadge(e){
+    var b=document.createElement("span"); var resolved=e.ack_status==="RESOLVED";
+    b.textContent=resolved?"✓ kapatıldı":"◔ inceleniyor";
+    b.style.cssText="margin-left:8px;font-size:10px;padding:1px 7px;border-radius:8px;"+
+      (resolved?"background:var(--ok-dim,#0d2a1e);color:var(--ok,#10b981)":"background:var(--accent-dim);color:var(--accent)");
+    if(e.ack_by) b.title=e.ack_status+" — "+e.ack_by;
+    return b;
+  }
+  // mkEvtBtn: olay-detay panelinde küçük eylem düğmesi (tıklama olay-satırına sızmaz).
+  function mkEvtBtn(text, title, fn){
+    var b=document.createElement("button"); b.className="btn ghost sm"; b.type="button";
+    b.textContent=text; b.title=title;
+    b.onclick=function(ev){ ev.stopPropagation(); fn(); };
+    return b;
+  }
+  // ackEvent: olayı ACKNOWLEDGED/RESOLVED işaretler (OPERATOR+; VIEWER 403 → uyarı).
+  function ackEvent(id, status){
+    var path="/api/events/"+encodeURIComponent(id)+"/"+(status==="RESOLVED"?"resolve":"ack");
+    api(path,"POST",{}).then(function(){
+      toast(status==="RESOLVED"?"Olay çözüldü olarak işaretlendi":"Olay incelendi olarak işaretlendi","","ok");
+      refresh();
+    }).catch(function(e){ toast("Triyaj başarısız",e.message,"err"); });
   }
 
   function selectDevice(id){
@@ -2036,6 +2075,7 @@
   };
   $("posture-csv").onclick=exportPosture;
   $("rt-run").onclick=testRule;
+  $("evt-pending").onclick=function(){ state.pendingOnly=!state.pendingOnly; this.className="btn ghost sm"+(state.pendingOnly?" on":""); renderEvents(); };
   $("sw-run").onclick=searchSoftware;
   $("sw-q").addEventListener("keydown",function(ev){ if(ev.key==="Enter"){ ev.preventDefault(); searchSoftware(); } });
   $("rt-msg").addEventListener("keydown",function(ev){ if(ev.key==="Enter"){ ev.preventDefault(); testRule(); } });
