@@ -1005,9 +1005,9 @@
       return e.severity==="CRITICAL"||e.severity==="HIGH";
     });
     downloadCSV("olaylar-"+new Date().toISOString().slice(0,10)+".csv",
-      ["zaman","cihaz","kategori","onem","mesaj","ayrinti"],
+      ["zaman","cihaz","kategori","onem","mesaj","triyaj","triyaj_yapan","ayrinti"],
       list.map(function(e){ return [e.created_at, deviceName(e.device_id), e.category, e.severity, e.message,
-        e.details!=null?JSON.stringify(e.details):""]; }));
+        e.ack_status||"", e.ack_by||"", e.details!=null?JSON.stringify(e.details):""]; }));
   }
   function exportAudit(){
     downloadCSV("denetim-izi-"+new Date().toISOString().slice(0,10)+".csv",
