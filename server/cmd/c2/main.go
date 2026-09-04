@@ -214,15 +214,32 @@ func run() error {
 	// Dış uyarı (SOC webhook): XDR_ALERT_WEBHOOK_URL ayarlıysa yüksek önem düzeyli
 	// olaylar bir HTTPS webhook'una gönderilir (Slack/Teams/genel). Eşik
 	// XDR_ALERT_MIN_SEVERITY (varsayılan HIGH).
-	alertingOn, iocCount, autoRespOn := false, 0, false
+	alertingOn, iocCount, autoRespOn, siemOn := false, 0, false, false
+	var notifiers []notify.Notifier
 	if hook := os.Getenv("XDR_ALERT_WEBHOOK_URL"); hook != "" {
 		alerter, err := notify.NewWebhookNotifier(hook, getenv("XDR_ALERT_MIN_SEVERITY", "HIGH"), os.Getenv("XDR_ALERT_FORMAT"))
 		if err != nil {
 			return err
 		}
-		agentHandler.SetAlerter(alerter)
+		notifiers = append(notifiers, alerter)
 		alertingOn = true
 		log.Println("dış uyarı: webhook etkin (yüksek önem düzeyli olaylar)")
+	}
+	// SIEM iletici (#8): XDR_SIEM_ADDR ayarlıysa olaylar syslog+CEF/LEEF olarak
+	// bir SIEM'e (ArcSight/QRadar/Splunk) iletilir. proto XDR_SIEM_PROTO (udp|tcp),
+	// biçim XDR_SIEM_FORMAT (cef|leef), eşik XDR_SIEM_MIN_SEVERITY.
+	if siemAddr := os.Getenv("XDR_SIEM_ADDR"); siemAddr != "" {
+		sn, err := notify.NewSyslogNotifier(siemAddr, os.Getenv("XDR_SIEM_PROTO"),
+			os.Getenv("XDR_SIEM_FORMAT"), getenv("XDR_SIEM_MIN_SEVERITY", "HIGH"), os.Getenv("XDR_BUILD_VERSION"))
+		if err != nil {
+			return err
+		}
+		notifiers = append(notifiers, sn)
+		siemOn = true
+		log.Printf("SIEM iletici etkin: %s (%s/%s)", siemAddr, getenv("XDR_SIEM_PROTO", "udp"), getenv("XDR_SIEM_FORMAT", "cef"))
+	}
+	if len(notifiers) > 0 {
+		agentHandler.SetAlerter(notify.NewMulti(notifiers...))
 	}
 
 	// Tehdit istihbaratı (IoC): XDR_IOC_FILE ayarlıysa bilinen-kötü göstergeler
@@ -296,6 +313,7 @@ func run() error {
 	// Dağıtım koruma-duruşu (admin görünürlüğü: /api/features + konsol sistem kartı).
 	adminAPI.SetFeatures(map[string]any{
 		"alerting_enabled":      alertingOn,
+		"siem_enabled":          siemOn,
 		"vuln_dataset_size":     vulnCount,
 		"alert_format":          getenv("XDR_ALERT_FORMAT", "json"),
 		"auto_response_enabled": autoRespOn,
