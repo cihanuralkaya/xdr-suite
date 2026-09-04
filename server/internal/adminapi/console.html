@@ -608,7 +608,8 @@
         <div class="card" data-view="security" data-span="2">
           <div class="head"><h2>🎯 MITRE ATT&amp;CK Kapsamı</h2>
             <span class="sp"></span><span id="mitre-gap" class="count" style="display:none"></span>
-            <span id="mitre-count" class="count">0</span></div>
+            <span id="mitre-count" class="count">0</span>
+            <button class="btn ghost sm" id="posture-csv" title="Tespit duruşunu (teknik + kural + boşluk) JSON olarak indir">↓ JSON</button></div>
           <div class="body">
             <p class="hint" style="margin:0 0 10px">Bu dağıtımın eşleyebildiği düşman teknikleri ve her biri için etkin tespit kuralı olup olmadığı (kapsam boşluğu analizi).</p>
             <div class="tbl-wrap">
@@ -912,6 +913,33 @@
     a.href=url; a.download=filename; document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },0);
     toast("CSV indirildi",filename+" · "+rows.length+" satır","ok");
+  }
+  function downloadJSON(filename, obj){
+    var blob=new Blob([JSON.stringify(obj,null,2)],{type:"application/json;charset=utf-8"});
+    var url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },0);
+    toast("JSON indirildi",filename,"ok");
+  }
+  // exportPosture: tespit duruşunu (bilinen teknikler + eşleşen kurallar + kapsam
+  // boşlukları) tek bir JSON raporu olarak dışa aktarır — SOC dokümantasyonu /
+  // uyumluluk kanıtı için. /api/mitre/coverage + /api/detections/rules birleştirir.
+  function exportPosture(){
+    Promise.all([api("/api/mitre/coverage"), api("/api/detections/rules")]).then(function(res){
+      var techs=(res[0]&&res[0].techniques)||[];
+      var rules=(res[1]&&res[1].rules)||[];
+      var byTech={};
+      rules.forEach(function(rl){ var id=rl.technique&&rl.technique.id; if(id){ (byTech[id]=byTech[id]||[]).push({id:rl.id,name:rl.name,severity:rl.severity}); } });
+      var gaps=0;
+      var coverage=techs.map(function(t){
+        var rs=byTech[t.id]||[]; if(!rs.length) gaps++;
+        return {technique:t.id, name:t.name, tactic:t.tactic, rule_count:rs.length, covered:rs.length>0, rules:rs};
+      });
+      downloadJSON("tespit-durusu-"+new Date().toISOString().slice(0,10)+".json", {
+        generated_at:new Date().toISOString(), exported_by:state.email,
+        technique_count:techs.length, rule_count:rules.length, coverage_gaps:gaps, coverage:coverage
+      });
+    }).catch(function(e){ toast("Dışa aktarım başarısız",e.message,"err"); });
   }
   function exportDevices(){
     var q=(state.devSearch||"").trim().toLowerCase();
@@ -1800,6 +1828,7 @@
       else { toast("Denetim izi bütünlüğü BOZUK","Zincir doğrulanamadı: "+((r&&r.error)||"bilinmeyen"),"err"); }
     }).catch(function(e){ toast("Doğrulama başarısız",e.message,"err"); });
   };
+  $("posture-csv").onclick=exportPosture;
   $("rt-run").onclick=testRule;
   $("rt-msg").addEventListener("keydown",function(ev){ if(ev.key==="Enter"){ ev.preventDefault(); testRule(); } });
   $("rf-on").onclick=function(){ state.auto=true; $("rf-on").className="on"; $("rf-off").className=""; startAuto(); startStream(); refresh(); };
