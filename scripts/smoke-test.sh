@@ -109,6 +109,9 @@ for _ in $(seq 1 60); do
   sleep 0.25
 done
 [ "$evc" -ge 1 ] && pass "olaylar alındı ($evc olay)" || fail "olay yok"
+# Olay cihaz-atfı: her olay device_id taşımalı (filo-geneli triyaj/gruplama).
+curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -q '"device_id"' \
+  && pass "olaylar cihaz-atfı (device_id) taşıyor" || fail "olaylarda device_id yok"
 
 echo "[5/6] Admin eylemleri + okuma uçları"
 DID="$(curl -sk "$B/api/devices" -H "Authorization: Bearer $TOK" | sed -E 's/.*"id":"([^"]+)".*/\1/')"

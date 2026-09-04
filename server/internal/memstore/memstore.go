@@ -744,7 +744,7 @@ func (s *Store) ListEvents(_ context.Context, deviceID, severity, category strin
 			details = []byte(e.details)
 		}
 		out = append(out, adminread.EventRow{
-			ID: randID("evt-"), Category: e.category, Severity: e.severity,
+			ID: randID("evt-"), DeviceID: e.deviceID, Category: e.category, Severity: e.severity,
 			Message: e.message, OccurredAt: e.occurredAt, CreatedAt: e.createdAt,
 			Details: details,
 		})

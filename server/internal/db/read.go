@@ -45,7 +45,7 @@ func (s *Store) ListDevices(ctx context.Context, limit int) ([]adminread.DeviceR
 // filtre uygulanır. details, ham JSON metni olarak okunur (yoksa nil).
 func (s *Store) ListEvents(ctx context.Context, deviceID, severity, category string, limit int) ([]adminread.EventRow, error) {
 	const q = `
-		SELECT id::text, category::text, severity::text, message, occurred_at, created_at,
+		SELECT id::text, device_id::text, category::text, severity::text, message, occurred_at, created_at,
 		       COALESCE(details::text, '')
 		  FROM event_logs
 		 WHERE ($1 = '' OR device_id = NULLIF($1,'')::uuid)
@@ -63,7 +63,7 @@ func (s *Store) ListEvents(ctx context.Context, deviceID, severity, category str
 	for rows.Next() {
 		var e adminread.EventRow
 		var details string
-		if err := rows.Scan(&e.ID, &e.Category, &e.Severity, &e.Message, &e.OccurredAt, &e.CreatedAt, &details); err != nil {
+		if err := rows.Scan(&e.ID, &e.DeviceID, &e.Category, &e.Severity, &e.Message, &e.OccurredAt, &e.CreatedAt, &details); err != nil {
 			return nil, fmt.Errorf("db: olay okuma: %w", err)
 		}
 		if details != "" {

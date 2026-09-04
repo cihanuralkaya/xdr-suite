@@ -28,6 +28,7 @@ type DeviceRow struct {
 // EventRow, DB'den okunan ham olay satırıdır (şifresiz).
 type EventRow struct {
 	ID         string
+	DeviceID   string // olayı üreten cihazın kimliği (filo-geneli görünümde atıf/gruplama)
 	Category   string
 	Severity   string
 	Message    string
@@ -155,6 +156,7 @@ type DeviceDetailDTO struct {
 // EventDTO, konsola dönen olay görünümüdür.
 type EventDTO struct {
 	ID         string          `json:"id"`
+	DeviceID   string          `json:"device_id,omitempty"`
 	Category   string          `json:"category"`
 	Severity   string          `json:"severity"`
 	Message    string          `json:"message"`
@@ -323,6 +325,7 @@ func (s *Service) Events(ctx context.Context, deviceID, severity, category strin
 	for _, r := range rows {
 		out = append(out, EventDTO{
 			ID:         r.ID,
+			DeviceID:   r.DeviceID,
 			Category:   r.Category,
 			Severity:   r.Severity,
 			Message:    r.Message,
