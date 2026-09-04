@@ -439,6 +439,20 @@
           <div id="dev-empty" class="empty">Henüz kayıtlı cihaz yok. Sağdan bir <b>enrollment token</b> üretip ajanı kurun.</div>
         </div>
 
+        <!-- SOFTWARE SEARCH -->
+        <div class="card" data-view="devices" data-span="2">
+          <div class="head"><h2>🔎 Yazılım Ara <span id="sw-count" class="count">0</span></h2>
+            <span class="sp"></span><span class="mono" style="color:var(--faint);font-size:11px">zafiyet müdahalesi</span></div>
+          <div class="body">
+            <p class="hint" style="margin:0 0 10px">Filo genelinde yüklü yazılım arayın — "hangi cihazlarda X kurulu?". Her cihazın en son envanterinde aranır.</p>
+            <div style="display:flex;gap:8px;margin-bottom:10px">
+              <input id="sw-q" placeholder="ör. Chrome, 7-Zip, Log4j…" style="flex:1;padding:6px 10px;font-size:12px">
+              <button class="btn sm" id="sw-run" type="button">Ara</button>
+            </div>
+            <div id="sw-result"></div>
+          </div>
+        </div>
+
         <!-- EVENTS -->
         <div class="card" data-view="devices" data-span="2">
           <div class="head">
@@ -1628,6 +1642,29 @@
     testRule();
     var card=$("rt-run"); if(card && card.scrollIntoView) card.scrollIntoView({block:"center"});
   }
+  // searchSoftware: filo-geneli yazılım araması (/api/software?q=). Sonuç
+  // kullanıcı-görünür HTML olduğundan tüm alanlar esc()'ten geçer. Cihaz satırı
+  // tıklanınca o cihaz seçilir.
+  function searchSoftware(){
+    var q=($("sw-q").value||"").trim(), out=$("sw-result");
+    if(!q){ out.innerHTML='<p class="hint" style="margin:0">Arama terimi girin.</p>'; return; }
+    out.innerHTML='<p class="hint" style="margin:0">Aranıyor…</p>';
+    api("/api/software?q="+encodeURIComponent(q)).then(function(r){
+      var m=(r&&r.matches)||[];
+      $("sw-count").textContent=m.length;
+      if(!m.length){ out.innerHTML='<p class="hint" style="margin:0;color:var(--faint)">"'+esc(q)+'" hiçbir cihazda bulunamadı.</p>'; return; }
+      out.innerHTML='<p class="hint" style="margin:0 0 8px">⚡ '+m.length+' cihazda bulundu:</p>'+
+        '<div class="tbl-wrap"><table><thead><tr><th>Cihaz</th><th>Eşleşen paket(ler)</th></tr></thead><tbody>'+
+        m.map(function(d){
+          var pkgs=(d.matches||[]).map(esc).join(", ");
+          return "<tr class='click' data-swdev='"+esc(d.device_id)+"' title='Bu cihazı seç'><td>"+esc(d.hostname||d.device_id)+"</td><td>"+pkgs+"</td></tr>";
+        }).join("")+'</tbody></table></div>';
+      Array.prototype.forEach.call(out.querySelectorAll("[data-swdev]"),function(tr){
+        tr.style.cursor="pointer";
+        tr.onclick=function(){ selectDevice(tr.getAttribute("data-swdev")); };
+      });
+    }).catch(function(e){ out.innerHTML='<p class="hint" style="margin:0;color:var(--bad,#f43f5e)">Arama başarısız: '+esc(e.message)+'</p>'; });
+  }
   function renderPolicies(){
     var body=$("pol-body"); body.innerHTML="";
     var p=state.policies||[];
@@ -1999,6 +2036,8 @@
   };
   $("posture-csv").onclick=exportPosture;
   $("rt-run").onclick=testRule;
+  $("sw-run").onclick=searchSoftware;
+  $("sw-q").addEventListener("keydown",function(ev){ if(ev.key==="Enter"){ ev.preventDefault(); searchSoftware(); } });
   $("rt-msg").addEventListener("keydown",function(ev){ if(ev.key==="Enter"){ ev.preventDefault(); testRule(); } });
   $("rf-on").onclick=function(){ state.auto=true; $("rf-on").className="on"; $("rf-off").className=""; startAuto(); startStream(); refresh(); };
   $("rf-off").onclick=function(){ state.auto=false; $("rf-on").className=""; $("rf-off").className="on"; stopAuto(); stopStream(); setLive(true); $("live-txt").textContent="duraklatıldı"; };

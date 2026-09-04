@@ -318,6 +318,9 @@ func (m *memStore) LatestComplianceByDevice(_ context.Context) (map[string]admin
 	}
 	return out, nil
 }
+func (m *memStore) SearchSoftware(_ context.Context, _ string) (map[string][]string, error) {
+	return map[string][]string{}, nil
+}
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]adminread.AuditRow, error) {
 	return m.auditRows, nil
 }

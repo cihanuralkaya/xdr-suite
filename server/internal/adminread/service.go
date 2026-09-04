@@ -103,6 +103,11 @@ type Store interface {
 	// disk_encryption/firewall durumunu döner (cihaz kimliği → durum). Filo-geneli
 	// doğru uyum KPI'ı için (istemci-taraflı 200-olay penceresiyle sınırlı değil).
 	LatestComplianceByDevice(ctx context.Context) (map[string]ComplianceStatus, error)
+	// SearchSoftware, her cihazın EN SON yazılım envanterinde adı query'yi (küçük/
+	// büyük harf duyarsız alt-dize) içeren paketleri arar; cihaz kimliği → eşleşen
+	// paket adları döner (eşleşme olmayan cihazlar dışarıda). Zafiyet müdahalesi
+	// ("X kurulu cihazlar hangileri") için filo-geneli arama.
+	SearchSoftware(ctx context.Context, query string) (map[string][]string, error)
 	ListAudit(ctx context.Context, limit int) ([]AuditRow, error)
 	DeviceByID(ctx context.Context, id string) (DeviceRow, bool, error)
 	CertsByDevice(ctx context.Context, id string) ([]CertRow, error)
@@ -446,6 +451,41 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		DevicesByOS:         byOS,
 		Since:               since,
 	}, nil
+}
+
+// SoftwareMatchDTO, yazılım aramasında eşleşen bir cihazı ve eşleşen paketleri
+// taşır (hostname deşifre edilmiş).
+type SoftwareMatchDTO struct {
+	DeviceID string   `json:"device_id"`
+	Hostname string   `json:"hostname"`
+	Matches  []string `json:"matches"`
+}
+
+// SoftwareSearch, filo-geneli yazılım araması yapar: adı query'yi içeren paketleri
+// taşıyan cihazları (deşifre hostname + eşleşen paketler) döner. Zafiyet
+// müdahalesi ("X kurulu cihazlar") için. Eşleşme yoksa boş liste.
+func (s *Service) SoftwareSearch(ctx context.Context, query string) ([]SoftwareMatchDTO, error) {
+	byDev, err := s.store.SearchSoftware(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SoftwareMatchDTO, 0, len(byDev))
+	if len(byDev) == 0 {
+		return out, nil
+	}
+	// Hostname eşlemesi için cihaz kayıtlarını yükle (şifreli → deşifre).
+	rows, err := s.store.ListDevices(ctx, clampLimit(0))
+	if err != nil {
+		return nil, err
+	}
+	hn := make(map[string]string, len(rows))
+	for _, r := range rows {
+		hn[r.ID] = s.decrypt(r.HostnameEnc)
+	}
+	for id, matches := range byDev {
+		out = append(out, SoftwareMatchDTO{DeviceID: id, Hostname: hn[id], Matches: matches})
+	}
+	return out, nil
 }
 
 // Audit, denetim izi kayıtlarını en yeniden eskiye döner.

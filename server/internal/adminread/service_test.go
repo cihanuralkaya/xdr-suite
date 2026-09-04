@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +91,37 @@ func (m *memStore) LatestComplianceByDevice(_ context.Context) (map[string]Compl
 			continue
 		}
 		out[e.DeviceID] = ComplianceStatus{Enc: d.Enc, Fw: d.Fw}
+	}
+	return out, nil
+}
+func (m *memStore) SearchSoftware(_ context.Context, query string) (map[string][]string, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	out := map[string][]string{}
+	if q == "" {
+		return out, nil
+	}
+	seen := map[string]bool{}
+	for i := len(m.events) - 1; i >= 0; i-- {
+		e := m.events[i]
+		if e.DeviceID == "" || len(e.Details) == 0 || seen[e.DeviceID] {
+			continue
+		}
+		var d struct {
+			Software []string `json:"software"`
+		}
+		if err := json.Unmarshal(e.Details, &d); err != nil || d.Software == nil {
+			continue
+		}
+		seen[e.DeviceID] = true
+		var mm []string
+		for _, n := range d.Software {
+			if strings.Contains(strings.ToLower(n), q) {
+				mm = append(mm, n)
+			}
+		}
+		if len(mm) > 0 {
+			out[e.DeviceID] = mm
+		}
 	}
 	return out, nil
 }
@@ -251,6 +283,54 @@ func TestSummaryCompliance(t *testing.T) {
 	}
 	if sum.NonCompliantDevices != 3 { // dA, dB, dC (dC bir kez)
 		t.Fatalf("uyumsuz cihaz 3 beklenirdi, %d", sum.NonCompliantDevices)
+	}
+}
+
+// Filo yazılım araması: eşleşen paketi taşıyan cihazlar (deşifre hostname +
+// eşleşen paketler); cihaz başına yalnız en son envanter dikkate alınır.
+func TestSoftwareSearch(t *testing.T) {
+	cipher := newCipher(t)
+	encHost := func(h string) []byte {
+		b, err := cipher.EncryptString(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	now := time.Now()
+	inv := func(pkgs string) []byte { return []byte(`{"software":[` + pkgs + `]}`) }
+	store := &memStore{
+		devices: []DeviceRow{
+			{ID: "dA", HostnameEnc: encHost("host-A")},
+			{ID: "dB", HostnameEnc: encHost("host-B")},
+		},
+		events: []EventRow{
+			// dA: eski envanterde Chrome yok, yeni envanterde var → en son geçerli
+			{DeviceID: "dA", CreatedAt: now.Add(-time.Hour), Details: inv(`"7-Zip"`)},
+			{DeviceID: "dA", CreatedAt: now, Details: inv(`"Google Chrome","7-Zip"`)},
+			// dB: sadece Firefox
+			{DeviceID: "dB", CreatedAt: now, Details: inv(`"Mozilla Firefox"`)},
+		},
+	}
+	svc := NewService(store, cipher)
+
+	res, err := svc.SoftwareSearch(context.Background(), "chrome")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("1 cihaz eşleşmeliydi (dA), %d: %+v", len(res), res)
+	}
+	if res[0].DeviceID != "dA" || res[0].Hostname != "host-A" {
+		t.Fatalf("dA/host-A beklenirdi: %+v", res[0])
+	}
+	if len(res[0].Matches) != 1 || res[0].Matches[0] != "Google Chrome" {
+		t.Fatalf("eşleşen paket Google Chrome olmalı: %+v", res[0].Matches)
+	}
+
+	// Eşleşme yoksa boş.
+	if res, _ := svc.SoftwareSearch(context.Background(), "nonexistent-xyz"); len(res) != 0 {
+		t.Fatalf("eşleşme olmamalıydı: %+v", res)
 	}
 }
 

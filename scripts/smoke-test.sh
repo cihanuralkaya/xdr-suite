@@ -128,6 +128,14 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 [ -n "$inv" ] && pass "yazılım envanteri raporlandı ($inv)" || fail "yazılım envanteri yok"
+# Filo yazılım araması: envanterdeki bir paketi ara, cihaz eşleşmeli.
+pkg="$(curl -sk "$B/api/events?limit=50" -H "Authorization: Bearer $TOK" | grep -oE '"software":\["[^"]+"' | head -1 | sed -E 's/.*\["([^"]+)".*/\1/' | cut -c1-6)"
+if [ -n "$pkg" ]; then
+  curl -sk "$B/api/software?q=$(printf %s "$pkg" | sed 's/ /%20/g')" -H "Authorization: Bearer $TOK" | grep -q '"device_count":[1-9]' \
+    && pass "filo yazılım araması eşleşti ($pkg)" || fail "yazılım araması başarısız"
+else
+  fail "arama için paket adı bulunamadı"
+fi
 
 echo "[5/6] Admin eylemleri + okuma uçları"
 DID="$(curl -sk "$B/api/devices" -H "Authorization: Bearer $TOK" | sed -E 's/.*"id":"([^"]+)".*/\1/')"

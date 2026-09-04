@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -818,6 +819,43 @@ func (s *Store) LatestComplianceByDevice(_ context.Context) (map[string]adminrea
 			continue // uyum-olayı değil
 		}
 		out[e.deviceID] = adminread.ComplianceStatus{Enc: d.Enc, Fw: d.Fw}
+	}
+	return out, nil
+}
+
+// SearchSoftware, her cihazın EN SON yazılım envanterinde query'yi (küçük/büyük
+// harf duyarsız alt-dize) içeren paketleri arar. Olaylar yeniden-eskiye gezilir;
+// cihaz başına ilk görülen envanter olayı geçerlidir.
+func (s *Store) SearchSoftware(_ context.Context, query string) (map[string][]string, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	out := map[string][]string{}
+	if q == "" {
+		return out, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{} // cihaz başına yalnız en son envanter
+	for i := len(s.events) - 1; i >= 0; i-- {
+		e := s.events[i]
+		if e.deviceID == "" || e.details == "" || seen[e.deviceID] {
+			continue
+		}
+		var d struct {
+			Software []string `json:"software"`
+		}
+		if err := json.Unmarshal([]byte(e.details), &d); err != nil || d.Software == nil {
+			continue
+		}
+		seen[e.deviceID] = true // bu cihazın en son envanterini işledik
+		var m []string
+		for _, name := range d.Software {
+			if strings.Contains(strings.ToLower(name), q) {
+				m = append(m, name)
+			}
+		}
+		if len(m) > 0 {
+			out[e.deviceID] = m
+		}
 	}
 	return out, nil
 }

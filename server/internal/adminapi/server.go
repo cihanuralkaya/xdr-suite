@@ -187,6 +187,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mitre/coverage", s.authed(s.handleMitreCoverage))
 	mux.HandleFunc("GET /api/detections/rules", s.authed(s.handleDetectionRules))
 	mux.HandleFunc("POST /api/detections/test", s.authed(s.handleTestDetection))
+	mux.HandleFunc("GET /api/software", s.authed(s.handleSoftwareSearch))
 	mux.HandleFunc("GET /api/activity", s.authed(s.handleActivity))
 	mux.HandleFunc("GET /api/features", s.authed(s.handleFeatures))
 	mux.HandleFunc("GET /api/audit", s.authed(s.handleListAudit))
@@ -819,6 +820,22 @@ func (s *Server) handleTestDetection(w http.ResponseWriter, r *http.Request, _ s
 		"matches": matches,
 		"matched": len(matches),
 	})
+}
+
+// handleSoftwareSearch, filo-geneli yazılım araması yapar (?q=...): adı query'yi
+// içeren paketi yüklü cihazları döner. Zafiyet müdahalesi ("X kurulu cihazlar").
+// Salt-okunur; herhangi bir kimliği doğrulanmış kullanıcı erişebilir.
+func (s *Server) handleSoftwareSearch(w http.ResponseWriter, r *http.Request, _ string) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeErr(w, http.StatusBadRequest, "q parametresi zorunlu")
+		return
+	}
+	matches, err := s.reader.SoftwareSearch(r.Context(), q)
+	if respondErr(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"query": q, "matches": matches, "device_count": len(matches)})
 }
 
 // handleActivity, süreç-içi tehdit/etkinlik sayaçlarını döner (konsol Genel Bakış

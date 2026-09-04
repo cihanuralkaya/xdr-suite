@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"xdr.corp/suite/server/internal/adminread"
@@ -64,6 +66,48 @@ func (s *Store) LatestComplianceByDevice(ctx context.Context) (map[string]adminr
 			return nil, fmt.Errorf("db: uyum durumu okuma: %w", err)
 		}
 		out[id] = adminread.ComplianceStatus{Enc: enc, Fw: fw}
+	}
+	return out, rows.Err()
+}
+
+// SearchSoftware, her cihazın EN SON yazılım envanterinde query'yi (küçük/büyük
+// harf duyarsız alt-dize) içeren paketleri arar. DISTINCT ON ile cihaz başına en
+// yeni envanter olayı seçilir; software dizisi JSON olarak çıkarılıp Go'da
+// süzülür (küçük fleet için yeterli; büyük ölçekte JSONB dizin ile hızlandırılır).
+func (s *Store) SearchSoftware(ctx context.Context, query string) (map[string][]string, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	out := map[string][]string{}
+	if q == "" {
+		return out, nil
+	}
+	const sql = `
+		SELECT DISTINCT ON (device_id) device_id::text, COALESCE(details->>'software','[]')
+		  FROM event_logs
+		 WHERE details ? 'software'
+		 ORDER BY device_id, created_at DESC`
+	rows, err := s.pool.Query(ctx, sql)
+	if err != nil {
+		return nil, fmt.Errorf("db: yazılım arama: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, swJSON string
+		if err := rows.Scan(&id, &swJSON); err != nil {
+			return nil, fmt.Errorf("db: yazılım arama okuma: %w", err)
+		}
+		var sw []string
+		if err := json.Unmarshal([]byte(swJSON), &sw); err != nil {
+			continue
+		}
+		var m []string
+		for _, name := range sw {
+			if strings.Contains(strings.ToLower(name), q) {
+				m = append(m, name)
+			}
+		}
+		if len(m) > 0 {
+			out[id] = m
+		}
 	}
 	return out, rows.Err()
 }
