@@ -970,14 +970,16 @@
         d.os_platform||"", d.agent_version||"", (d.tags||[]).join("|"), d.last_seen||""]; }));
   }
   function exportEvents(){
+    // Ekranda görünenle aynı süzgeçler (önem + kategori) uygulanır.
     var list=state.events.filter(function(e){
+      if(state.catFilter && e.category!==state.catFilter) return false;
       if(!state.sevFilter) return true;
       if(state.sevFilter==="CRITICAL") return e.severity==="CRITICAL";
       return e.severity==="CRITICAL"||e.severity==="HIGH";
     });
     downloadCSV("olaylar-"+new Date().toISOString().slice(0,10)+".csv",
-      ["zaman","kategori","onem","mesaj","ayrinti"],
-      list.map(function(e){ return [e.created_at, e.category, e.severity, e.message,
+      ["zaman","cihaz","kategori","onem","mesaj","ayrinti"],
+      list.map(function(e){ return [e.created_at, deviceName(e.device_id), e.category, e.severity, e.message,
         e.details!=null?JSON.stringify(e.details):""]; }));
   }
   function exportAudit(){
