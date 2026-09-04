@@ -294,6 +294,30 @@ func (m *memStore) EventCategoryCounts(_ context.Context, since time.Time) (map[
 	}
 	return out, nil
 }
+func (m *memStore) LatestComplianceByDevice(_ context.Context) (map[string]adminread.ComplianceStatus, error) {
+	out := map[string]adminread.ComplianceStatus{}
+	for i := len(m.evtRows) - 1; i >= 0; i-- {
+		e := m.evtRows[i]
+		if e.DeviceID == "" || len(e.Details) == 0 {
+			continue
+		}
+		if _, seen := out[e.DeviceID]; seen {
+			continue
+		}
+		var d struct {
+			Enc string `json:"disk_encryption"`
+			Fw  string `json:"firewall"`
+		}
+		if err := json.Unmarshal(e.Details, &d); err != nil {
+			continue
+		}
+		if d.Enc == "" && d.Fw == "" {
+			continue
+		}
+		out[e.DeviceID] = adminread.ComplianceStatus{Enc: d.Enc, Fw: d.Fw}
+	}
+	return out, nil
+}
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]adminread.AuditRow, error) {
 	return m.auditRows, nil
 }

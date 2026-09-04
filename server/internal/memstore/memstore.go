@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -787,6 +788,36 @@ func (s *Store) EventCategoryCounts(_ context.Context, since time.Time) (map[str
 			continue
 		}
 		out[e.category]++
+	}
+	return out, nil
+}
+
+// LatestComplianceByDevice, uyum verisi taşıyan her cihazın EN SON
+// disk_encryption/firewall durumunu döner. Olaylar yeniden-eskiye gezilir;
+// cihaz başına ilk görülen uyum-olayı en güncel kabul edilir.
+func (s *Store) LatestComplianceByDevice(_ context.Context) (map[string]adminread.ComplianceStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]adminread.ComplianceStatus{}
+	for i := len(s.events) - 1; i >= 0; i-- {
+		e := s.events[i]
+		if e.deviceID == "" || e.details == "" {
+			continue
+		}
+		if _, seen := out[e.deviceID]; seen {
+			continue
+		}
+		var d struct {
+			Enc string `json:"disk_encryption"`
+			Fw  string `json:"firewall"`
+		}
+		if err := json.Unmarshal([]byte(e.details), &d); err != nil {
+			continue
+		}
+		if d.Enc == "" && d.Fw == "" {
+			continue // uyum-olayı değil
+		}
+		out[e.deviceID] = adminread.ComplianceStatus{Enc: d.Enc, Fw: d.Fw}
 	}
 	return out, nil
 }

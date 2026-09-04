@@ -99,6 +99,10 @@ type Store interface {
 	EventSeverityCounts(ctx context.Context, since time.Time) (map[string]int, error)
 	// EventCategoryCounts, since'ten bu yana olayları kategoriye göre sayar.
 	EventCategoryCounts(ctx context.Context, since time.Time) (map[string]int, error)
+	// LatestComplianceByDevice, uyum verisi taşıyan her cihaz için EN SON
+	// disk_encryption/firewall durumunu döner (cihaz kimliği → durum). Filo-geneli
+	// doğru uyum KPI'ı için (istemci-taraflı 200-olay penceresiyle sınırlı değil).
+	LatestComplianceByDevice(ctx context.Context) (map[string]ComplianceStatus, error)
 	ListAudit(ctx context.Context, limit int) ([]AuditRow, error)
 	DeviceByID(ctx context.Context, id string) (DeviceRow, bool, error)
 	CertsByDevice(ctx context.Context, id string) ([]CertRow, error)
@@ -165,16 +169,28 @@ type EventDTO struct {
 	Details    json.RawMessage `json:"details,omitempty"`
 }
 
+// ComplianceStatus, bir cihazın en son güvenlik-duruşu uyum durumudur
+// ("on"/"off"/"unknown"; boş = veri yok).
+type ComplianceStatus struct {
+	Enc string `json:"disk_encryption"`
+	Fw  string `json:"firewall"`
+}
+
 // SummaryDTO, yönetim panosu için özet/KPI sayaçlarıdır.
 type SummaryDTO struct {
-	DevicesTotal       int            `json:"devices_total"`
-	DevicesOnline      int            `json:"devices_online"`
-	DevicesOffline     int            `json:"devices_offline"`
-	DevicesQuarantined int            `json:"devices_quarantined"`
-	EventsBySeverity   map[string]int `json:"events_by_severity"` // INFO/LOW/MEDIUM/HIGH/CRITICAL
-	EventsByCategory   map[string]int `json:"events_by_category"`
-	DevicesByOS        map[string]int `json:"devices_by_os"` // OS sürümü/platform → cihaz sayısı (filo envanteri)
-	Since              time.Time      `json:"since"`         // sayımların kapsadığı pencerenin başı (RFC3339)
+	DevicesTotal       int `json:"devices_total"`
+	DevicesOnline      int `json:"devices_online"`
+	DevicesOffline     int `json:"devices_offline"`
+	DevicesQuarantined int `json:"devices_quarantined"`
+	// Uyum (filo-geneli, en son duruma göre): şifreleme/duvar kapalı cihaz
+	// sayıları ve benzersiz uyumsuz cihaz sayısı.
+	ComplianceEncOff    int            `json:"compliance_enc_off"`
+	ComplianceFwOff     int            `json:"compliance_fw_off"`
+	NonCompliantDevices int            `json:"non_compliant_devices"`
+	EventsBySeverity    map[string]int `json:"events_by_severity"` // INFO/LOW/MEDIUM/HIGH/CRITICAL
+	EventsByCategory    map[string]int `json:"events_by_category"`
+	DevicesByOS         map[string]int `json:"devices_by_os"` // OS sürümü/platform → cihaz sayısı (filo envanteri)
+	Since               time.Time      `json:"since"`         // sayımların kapsadığı pencerenin başı (RFC3339)
 }
 
 // summaryWindow, özet olay sayımlarının kapsadığı zaman penceresidir (son 24 saat).
@@ -396,15 +412,39 @@ func (s *Service) Summary(ctx context.Context) (SummaryDTO, error) {
 		catCounts = map[string]int{}
 	}
 
+	// Filo-geneli uyum: her cihazın en son durumundan kapalı/uyumsuz sayıları.
+	comp, err := s.store.LatestComplianceByDevice(ctx)
+	if err != nil {
+		return SummaryDTO{}, err
+	}
+	encOff, fwOff, nonComp := 0, 0, 0
+	for _, c := range comp {
+		bad := false
+		if c.Enc == "off" {
+			encOff++
+			bad = true
+		}
+		if c.Fw == "off" {
+			fwOff++
+			bad = true
+		}
+		if bad {
+			nonComp++
+		}
+	}
+
 	return SummaryDTO{
-		DevicesTotal:       total,
-		DevicesOnline:      online,
-		DevicesOffline:     offline,
-		DevicesQuarantined: statusCounts["QUARANTINED"],
-		EventsBySeverity:   sevCounts,
-		EventsByCategory:   catCounts,
-		DevicesByOS:        byOS,
-		Since:              since,
+		DevicesTotal:        total,
+		DevicesOnline:       online,
+		DevicesOffline:      offline,
+		DevicesQuarantined:  statusCounts["QUARANTINED"],
+		ComplianceEncOff:    encOff,
+		ComplianceFwOff:     fwOff,
+		NonCompliantDevices: nonComp,
+		EventsBySeverity:    sevCounts,
+		EventsByCategory:    catCounts,
+		DevicesByOS:         byOS,
+		Since:               since,
 	}, nil
 }
 

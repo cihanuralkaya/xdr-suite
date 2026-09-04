@@ -69,6 +69,30 @@ func (m *memStore) EventCategoryCounts(_ context.Context, since time.Time) (map[
 	}
 	return out, nil
 }
+func (m *memStore) LatestComplianceByDevice(_ context.Context) (map[string]ComplianceStatus, error) {
+	out := map[string]ComplianceStatus{}
+	for i := len(m.events) - 1; i >= 0; i-- {
+		e := m.events[i]
+		if e.DeviceID == "" || len(e.Details) == 0 {
+			continue
+		}
+		if _, seen := out[e.DeviceID]; seen {
+			continue
+		}
+		var d struct {
+			Enc string `json:"disk_encryption"`
+			Fw  string `json:"firewall"`
+		}
+		if err := json.Unmarshal(e.Details, &d); err != nil {
+			continue
+		}
+		if d.Enc == "" && d.Fw == "" {
+			continue
+		}
+		out[e.DeviceID] = ComplianceStatus{Enc: d.Enc, Fw: d.Fw}
+	}
+	return out, nil
+}
 func (m *memStore) ListAudit(_ context.Context, _ int) ([]AuditRow, error) {
 	return m.audit, nil
 }
@@ -186,6 +210,47 @@ func TestSummaryCounts(t *testing.T) {
 	}
 	if sum.Since.After(now) {
 		t.Fatalf("since geçmişte olmalı: %v", sum.Since)
+	}
+}
+
+// Filo-geneli uyum sayımı: cihaz başına EN SON uyum olayına göre şifreleme/duvar
+// kapalı ve benzersiz uyumsuz cihaz sayıları.
+func TestSummaryCompliance(t *testing.T) {
+	now := time.Now()
+	det := func(enc, fw string) []byte {
+		return []byte(`{"disk_encryption":"` + enc + `","firewall":"` + fw + `"}`)
+	}
+	store := &memStore{
+		devices: []DeviceRow{{ID: "d1", Status: "ACTIVE", LastSeen: now}},
+		// Eskiden yeniye sıra (memstore append düzeni; sondan gezilir → en yeni).
+		events: []EventRow{
+			// dA: eski on/on, sonra yeni off/on → en son off/on (şifreleme ihlali)
+			{DeviceID: "dA", Category: "SYSTEM", CreatedAt: now.Add(-time.Hour), Details: det("on", "on")},
+			{DeviceID: "dA", Category: "SECURITY", CreatedAt: now, Details: det("off", "on")},
+			// dB: fw=off
+			{DeviceID: "dB", Category: "SECURITY", CreatedAt: now, Details: det("on", "off")},
+			// dC: her ikisi kapalı → tek uyumsuz cihaz olarak sayılır
+			{DeviceID: "dC", Category: "SECURITY", CreatedAt: now, Details: det("off", "off")},
+			// dD: uyumlu
+			{DeviceID: "dD", Category: "SYSTEM", CreatedAt: now, Details: det("on", "on")},
+			// uyum-olayı olmayan (device_id yok / details yok) sayılmamalı
+			{DeviceID: "", Category: "SYSTEM", CreatedAt: now, Details: det("off", "off")},
+			{DeviceID: "dE", Category: "NETWORK_DISCOVERY", CreatedAt: now, Details: []byte(`{"ip":"1.2.3.4"}`)},
+		},
+	}
+	svc := NewService(store, newCipher(t))
+	sum, err := svc.Summary(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.ComplianceEncOff != 2 { // dA, dC
+		t.Fatalf("şifreleme-kapalı 2 beklenirdi, %d", sum.ComplianceEncOff)
+	}
+	if sum.ComplianceFwOff != 2 { // dB, dC
+		t.Fatalf("duvar-kapalı 2 beklenirdi, %d", sum.ComplianceFwOff)
+	}
+	if sum.NonCompliantDevices != 3 { // dA, dB, dC (dC bir kez)
+		t.Fatalf("uyumsuz cihaz 3 beklenirdi, %d", sum.NonCompliantDevices)
 	}
 }
 

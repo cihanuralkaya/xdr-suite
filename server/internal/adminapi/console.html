@@ -1023,9 +1023,10 @@
       {k:"Kritik / yüksek olay", v:crit, cls:crit?"crit":""}
     ];
     if(quar>0) tiles.push({k:"Karantinada", v:quar, cls:"crit"});
-    // Uyumsuz cihaz KPI'ı: en son durumu "off" olan cihaz sayısı (paylaşılan
-    // hesap; yalnız >0 ise göster — dikkat çekici).
-    var nonComp=nonCompliantCount();
+    // Uyumsuz cihaz KPI'ı: sunucu-taraflı filo-geneli sayımı (doğru, 200-olay
+    // penceresiyle sınırlı değil) tercih et; yoksa istemci-taraflı hesaba düş.
+    // Yalnız >0 ise göster (dikkat çekici).
+    var nonComp=(s && typeof s.non_compliant_devices==="number") ? s.non_compliant_devices : nonCompliantCount();
     if(nonComp>0) tiles.push({k:"Uyumsuz cihaz", v:nonComp, cls:"crit"});
     $("stats").innerHTML = tiles.map(function(t){
       return '<div class="stat '+t.cls+'"><div class="k">'+t.k+'</div><div class="v">'+t.v+'</div></div>';
