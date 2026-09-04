@@ -50,6 +50,39 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
+// NotifyChannel, bir Postgres LISTEN/NOTIFY kanalına yük gönderir (#10 küme
+// fan-out). Kanal adı tanımlayıcı olduğundan bağlanamaz; ancak pg_notify(text,
+// text) fonksiyonu her iki argümanı da parametre olarak alarak enjeksiyona karşı
+// güvenlidir. Yük 8000 bayttan küçük olmalıdır (Postgres NOTIFY sınırı).
+func (s *Store) NotifyChannel(ctx context.Context, channel, payload string) error {
+	if _, err := s.pool.Exec(ctx, "SELECT pg_notify($1, $2)", channel, payload); err != nil {
+		return fmt.Errorf("db: pg_notify: %w", err)
+	}
+	return nil
+}
+
+// ListenChannel, adanmış bir bağlantıda LISTEN yaparak gelen her bildirimin
+// yükünü onPayload'a iletir. ctx iptal edilene ya da bağlantı düşene dek BLOKLAR
+// (çağıran genelde ayrı bir goroutine'de çalıştırıp hata dönüşünde yeniden bağlanır).
+// Kanal adı tanımlayıcı olduğundan pgx.Identifier.Sanitize ile güvenli-alıntılanır.
+func (s *Store) ListenChannel(ctx context.Context, channel string, onPayload func(string)) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("db: dinleyici bağlantısı: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "LISTEN "+pgx.Identifier{channel}.Sanitize()); err != nil {
+		return fmt.Errorf("db: LISTEN %s: %w", channel, err)
+	}
+	for {
+		n, err := conn.Conn().WaitForNotification(ctx)
+		if err != nil {
+			return fmt.Errorf("db: bildirim bekleme: %w", err)
+		}
+		onPayload(n.Payload)
+	}
+}
+
 // Close, havuzu kapatır.
 func (s *Store) Close() { s.pool.Close() }
 

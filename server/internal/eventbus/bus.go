@@ -23,10 +23,31 @@ type Bus struct {
 	mu   sync.Mutex
 	subs map[int]chan Notice
 	next int
+	// sink, PublishEvent/PublishDevice'in bildirimi nereye ileteceğini belirler.
+	// Varsayılan yerel fan-out (Deliver). HA modunda (#10) SetSink ile küme
+	// yayıncısına (Postgres NOTIFY) yönlendirilir; yerel dağıtım o zaman LISTEN
+	// dinleyicisinden gelen Deliver çağrılarıyla yapılır.
+	sink func(Notice)
 }
 
 // New, boş bir bus oluşturur.
-func New() *Bus { return &Bus{subs: make(map[int]chan Notice)} }
+func New() *Bus {
+	b := &Bus{subs: make(map[int]chan Notice)}
+	b.sink = b.Deliver // tek düğüm: doğrudan yerel dağıtım
+	return b
+}
+
+// SetSink, Publish* çağrılarının bildirimi ileteceği hedefi değiştirir (#10 HA).
+// Küme modunda yayıncı NOTIFY'a yazar; yerel abonelere dağıtım LISTEN tarafından
+// çağrılan Deliver ile olur. nil verilmesi yerel dağıtıma geri döner.
+func (b *Bus) SetSink(sink func(Notice)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if sink == nil {
+		sink = b.Deliver
+	}
+	b.sink = sink
+}
 
 // Subscribe, tamponlu bir bildirim kanalı ve onu kapatan bir iptal fonksiyonu
 // döner. İptal idempotenttir.
@@ -51,8 +72,10 @@ func (b *Bus) Subscribe() (<-chan Notice, func()) {
 	return ch, cancel
 }
 
-// publish, bildirimi tüm abonelere bloklamadan iletir.
-func (b *Bus) publish(n Notice) {
+// Deliver, bildirimi bu düğümdeki tüm YEREL abonelere bloklamadan iletir. Küme
+// modunda (#10) LISTEN dinleyicisi uzak düğümlerden gelen bildirimleri buraya
+// enjekte eder; tek-düğüm modunda Publish* doğrudan buraya gelir.
+func (b *Bus) Deliver(n Notice) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, ch := range b.subs {
@@ -63,14 +86,22 @@ func (b *Bus) publish(n Notice) {
 	}
 }
 
+// emit, bildirimi yapılandırılmış sink'e iletir (yerel Deliver ya da küme NOTIFY).
+func (b *Bus) emit(n Notice) {
+	b.mu.Lock()
+	sink := b.sink
+	b.mu.Unlock()
+	sink(n)
+}
+
 // PublishEvent, yeni bir olay bildirir (grpc.AdminNotifier arayüzü).
 func (b *Bus) PublishEvent(deviceID, severity, message string) {
-	b.publish(Notice{Type: "event", DeviceID: deviceID, Severity: severity, Message: message, At: time.Now().UTC()})
+	b.emit(Notice{Type: "event", DeviceID: deviceID, Severity: severity, Message: message, At: time.Now().UTC()})
 }
 
 // PublishDevice, bir cihazın yaşam sinyali/durum değişimini bildirir.
 func (b *Bus) PublishDevice(deviceID string) {
-	b.publish(Notice{Type: "device", DeviceID: deviceID, At: time.Now().UTC()})
+	b.emit(Notice{Type: "device", DeviceID: deviceID, At: time.Now().UTC()})
 }
 
 // SubscriberCount, aktif abone sayısını döner (test/gözlem için).

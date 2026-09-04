@@ -54,7 +54,9 @@ COMMON_ENV=(
   "XDR_VULN_FILE=deploy/vuln-sample.json"
 )
 if [ -n "${XDR_DATABASE_URL:-}" ]; then
-  env "${COMMON_ENV[@]}" "XDR_DATABASE_URL=$XDR_DATABASE_URL" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
+  # DB modunda yatay-ölçekleme fan-out'unu aç (#10): SSE iddiası gerçek Postgres
+  # LISTEN/NOTIFY round-trip'ini doğrular (tek düğüm de NOTIFY'ı kendine geri alır).
+  env "${COMMON_ENV[@]}" "XDR_DATABASE_URL=$XDR_DATABASE_URL" "XDR_CLUSTER=1" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
 else
   env "${COMMON_ENV[@]}" "XDR_DEMO=1" "XDR_DEMO_ADMIN_PASSWORD=smoke1234" "$WORK/c2$EXT" > "$WORK/c2.log" 2>&1 &
 fi

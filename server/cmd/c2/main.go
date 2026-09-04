@@ -24,6 +24,7 @@ import (
 	"xdr.corp/suite/server/internal/admin"
 	"xdr.corp/suite/server/internal/adminapi"
 	"xdr.corp/suite/server/internal/adminread"
+	"xdr.corp/suite/server/internal/cluster"
 	"xdr.corp/suite/server/internal/config"
 	"xdr.corp/suite/server/internal/db"
 	"xdr.corp/suite/server/internal/detect"
@@ -196,6 +197,24 @@ func run() error {
 	liveBus := eventbus.New()
 	agentHandler.SetAdminNotifier(liveBus)
 
+	// Yatay ölçekleme (#10): XDR_CLUSTER=1 ve PostgreSQL kullanılıyorsa, canlı
+	// bildirimler düğümler arası Postgres LISTEN/NOTIFY ile fan-out edilir; böylece
+	// yük dengeleyici arkasındaki HANGİ düğüme bağlı olursa olsun tüm adminler tüm
+	// olayları görür. Tek-düğüm (veya memstore) modunda bellek-içi bus kullanılır.
+	clusterOn := false
+	if os.Getenv("XDR_CLUSTER") == "1" {
+		store, ok := backend.(*db.Store)
+		if !ok {
+			return fmt.Errorf("config: XDR_CLUSTER=1 için PostgreSQL (XDR_DATABASE_URL) zorunlu")
+		}
+		broker := cluster.New(ctx, store, liveBus, os.Getenv("XDR_CLUSTER_CHANNEL"),
+			func(m string) { log.Println("[cluster] " + m) })
+		liveBus.SetSink(broker.Publish) // yayınlar NOTIFY'a; dağıtım LISTEN'den
+		go broker.Run(ctx)
+		clusterOn = true
+		log.Println("yatay ölçekleme: çok-düğüm canlı akış fan-out ETKİN (Postgres LISTEN/NOTIFY)")
+	}
+
 	// Sunucu-taraflı tespit motoru (tek kaynak): ingest'te değerlendirme + konsol
 	// kural kataloğu ucu aynı motoru paylaşır. XDR_DETECT_RULES_FILE ayarlıysa
 	// operatör-tanımlı özel kurallar yerleşiklere EKLENİR (koda dokunmadan).
@@ -320,6 +339,7 @@ func run() error {
 		"ioc_indicators":        iocCount,
 		"log_format":            getenv("XDR_LOG_FORMAT", "text"),
 		"persistence":           cfg.DatabaseURL != "",
+		"cluster_enabled":       clusterOn,
 	})
 	// Zaman aşımları: yavaş-istemci (slowloris) DoS'una karşı bağlantı ömrünü
 	// sınırla. WriteTimeout KASITLI olarak ayarlanmadı — /api/stream (SSE)

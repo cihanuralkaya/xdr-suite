@@ -1659,6 +1659,7 @@
       box.appendChild(featRow("Tespit kuralları", (f.detection_rules||0)>0, (f.detection_rules||0)+" kural"));
       box.appendChild(featRow("Prometheus /metrics", !!f.metrics_enabled));
       box.appendChild(featRow("Kalıcı depo (PostgreSQL)", !!f.persistence, f.persistence?"":"bellek-içi demo"));
+      box.appendChild(featRow("Yatay ölçekleme (çok-düğüm)", !!f.cluster_enabled, f.cluster_enabled?"LISTEN/NOTIFY fan-out":"tek düğüm"));
       box.appendChild(featRow("Yapısal loglama (JSON)", (f.log_format==="json"), "biçim: "+(f.log_format||"text")));
     }).catch(function(){ box.innerHTML="<div class='empty' style='padding:10px'>Bu görünüm yalnız ADMIN rolüne açıktır.</div>"; });
   }
