@@ -93,6 +93,8 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Denetim izi zincir doğrulama (konsol düğmesi) | ✅ | `adminapi`, console | canlı |
 | Dağıtım koruma-duruşu görünürlüğü (/api/features) | ✅ | `adminapi`, c2 main, console | birim + canlı |
 | Tehdit etkinlik sayaçları kartı (/api/activity) | ✅ | `adminapi`, `metrics`, console | birim + canlı |
+| Tespit kuralı test aracı / dry-run (/api/detections/test) | ✅ | `adminapi`, `detect`, console | birim + smoke + canlı |
+| Konsol: olay/denetim tıkla-süz chip'leri (klavye erişilebilir) | ✅ | `adminapi/console.html` | canlı |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
@@ -253,6 +255,8 @@ proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
 | Threat intelligence (IoC) matching (IP/MAC/domain/hash) | optional | `server/internal/ioc`, `grpc` | unit |
 | Process lineage enrichment (parent chain) | Win/Linux | `agent/internal/enforce` | unit (chain + stat parsing) |
 | Disk-encryption compliance report (BitLocker/LUKS) | logic/OS-compiled | `agent/internal/compliance` | unit (parsers) |
+| Detection rule tester / dry-run (/api/detections/test) | done | `adminapi`, `detect`, console | unit + smoke + live |
+| Console click-to-filter chips for events/audit (keyboard-accessible) | done | `adminapi/console.html` | live |
 | Encrypted PostgreSQL schema | done | `db/schema.sql` | - |
 
 ## Initial review findings - responses

@@ -127,6 +127,11 @@ curl -sk "$B/api/activity" -H "Authorization: Bearer $TOK" | grep -q "detections
 # Tespit kural kataloğu ucu.
 curl -sk "$B/api/detections/rules" -H "Authorization: Bearer $TOK" | grep -q "XDR-0001" \
   && pass "/api/detections/rules kataloğu döndü" || fail "/api/detections/rules başarısız"
+# Tespit kuralı test aracı (dry-run): örnek olay → eşleşen kural.
+curl -sk "$B/api/detections/test" -H "Authorization: Bearer $TOK" \
+  -H 'Content-Type: application/json' -d '{"category":"SECURITY","message":"ajan kurcalama girisimi"}' \
+  | grep -q "XDR-0001" \
+  && pass "/api/detections/test kuralı eşleştirdi" || fail "/api/detections/test başarısız"
 # Zengin telemetri: cihaz OS sürümü (ilk heartbeat'ten sonra dolar) — poll et.
 osv=""
 for _ in $(seq 1 40); do
