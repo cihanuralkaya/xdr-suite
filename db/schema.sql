@@ -248,6 +248,9 @@ CREATE TABLE artifacts (
     collected_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_artifacts_device ON artifacts (device_id, collected_at DESC);
+-- Saklama budaması (retention.PurgeArtifactsOlderThan): WHERE collected_at < cutoff.
+-- Cihaz-index'in başı device_id olduğundan bu taramaya hizmet edemez; ayrı index.
+CREATE INDEX idx_artifacts_collected ON artifacts (collected_at);
 
 -- ---------------------------------------------------------------------------
 -- YÖNETİCİLER (RBAC) + DENETİM İZİ (#10)
