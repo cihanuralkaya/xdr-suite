@@ -94,7 +94,11 @@ proto üret + `go vet` + `go test ./...` + smoke test + çapraz derleme (artifac
 | Dağıtım koruma-duruşu görünürlüğü (/api/features) | ✅ | `adminapi`, c2 main, console | birim + canlı |
 | Tehdit etkinlik sayaçları kartı (/api/activity) | ✅ | `adminapi`, `metrics`, console | birim + canlı |
 | Tespit kuralı test aracı / dry-run (/api/detections/test) | ✅ | `adminapi`, `detect`, console | birim + smoke + canlı |
+| MITRE ATT&CK kapsam boşluğu analizi + JSON dışa aktarım | ✅ | `adminapi/console.html` | canlı |
 | Konsol: olay/denetim tıkla-süz chip'leri (klavye erişilebilir) | ✅ | `adminapi/console.html` | canlı |
+| Olay cihaz-atfı (device_id) + en çok olay üreten cihazlar | ✅ | `adminread`, `db`, `memstore`, console | birim + smoke + canlı |
+| Cihaz durumu hızlı-süzgeci (online/offline/karantina) | ✅ | `adminapi/console.html` | canlı |
+| Filo disk şifreleme uyum kartı (olaylardan) | ✅ | `agent/compliance`, console | birim + canlı |
 | Şifreli PostgreSQL şeması | ✅ | `db/schema.sql` | — |
 
 ## İlk inceleme bulguları — karşılıklar
@@ -256,7 +260,11 @@ proto generation + `go vet` + `go test ./...` + smoke test + cross-compilation.
 | Process lineage enrichment (parent chain) | Win/Linux | `agent/internal/enforce` | unit (chain + stat parsing) |
 | Disk-encryption compliance report (BitLocker/LUKS) | logic/OS-compiled | `agent/internal/compliance` | unit (parsers) |
 | Detection rule tester / dry-run (/api/detections/test) | done | `adminapi`, `detect`, console | unit + smoke + live |
+| MITRE ATT&CK coverage-gap analysis + JSON export | done | `adminapi/console.html` | live |
 | Console click-to-filter chips for events/audit (keyboard-accessible) | done | `adminapi/console.html` | live |
+| Event device attribution (device_id) + top devices by alert volume | done | `adminread`, `db`, `memstore`, console | unit + smoke + live |
+| Device status quick-filter (online/offline/quarantine) | done | `adminapi/console.html` | live |
+| Fleet disk-encryption compliance card (from events) | done | `agent/compliance`, console | unit + live |
 | Encrypted PostgreSQL schema | done | `db/schema.sql` | - |
 
 ## Initial review findings - responses
