@@ -974,10 +974,12 @@
              (d.os_version||"").toLowerCase().indexOf(q)>=0 || (d.os_platform||"").toLowerCase().indexOf(q)>=0 ||
              (d.tags||[]).some(function(t){ return t.toLowerCase().indexOf(q)>=0; });
     });
+    var lc=latestCompliance(); // cihaz uyum durumunu (olaylardan) CSV'ye ekle
     downloadCSV("cihazlar-"+new Date().toISOString().slice(0,10)+".csv",
-      ["hostname","mac","durum","os","os_platform","ajan_surumu","etiketler","son_gorulme"],
+      ["hostname","mac","durum","os","os_platform","ajan_surumu","etiketler","son_gorulme","disk_sifreleme","guvenlik_duvari"],
       list.map(function(d){ return [d.hostname||"", d.mac||"", d.status||"", d.os_version||"",
-        d.os_platform||"", d.agent_version||"", (d.tags||[]).join("|"), d.last_seen||""]; }));
+        d.os_platform||"", d.agent_version||"", (d.tags||[]).join("|"), d.last_seen||"",
+        lc.enc[d.id]||"", lc.fw[d.id]||""]; }));
   }
   function exportEvents(){
     // Ekranda görünenle aynı süzgeçler (önem + kategori) uygulanır.
