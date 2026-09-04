@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,6 +73,8 @@ func TestBrokerFanoutRoundTrip(t *testing.T) {
 	bus := &fakeBus{}
 	col := &collector{}
 	b := New(ctx, bus, col, "", nil)
+	var pub, recv, fb atomic.Int64
+	b.SetMetrics(func() { pub.Add(1) }, func() { recv.Add(1) }, func() { fb.Add(1) })
 	go b.Run(ctx)
 
 	// Dinleyicinin kaydolması için kısa bekleyiş.
@@ -84,6 +87,10 @@ func TestBrokerFanoutRoundTrip(t *testing.T) {
 	}
 	if col.count() != 1 {
 		t.Fatalf("çift teslim olmamalı, teslim sayısı: %d", col.count())
+	}
+	// Metrik kancaları: 1 yayın + 1 alım, fallback yok.
+	if pub.Load() != 1 || recv.Load() != 1 || fb.Load() != 0 {
+		t.Fatalf("metrik kancaları beklenmedik: pub=%d recv=%d fb=%d", pub.Load(), recv.Load(), fb.Load())
 	}
 }
 

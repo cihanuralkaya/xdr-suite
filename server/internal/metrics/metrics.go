@@ -26,6 +26,12 @@ var (
 	alertsRaised   atomic.Int64
 	autoQuarantine atomic.Int64
 	iocHits        atomic.Int64
+	// Yatay ölçekleme (#10) küme fan-out sayaçları: yayınlanan (NOTIFY), alınan
+	// (LISTEN→yerel dağıtım) ve yerel-dağıtıma-düşülen (NOTIFY başarısız). Fallback
+	// sayacının artması DB'ye NOTIFY erişiminde sorun olduğunu gösterir.
+	clusterPublished atomic.Int64
+	clusterReceived  atomic.Int64
+	clusterFallback  atomic.Int64
 )
 
 // buildVersion, xdr_build_info etiketinde raporlanan sürümdür.
@@ -45,13 +51,16 @@ func Version() string { return buildVersion }
 // gibi kimlik-doğrulanmış görünümler için; /metrics ile aynı kaynak).
 func Counters() map[string]int64 {
 	return map[string]int64{
-		"login_success":   loginSuccess.Load(),
-		"login_failure":   loginFailure.Load(),
-		"events_ingested": eventsIngested.Load(),
-		"detections":      detections.Load(),
-		"alerts_raised":   alertsRaised.Load(),
-		"auto_quarantine": autoQuarantine.Load(),
-		"ioc_hits":        iocHits.Load(),
+		"login_success":     loginSuccess.Load(),
+		"login_failure":     loginFailure.Load(),
+		"events_ingested":   eventsIngested.Load(),
+		"detections":        detections.Load(),
+		"alerts_raised":     alertsRaised.Load(),
+		"auto_quarantine":   autoQuarantine.Load(),
+		"ioc_hits":          iocHits.Load(),
+		"cluster_published": clusterPublished.Load(),
+		"cluster_received":  clusterReceived.Load(),
+		"cluster_fallback":  clusterFallback.Load(),
 	}
 }
 
@@ -84,6 +93,15 @@ func IncAutoQuarantine() { autoQuarantine.Add(1) }
 
 // IncIocHit, tehdit istihbaratı (IoC) eşleşme sayacını artırır.
 func IncIocHit() { iocHits.Add(1) }
+
+// IncClusterPublished, kümeye NOTIFY ile yayınlanan bildirim sayacını artırır (#10).
+func IncClusterPublished() { clusterPublished.Add(1) }
+
+// IncClusterReceived, LISTEN'den alınıp yerel dağıtılan bildirim sayacını artırır (#10).
+func IncClusterReceived() { clusterReceived.Add(1) }
+
+// IncClusterFallback, NOTIFY başarısız olup yerel dağıtıma düşülen sayacını artırır (#10).
+func IncClusterFallback() { clusterFallback.Add(1) }
 
 // Snapshot, /metrics çıktısını üretmek için depodan alınan anlık gauge'lardır.
 // Sayaçlar (login/olay) paket içinden okunur; gauge'lar çağıran tarafından
@@ -130,6 +148,12 @@ func Write(w io.Writer, s Snapshot) {
 	fmt.Fprintf(w, "# HELP xdr_ioc_hits_total Tehdit istihbaratı (IoC) eşleşmeleri.\n")
 	fmt.Fprintf(w, "# TYPE xdr_ioc_hits_total counter\n")
 	fmt.Fprintf(w, "xdr_ioc_hits_total %d\n", iocHits.Load())
+
+	fmt.Fprintf(w, "# HELP xdr_cluster_notices_total Küme fan-out bildirimleri (yön etiketli, #10 HA).\n")
+	fmt.Fprintf(w, "# TYPE xdr_cluster_notices_total counter\n")
+	fmt.Fprintf(w, "xdr_cluster_notices_total{direction=\"published\"} %d\n", clusterPublished.Load())
+	fmt.Fprintf(w, "xdr_cluster_notices_total{direction=\"received\"} %d\n", clusterReceived.Load())
+	fmt.Fprintf(w, "xdr_cluster_notices_total{direction=\"fallback\"} %d\n", clusterFallback.Load())
 
 	fmt.Fprintf(w, "# HELP xdr_devices Cihaz sayıları (duruma göre).\n")
 	fmt.Fprintf(w, "# TYPE xdr_devices gauge\n")

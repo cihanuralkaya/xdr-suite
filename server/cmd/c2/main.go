@@ -209,6 +209,7 @@ func run() error {
 		}
 		broker := cluster.New(ctx, store, liveBus, os.Getenv("XDR_CLUSTER_CHANNEL"),
 			func(m string) { log.Println("[cluster] " + m) })
+		broker.SetMetrics(metrics.IncClusterPublished, metrics.IncClusterReceived, metrics.IncClusterFallback)
 		liveBus.SetSink(broker.Publish) // yayınlar NOTIFY'a; dağıtım LISTEN'den
 		go broker.Run(ctx)
 		clusterOn = true

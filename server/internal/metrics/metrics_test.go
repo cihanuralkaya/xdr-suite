@@ -15,6 +15,10 @@ func TestWriteExposition(t *testing.T) {
 	IncAlertRaised()
 	IncAutoQuarantine()
 	IncIocHit()
+	IncClusterPublished()
+	IncClusterPublished()
+	IncClusterReceived()
+	IncClusterFallback()
 
 	var sb strings.Builder
 	Write(&sb, Snapshot{
@@ -36,6 +40,9 @@ func TestWriteExposition(t *testing.T) {
 		"xdr_alerts_raised_total 1",
 		"xdr_auto_quarantine_total 1",
 		"xdr_ioc_hits_total 1",
+		`xdr_cluster_notices_total{direction="published"} 2`,
+		`xdr_cluster_notices_total{direction="received"} 1`,
+		`xdr_cluster_notices_total{direction="fallback"} 1`,
 		`xdr_devices{state="total"} 10`,
 		`xdr_devices{state="online"} 7`,
 		`xdr_devices{state="quarantined"} 1`,

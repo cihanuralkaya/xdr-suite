@@ -44,6 +44,11 @@ type Broker struct {
 	local   LocalDeliverer
 	channel string
 	log     func(string)
+	// Gözlemlenebilirlik kancaları (varsayılan no-op; main metrics'e bağlar). Broker
+	// birim testlerinin global sayaç durumuna dokunmaması için enjekte edilir.
+	onPublished func()
+	onReceived  func()
+	onFallback  func()
 }
 
 // New oluşturur. channel boşsa "xdr_notice" kullanılır; log nil ise sessizdir.
@@ -54,7 +59,21 @@ func New(appCtx context.Context, bus NotifyBus, local LocalDeliverer, channel st
 	if log == nil {
 		log = func(string) {}
 	}
-	return &Broker{appCtx: appCtx, bus: bus, local: local, channel: channel, log: log}
+	noop := func() {}
+	return &Broker{appCtx: appCtx, bus: bus, local: local, channel: channel, log: log,
+		onPublished: noop, onReceived: noop, onFallback: noop}
+}
+
+// SetMetrics, fan-out gözlemlenebilirlik kancalarını bağlar (#10). nil kanca no-op.
+func (b *Broker) SetMetrics(onPublished, onReceived, onFallback func()) {
+	set := func(dst *func(), fn func()) {
+		if fn != nil {
+			*dst = fn
+		}
+	}
+	set(&b.onPublished, onPublished)
+	set(&b.onReceived, onReceived)
+	set(&b.onFallback, onFallback)
 }
 
 // Publish, eventbus.Bus'ın sink'i olarak takılır: bildirimi kümeye NOTIFY eder.
@@ -79,8 +98,11 @@ func (b *Broker) Publish(n eventbus.Notice) {
 	defer cancel()
 	if err := b.bus.NotifyChannel(ctx, b.channel, string(payload)); err != nil {
 		b.log("küme NOTIFY başarısız, yerel dağıtıma düşülüyor: " + err.Error())
+		b.onFallback()
 		b.local.Deliver(n)
+		return
 	}
+	b.onPublished()
 }
 
 // Run, LISTEN döngüsünü çalıştırır: gelen her bildirimi çözüp yerel abonelere
@@ -94,6 +116,7 @@ func (b *Broker) Run(ctx context.Context) {
 				b.log("bozuk bildirim yükü atlandı: " + err.Error())
 				return
 			}
+			b.onReceived()
 			b.local.Deliver(n)
 		})
 		if ctx.Err() != nil {
