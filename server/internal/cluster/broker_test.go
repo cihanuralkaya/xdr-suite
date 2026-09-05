@@ -94,6 +94,37 @@ func TestBrokerFanoutRoundTrip(t *testing.T) {
 	}
 }
 
+// #10'un ASIL garantisi: A düğümünde yayınlanan bir olay, paylaşılan kanalı
+// dinleyen B düğümündeki yerel abonelere de ulaşmalı (çok-düğüm fan-out).
+// Aynı fakeBus (paylaşılan Postgres kanalı gibi) iki broker'ı köprüler.
+func TestBrokerCrossNodeFanout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := &fakeBus{} // paylaşılan kanal (tek Postgres)
+
+	colA, colB := &collector{}, &collector{}
+	bA := New(ctx, bus, colA, "xdr_notice", nil) // A düğümü
+	bB := New(ctx, bus, colB, "xdr_notice", nil) // B düğümü
+	go bA.Run(ctx)
+	go bB.Run(ctx)
+
+	// Her iki düğümün LISTEN'i kaydolana dek bekle.
+	waitFor(t, func() bool { bus.mu.Lock(); defer bus.mu.Unlock(); return len(bus.listeners) == 2 })
+
+	// A düğümünde yayınla.
+	bA.Publish(eventbus.Notice{Type: "event", DeviceID: "dev-9", Severity: "CRITICAL", Message: "cross"})
+
+	// B düğümündeki abone de almalı (asıl HA garantisi) — ve A da (self).
+	waitFor(t, func() bool { return colA.count() == 1 && colB.count() == 1 })
+	if colB.got[0].DeviceID != "dev-9" || colB.got[0].Severity != "CRITICAL" {
+		t.Fatalf("B düğümü olayı bozuk aldı: %+v", colB.got[0])
+	}
+	// Her düğüm tam olarak bir kez almalı (çift teslim yok).
+	if colA.count() != 1 || colB.count() != 1 {
+		t.Fatalf("düğüm başına tam 1 teslim beklendi: A=%d B=%d", colA.count(), colB.count())
+	}
+}
+
 // NOTIFY hata dönerse yerel dağıtıma düşülmeli (bu düğüm akışı kaçırmasın).
 func TestBrokerPublishFallsBackOnNotifyError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
