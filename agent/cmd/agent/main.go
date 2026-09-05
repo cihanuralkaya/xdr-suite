@@ -740,10 +740,15 @@ type connTracker struct {
 	baselined bool
 }
 
-// report, mevcut giden bağlantıları tarar ve önceki tura göre yeni olanları
-// NETWORK_CONN/INFO olayı olarak yayınlar (uzak IP sunucuda IoC ile eşleştirilir).
+// report, mevcut giden bağlantıları tarar ve dedup mantığına devreder. OS tarama
+// (netconn.Scan) burada; saf dedup mantığı reportConns'ta (test edilebilir).
 func (t *connTracker) report(buf *collector.Buffer) {
-	conns := netconn.Scan()
+	t.reportConns(buf, netconn.Scan())
+}
+
+// reportConns, verilen bağlantı kümesinden önceki tura göre YENİ olanları
+// NETWORK_CONN/INFO olayı olarak yayınlar. İlk çağrı taban çizgisidir (olay yok).
+func (t *connTracker) reportConns(buf *collector.Buffer, conns []netconn.Conn) {
 	live := make(map[string]bool, len(conns))
 	for _, c := range conns {
 		live[c.Key()] = true
@@ -781,8 +786,15 @@ type usbTracker struct {
 	policy    string // "audit" | "block"
 }
 
+// report, çıkarılabilir medyayı tarar ve dedup mantığına devreder. OS tarama
+// (usbmon.Scan) burada; saf dedup+politika mantığı reportDrives'ta (test edilebilir).
 func (t *usbTracker) report(buf *collector.Buffer, safeMode bool) {
-	drives := usbmon.Scan()
+	t.reportDrives(buf, safeMode, usbmon.Scan())
+}
+
+// reportDrives, verilen sürücü kümesinden önceki tura göre YENİ olanlara politika
+// (audit/block) uygular ve olay üretir. İlk çağrı taban çizgisidir (olay yok).
+func (t *usbTracker) reportDrives(buf *collector.Buffer, safeMode bool, drives []usbmon.Drive) {
 	live := make(map[string]bool, len(drives))
 	for _, d := range drives {
 		live[d.Key()] = true

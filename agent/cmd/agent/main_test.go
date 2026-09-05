@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"xdr.corp/suite/agent/internal/collector"
+	"xdr.corp/suite/agent/internal/netconn"
+	"xdr.corp/suite/agent/internal/usbmon"
 )
 
 // Güvenli-mod AÇIKKEN yıkıcı MDM eylemi (LOCK/RESTART/WIPE) gerçek OS fonksiyonunu
@@ -69,5 +71,67 @@ func TestDoDeviceActionReportsFailure(t *testing.T) {
 	}
 	if es, _ := evs[0].Details["error"].(string); es != "boom" {
 		t.Fatalf("olay details.error='boom' taşımalı: %+v", evs[0].Details)
+	}
+}
+
+// connTracker: ilk tur taban çizgisidir (olay yok); sonraki turda yalnız YENİ
+// bağlantılar NETWORK_CONN olayı üretir; tekrar görülen bağlantı olay üretmez.
+func TestConnTrackerBaselineAndNewOnly(t *testing.T) {
+	buf := collector.NewBuffer(32)
+	tr := &connTracker{}
+	base := []netconn.Conn{{RemoteIP: "10.0.0.1", RemotePort: 443, LocalPort: 51000, PID: 100}}
+	tr.reportConns(buf, base) // taban çizgisi
+	if n := len(buf.Pending(10)); n != 0 {
+		t.Fatalf("ilk tur taban çizgisi olmalı (olay yok), üretilen: %d", n)
+	}
+	// Yeni bağlantı eklenir; eski korunur.
+	next := append([]netconn.Conn{}, base...)
+	next = append(next, netconn.Conn{RemoteIP: "8.8.8.8", RemotePort: 53, LocalPort: 51001, PID: 200})
+	tr.reportConns(buf, next)
+	evs := buf.Pending(10)
+	if len(evs) != 1 {
+		t.Fatalf("yalnız 1 YENİ bağlantı olayı beklendi: %d", len(evs))
+	}
+	if evs[0].Category != "NETWORK_CONN" || evs[0].Details["remote_ip"] != "8.8.8.8" {
+		t.Fatalf("yeni bağlantı olayı beklenmedik: %+v", evs[0])
+	}
+	// Aynı küme tekrar: yeni yok.
+	buf.Ack(evs[0].Seq)
+	tr.reportConns(buf, next)
+	if n := len(buf.Pending(10)); n != 0 {
+		t.Fatalf("tekrar görülen bağlantılar olay üretmemeli: %d", n)
+	}
+}
+
+// usbTracker: ilk tur taban çizgisi; yeni sürücü audit politikasında SECURITY/
+// MEDIUM, block politikasında POLICY_VIOLATION/HIGH (engelleme güdük — blocked:false).
+func TestUsbTrackerPolicyAndDedup(t *testing.T) {
+	// audit politikası.
+	buf := collector.NewBuffer(32)
+	ta := &usbTracker{policy: "audit"}
+	ta.reportDrives(buf, false, nil) // taban çizgisi (boş)
+	ta.reportDrives(buf, false, []usbmon.Drive{{ID: "E:", Label: "KINGSTON"}})
+	evs := buf.Pending(10)
+	if len(evs) != 1 || evs[0].Category != "SECURITY" || evs[0].Severity != "MEDIUM" {
+		t.Fatalf("audit: SECURITY/MEDIUM olay beklendi: %+v", evs)
+	}
+
+	// block politikası: HIGH + POLICY_VIOLATION + blocked:false (güdük).
+	buf2 := collector.NewBuffer(32)
+	tb := &usbTracker{policy: "block"}
+	tb.reportDrives(buf2, false, nil) // taban çizgisi
+	tb.reportDrives(buf2, false, []usbmon.Drive{{ID: "F:"}})
+	evs2 := buf2.Pending(10)
+	if len(evs2) != 1 || evs2[0].Category != "POLICY_VIOLATION" || evs2[0].Severity != "HIGH" {
+		t.Fatalf("block: POLICY_VIOLATION/HIGH olay beklendi: %+v", evs2)
+	}
+	if b, _ := evs2[0].Details["blocked"].(bool); b {
+		t.Fatalf("engelleme güdük — blocked:false olmalı: %+v", evs2[0].Details)
+	}
+	// Aynı sürücü tekrar: yeni olay yok.
+	buf2.Ack(evs2[0].Seq)
+	tb.reportDrives(buf2, false, []usbmon.Drive{{ID: "F:"}})
+	if n := len(buf2.Pending(10)); n != 0 {
+		t.Fatalf("tekrar görülen sürücü olay üretmemeli: %d", n)
 	}
 }
