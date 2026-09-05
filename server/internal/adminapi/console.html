@@ -1723,6 +1723,13 @@
         ["Olay (alınan)","events_ingested","var(--muted)"],
         ["Giriş (başarısız)","login_failure","var(--warn)"]
       ];
+      // Yatay ölçekleme (#10): küme fan-out sayaçlarını YALNIZCA trafik varken göster
+      // (tek-düğüm konsolunu kalabalıklaştırma). Fallback>0 DB NOTIFY sorununa işaret
+      // eder, bu yüzden kritik renkle vurgulanır.
+      if(((c.cluster_received||0)+(c.cluster_published||0)+(c.cluster_fallback||0))>0){
+        items.push(["Küme fan-out (alınan)","cluster_received","var(--accent)"]);
+        if((c.cluster_fallback||0)>0) items.push(["Küme fallback (DB uyarı)","cluster_fallback","var(--crit)"]);
+      }
       box.innerHTML="";
       items.forEach(function(it){
         var d=document.createElement("div");
